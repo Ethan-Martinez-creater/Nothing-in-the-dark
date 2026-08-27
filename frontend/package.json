@@ -1,0 +1,46 @@
+{
+  "name": "coifesp-agent-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "typecheck": "vue-tsc -b",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e:smoke": "node e2e-smoke.cjs",
+    "e2e:interact": "node e2e-interact.cjs"
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "echarts": "^5.6.0",
+    "lucide-vue-next": "^0.468.0",
+    "marked": "^18.0.9",
+    "pinia": "^3.0.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^22.13.10",
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vue/eslint-config-prettier": "^10.2.0",
+    "@vue/eslint-config-typescript": "^14.5.0",
+    "@vue/test-utils": "^2.4.11",
+    "@vue/tsconfig": "^0.7.0",
+    "eslint": "^9.22.0",
+    "eslint-plugin-vue": "^10.0.0",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.60.0",
+    "prettier": "^3.5.3",
+    "typescript": "~5.7.2",
+    "typescript-eslint": "^8.26.0",
+    "vite": "^6.2.2",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^2.2.8"
+  }
+}

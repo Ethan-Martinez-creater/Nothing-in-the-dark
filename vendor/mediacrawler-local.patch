@@ -1,0 +1,1113 @@
+diff --git a/media_platform/bilibili/client.py b/media_platform/bilibili/client.py
+index a9c3262..7df632d 100644
+--- a/media_platform/bilibili/client.py
++++ b/media_platform/bilibili/client.py
+@@ -67,11 +67,48 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
+         self.init_proxy_pool(proxy_ip_pool)
+ 
+     async def request(self, method, url, **kwargs) -> Any:
+-        # Check if proxy has expired before each request
+-        await self._refresh_proxy_if_expired()
++        max_attempts = 3
++        response: httpx.Response
++        for attempt in range(1, max_attempts + 1):
++            # Check if proxy has expired before each attempt. This also lets a
++            # managed proxy pool replace a failed endpoint before retrying.
++            await self._refresh_proxy_if_expired()
++            try:
++                async with make_async_client(proxy=self.proxy) as client:
++                    response = await client.request(
++                        method,
++                        url,
++                        timeout=self.timeout,
++                        **kwargs,
++                    )
++            except httpx.TransportError as exc:
++                if attempt == max_attempts:
++                    raise
++                delay = 2 ** (attempt - 1) + random.uniform(0, 0.5)
++                utils.logger.warning(
++                    "[BilibiliClient.request] "
++                    f"{exc.__class__.__name__} requesting {url}; retrying in "
++                    f"{delay:.2f}s ({attempt}/{max_attempts})"
++                )
++                await asyncio.sleep(delay)
++                continue
++
++            if response.status_code == 429 or response.status_code >= 500:
++                if attempt < max_attempts:
++                    retry_after = response.headers.get("Retry-After", "")
++                    try:
++                        delay = min(float(retry_after), 10.0)
++                    except (TypeError, ValueError):
++                        delay = 2 ** (attempt - 1) + random.uniform(0, 0.5)
++                    utils.logger.warning(
++                        "[BilibiliClient.request] "
++                        f"HTTP {response.status_code} requesting {url}; retrying "
++                        f"in {delay:.2f}s ({attempt}/{max_attempts})"
++                    )
++                    await asyncio.sleep(delay)
++                    continue
++            break
+ 
+-        async with make_async_client(proxy=self.proxy) as client:
+-            response = await client.request(method, url, timeout=self.timeout, **kwargs)
+         try:
+             data: Dict = response.json()
+         except json.JSONDecodeError:
+diff --git a/media_platform/bilibili/core.py b/media_platform/bilibili/core.py
+index 14b5099..8c28cd1 100644
+--- a/media_platform/bilibili/core.py
++++ b/media_platform/bilibili/core.py
+@@ -29,6 +29,7 @@ from asyncio import Task
+ from typing import Dict, List, Optional, Tuple, Union
+ from datetime import datetime, timedelta
+ import pandas as pd
++import httpx
+ 
+ from playwright.async_api import (
+     BrowserContext,
+@@ -93,7 +94,11 @@ class BilibiliCrawler(AbstractCrawler):
+                 await self.browser_context.add_init_script(path="libs/stealth.min.js")
+ 
+             self.context_page = await self.browser_context.new_page()
+-            await self.context_page.goto(self.index_url)
++            await self.context_page.goto(
++                self.index_url,
++                wait_until="domcontentloaded",
++                timeout=60_000,
++            )
+ 
+             # Create a client to interact with the xiaohongshu website.
+             self.bili_client = await self.create_bilibili_client(httpx_proxy_format)
+@@ -187,14 +192,14 @@ class BilibiliCrawler(AbstractCrawler):
+         """
+         utils.logger.info("[BilibiliCrawler.search_by_keywords] Begin search bilibli keywords")
+         bili_limit_count = 20  # bilibili limit page fixed value
+-        if config.CRAWLER_MAX_NOTES_COUNT < bili_limit_count:
+-            config.CRAWLER_MAX_NOTES_COUNT = bili_limit_count
++        target_count = max(1, config.CRAWLER_MAX_NOTES_COUNT)
+         start_page = config.START_PAGE  # start page number
+         for keyword in config.KEYWORDS.split(","):
+             source_keyword_var.set(keyword)
+             utils.logger.info(f"[BilibiliCrawler.search_by_keywords] Current search keyword: {keyword}")
+             page = 1
+-            while (page - start_page + 1) * bili_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
++            collected_count = 0
++            while collected_count < target_count:
+                 if page < start_page:
+                     utils.logger.info(f"[BilibiliCrawler.search_by_keywords] Skip page: {page}")
+                     page += 1
+@@ -215,6 +220,8 @@ class BilibiliCrawler(AbstractCrawler):
+                 if not video_list:
+                     utils.logger.info(f"[BilibiliCrawler.search_by_keywords] No more videos for '{keyword}', moving to next keyword.")
+                     break
++                remaining_count = target_count - collected_count
++                video_list = video_list[:remaining_count]
+ 
+                 semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
+                 task_list = []
+@@ -229,6 +236,7 @@ class BilibiliCrawler(AbstractCrawler):
+                         await bilibili_store.update_bilibili_video(video_item)
+                         await bilibili_store.update_up_info(video_item)
+                         await self.get_bilibili_video(video_item, semaphore)
++                        collected_count += 1
+                 page += 1
+ 
+                 # Sleep after page navigation
+@@ -439,6 +447,12 @@ class BilibiliCrawler(AbstractCrawler):
+             except KeyError as ex:
+                 utils.logger.error(f"[BilibiliCrawler.get_video_info_task] have not fund note detail video_id:{bvid}, err: {ex}")
+                 return None
++            except httpx.HTTPError as ex:
++                utils.logger.error(
++                    "[BilibiliCrawler.get_video_info_task] Skipping video detail "
++                    f"{bvid or aid} after network retries: {ex.__class__.__name__}: {ex}"
++                )
++                return None
+ 
+     async def get_video_play_url_task(self, aid: int, cid: int, semaphore: asyncio.Semaphore) -> Union[Dict, None]:
+         """
+@@ -458,6 +472,12 @@ class BilibiliCrawler(AbstractCrawler):
+             except KeyError as ex:
+                 utils.logger.error(f"[BilibiliCrawler.get_video_play_url_task] have not fund play url from :{aid}|{cid}, err: {ex}")
+                 return None
++            except httpx.HTTPError as ex:
++                utils.logger.error(
++                    "[BilibiliCrawler.get_video_play_url_task] Skipping play URL "
++                    f"{aid}|{cid} after network retries: {ex.__class__.__name__}: {ex}"
++                )
++                return None
+ 
+     async def create_bilibili_client(self, httpx_proxy: Optional[str]) -> BilibiliClient:
+         """
+diff --git a/media_platform/bilibili/login.py b/media_platform/bilibili/login.py
+index bd50fe2..52a661c 100644
+--- a/media_platform/bilibili/login.py
++++ b/media_platform/bilibili/login.py
+@@ -25,10 +25,9 @@
+ 
+ import asyncio
+ import functools
+-import sys
+ from typing import Optional
+ 
+-from playwright.async_api import BrowserContext, Page
++from playwright.async_api import BrowserContext, Page, TimeoutError as PlaywrightTimeoutError
+ from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
+                       wait_fixed)
+ 
+@@ -37,6 +36,20 @@ from base.base_crawler import AbstractLogin
+ from tools import utils
+ 
+ 
++BILIBILI_LOGIN_URL = "https://passport.bilibili.com/login"
++LOGIN_ENTRY_SELECTORS = (
++    ".header-login-entry",
++    ".right-entry__outside.go-login-btn",
++    "[class*='login-entry']",
++)
++QRCODE_SELECTORS = (
++    "img[alt='登录二维码'][src^='data:image']:visible",
++    "img[alt*='二维码'][src]:visible",
++    ".login-scan-box img[src]:visible",
++    "[class*='qr-code'] img[src]:visible",
++)
++
++
+ class BilibiliLogin(AbstractLogin):
+     def __init__(self,
+                  login_type: str,
+@@ -50,6 +63,7 @@ class BilibiliLogin(AbstractLogin):
+         self.context_page = context_page
+         self.login_phone = login_phone
+         self.cookie_str = cookie_str
++        self._sessdata_before_qrcode = ""
+ 
+     async def begin(self):
+         """Start login bilibili"""
+@@ -68,45 +82,121 @@ class BilibiliLogin(AbstractLogin):
+     async def check_login_state(self) -> bool:
+         """
+             Check if the current login status is successful and return True otherwise return False
+-            retry decorator will retry 20 times if the return value is False, and the retry interval is 1 second
++            retry decorator will retry 600 times if the return value is False, and the retry interval is 1 second
+             if max retry times reached, raise RetryError
+         """
++        return await self._has_fresh_sessdata()
++
++    async def _has_fresh_sessdata(self) -> bool:
++        """Return True only after QR login creates or refreshes SESSDATA.
++
++        The crawler calls this login flow after its API login probe has failed. A
++        persisted browser profile can therefore still contain an expired
++        SESSDATA/DedeUserID pair. Treating mere cookie presence as success makes
++        the QR flow return immediately without the user actually logging in.
++        """
+         current_cookie = await self.browser_context.cookies()
+         _, cookie_dict = utils.convert_cookies(current_cookie)
+-        if cookie_dict.get("SESSDATA", "") or cookie_dict.get("DedeUserID"):
+-            return True
++        current_sessdata = cookie_dict.get("SESSDATA", "")
++        return bool(
++            current_sessdata
++            and current_sessdata != self._sessdata_before_qrcode
++        )
++
++    async def _has_visible_qrcode(self) -> bool:
++        for selector in QRCODE_SELECTORS:
++            locator = self.context_page.locator(selector)
++            if await locator.count() > 0:
++                return True
+         return False
+ 
++    async def _click_login_entry(self) -> Optional[str]:
++        """Click the first visible login entry and return its selector."""
++        for selector in LOGIN_ENTRY_SELECTORS:
++            locator = self.context_page.locator(selector)
++            for index in range(await locator.count()):
++                candidate = locator.nth(index)
++                try:
++                    if not await candidate.is_visible():
++                        continue
++                    await candidate.click(timeout=5_000)
++                    return selector
++                except PlaywrightTimeoutError:
++                    continue
++        return None
++
++    async def _open_qrcode_dialog(self) -> None:
++        if await self._has_visible_qrcode():
++            return
++
++        clicked_selector = await self._click_login_entry()
++        if clicked_selector:
++            utils.logger.info(
++                "[BilibiliLogin.login_by_qrcode] Clicked login entry: "
++                f"{clicked_selector}"
++            )
++            await asyncio.sleep(1)
++            if await self._has_visible_qrcode():
++                return
++
++        # The homepage header is frequently A/B tested. The passport page is a
++        # stable fallback when no known entry exists or a click did not open the
++        # dialog.
++        utils.logger.warning(
++            "[BilibiliLogin.login_by_qrcode] Homepage login entry unavailable; "
++            f"falling back to {BILIBILI_LOGIN_URL}"
++        )
++        try:
++            await self.context_page.goto(
++                BILIBILI_LOGIN_URL,
++                wait_until="domcontentloaded",
++                timeout=60_000,
++            )
++            await asyncio.sleep(1)
++        except PlaywrightTimeoutError as exc:
++            raise RuntimeError(
++                "Bilibili login page timed out while opening the QR login flow"
++            ) from exc
++
++        if not await self._has_visible_qrcode():
++            title = await self.context_page.title()
++            raise RuntimeError(
++                "Bilibili QR code was not found after trying the homepage and "
++                f"passport page (url={self.context_page.url!r}, title={title!r})"
++            )
++
+     async def login_by_qrcode(self):
+         """login bilibili website and keep webdriver login state"""
+         utils.logger.info("[BilibiliLogin.login_by_qrcode] Begin login bilibili by qrcode ...")
+ 
+-        # click login button
+-        login_button_ele = self.context_page.locator(
+-            "xpath=//div[@class='right-entry__outside go-login-btn']//div"
+-        )
+-        await login_button_ele.click()
+-        await asyncio.sleep(1)
+-        # find login qrcode
+-        qrcode_img_selector = "//div[@class='login-scan-box']//img"
+-        base64_qrcode_img = await utils.find_login_qrcode(
+-            self.context_page,
+-            selector=qrcode_img_selector
+-        )
++        _, cookie_dict = utils.convert_cookies(await self.browser_context.cookies())
++        self._sessdata_before_qrcode = cookie_dict.get("SESSDATA", "")
++        await self._open_qrcode_dialog()
++
++        base64_qrcode_img = ""
++        for qrcode_img_selector in QRCODE_SELECTORS:
++            base64_qrcode_img = await utils.find_login_qrcode(
++                self.context_page,
++                selector=qrcode_img_selector,
++            )
++            if base64_qrcode_img:
++                break
+         if not base64_qrcode_img:
+-            utils.logger.info("[BilibiliLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
+-            sys.exit()
++            raise RuntimeError(
++                "Bilibili QR code element was found, but its image could not be extracted"
++            )
+ 
+         # show login qrcode
+         partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
+         asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+ 
+-        utils.logger.info(f"[BilibiliLogin.login_by_qrcode] Waiting for scan code login, remaining time is 20s")
++        utils.logger.info("[BilibiliLogin.login_by_qrcode] Waiting for scan code login, timeout is 600s")
+         try:
+             await self.check_login_state()
+-        except RetryError:
+-            utils.logger.info("[BilibiliLogin.login_by_qrcode] Login bilibili failed by qrcode login method ...")
+-            sys.exit()
++        except RetryError as exc:
++            raise RuntimeError(
++                "Bilibili QR login timed out before a fresh SESSDATA cookie was observed"
++            ) from exc
+ 
+         wait_redirect_seconds = 5
+         utils.logger.info(
+diff --git a/media_platform/douyin/client.py b/media_platform/douyin/client.py
+index 3310cdb..5dc74c1 100644
+--- a/media_platform/douyin/client.py
++++ b/media_platform/douyin/client.py
+@@ -156,7 +156,12 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
+             browser_context,
+             urls=self.cookie_urls,
+         )
+-        return cookie_dict.get("LOGIN_STATUS") == "1"
++        if cookie_dict.get("LOGIN_STATUS") == "1":
++            return True
++        return any(
++            cookie_dict.get(name)
++            for name in ("sessionid", "sid_guard", "uid_tt", "sid_tt")
++        )
+ 
+     async def update_cookies(self, browser_context: BrowserContext, urls: Optional[list[str]] = None):
+         cookie_str, cookie_dict = await utils.convert_browser_context_cookies(
+diff --git a/media_platform/douyin/core.py b/media_platform/douyin/core.py
+index c0e9372..0e1ff48 100644
+--- a/media_platform/douyin/core.py
++++ b/media_platform/douyin/core.py
+@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
+ from playwright.async_api import (
+     BrowserContext,
+     BrowserType,
++    Error as PlaywrightError,
+     Page,
+     Playwright,
+     async_playwright,
+@@ -95,7 +96,20 @@ class DouYinCrawler(AbstractCrawler):
+                 await self.browser_context.add_init_script(path="libs/stealth.min.js")
+ 
+             self.context_page = await self.browser_context.new_page()
+-            await self.context_page.goto(self.index_url)
++            await self.context_page.goto(
++                self.index_url,
++                wait_until="domcontentloaded",
++                timeout=60_000,
++            )
++            try:
++                await self.context_page.wait_for_function(
++                    "() => !((document.body && document.body.innerText) || '').includes('Please wait')",
++                    timeout=60_000,
++                )
++            except PlaywrightError:
++                utils.logger.warning(
++                    "[DouYinCrawler] homepage still shows Please wait after 60s"
++                )
+ 
+             self.dy_client = await self.create_douyin_client(httpx_proxy_format)
+             if not await self.dy_client.pong(browser_context=self.browser_context):
+@@ -127,16 +141,15 @@ class DouYinCrawler(AbstractCrawler):
+     async def search(self) -> None:
+         utils.logger.info("[DouYinCrawler.search] Begin search douyin keywords")
+         dy_limit_count = 10  # douyin limit page fixed value
+-        if config.CRAWLER_MAX_NOTES_COUNT < dy_limit_count:
+-            config.CRAWLER_MAX_NOTES_COUNT = dy_limit_count
+         start_page = config.START_PAGE  # start page number
+         for keyword in config.KEYWORDS.split(","):
+             source_keyword_var.set(keyword)
+             utils.logger.info(f"[DouYinCrawler.search] Current keyword: {keyword}")
+             aweme_list: List[str] = []
+             page = 0
++            collected_count = 0
+             dy_search_id = ""
+-            while (page - start_page + 1) * dy_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
++            while collected_count < config.CRAWLER_MAX_NOTES_COUNT:
+                 if page < start_page:
+                     utils.logger.info(f"[DouYinCrawler.search] Skip {page}")
+                     page += 1
+@@ -162,7 +175,12 @@ class DouYinCrawler(AbstractCrawler):
+                     break
+                 dy_search_id = posts_res.get("extra", {}).get("logid", "")
+                 page_aweme_list = []
++                remaining_count = (
++                    config.CRAWLER_MAX_NOTES_COUNT - collected_count
++                )
+                 for post_item in posts_res.get("data"):
++                    if len(page_aweme_list) >= remaining_count:
++                        break
+                     try:
+                         aweme_info: Dict = (post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[0])
+                     except TypeError:
+@@ -171,6 +189,7 @@ class DouYinCrawler(AbstractCrawler):
+                     page_aweme_list.append(aweme_info.get("aweme_id", ""))
+                     await douyin_store.update_douyin_aweme(aweme_item=aweme_info)
+                     await self.get_aweme_media(aweme_item=aweme_info)
++                collected_count += len(page_aweme_list)
+                 
+                 # Batch get note comments for the current page
+                 await self.batch_get_note_comments(page_aweme_list)
+@@ -312,10 +331,11 @@ class DouYinCrawler(AbstractCrawler):
+             self.browser_context,
+             urls=self.cookie_urls,
+         )  # type: ignore
++        user_agent = await self._get_stable_user_agent()
+         douyin_client = DouYinClient(
+             proxy=httpx_proxy,
+             headers={
+-                "User-Agent": await self.context_page.evaluate("() => navigator.userAgent"),
++                "User-Agent": user_agent,
+                 "Cookie": cookie_str,
+                 "Host": "www.douyin.com",
+                 "Origin": "https://www.douyin.com/",
+@@ -328,6 +348,32 @@ class DouYinCrawler(AbstractCrawler):
+         )
+         return douyin_client
+ 
++    async def _get_stable_user_agent(self) -> str:
++        """Read the browser user agent after Douyin redirect navigation settles."""
++        for attempt in range(5):
++            try:
++                try:
++                    await self.context_page.wait_for_load_state(
++                        "domcontentloaded",
++                        timeout=10_000,
++                    )
++                except PlaywrightError:
++                    # Please wait / 反爬中间页可能一直不进入 load 完成态。
++                    pass
++                return await self.context_page.evaluate(
++                    "() => navigator.userAgent"
++                )
++            except PlaywrightError as exc:
++                navigation_race = "Execution context was destroyed" in str(exc)
++                if not navigation_race or attempt == 4:
++                    raise
++                utils.logger.warning(
++                    "[DouYinCrawler._get_stable_user_agent] Page is redirecting; "
++                    f"retrying user-agent read ({attempt + 1}/5)"
++                )
++                await asyncio.sleep(1)
++        raise RuntimeError("Unable to read Douyin browser user agent")
++
+     async def launch_browser(
+         self,
+         chromium: BrowserType,
+@@ -338,20 +384,32 @@ class DouYinCrawler(AbstractCrawler):
+         """Launch browser and create browser context"""
+         if config.SAVE_LOGIN_STATE:
+             user_data_dir = os.path.join(os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM)  # type: ignore
+-            browser_context = await chromium.launch_persistent_context(
+-                user_data_dir=user_data_dir,
+-                accept_downloads=True,
+-                headless=headless,
+-                proxy=playwright_proxy,  # type: ignore
+-                viewport={
+-                    "width": 1920,
+-                    "height": 1080
+-                },
+-                user_agent=user_agent,
+-            )  # type: ignore
+-            return browser_context
++            launch_kwargs = {
++                "user_data_dir": user_data_dir,
++                "accept_downloads": True,
++                "headless": headless,
++                "proxy": playwright_proxy,
++                "viewport": {"width": 1920, "height": 1080},
++                "user_agent": user_agent,
++            }
++            # Playwright 自带 Chromium 会被抖音拦在 Please wait；优先系统 Chrome。
++            try:
++                return await chromium.launch_persistent_context(
++                    channel="chrome", **launch_kwargs
++                )
++            except Exception as exc:
++                utils.logger.warning(
++                    "[DouYinCrawler.launch_browser] system Chrome unavailable "
++                    f"({exc}); falling back to bundled Chromium"
++                )
++                return await chromium.launch_persistent_context(**launch_kwargs)
+         else:
+-            browser = await chromium.launch(headless=headless, proxy=playwright_proxy)  # type: ignore
++            try:
++                browser = await chromium.launch(
++                    headless=headless, proxy=playwright_proxy, channel="chrome"
++                )
++            except Exception:
++                browser = await chromium.launch(headless=headless, proxy=playwright_proxy)
+             browser_context = await browser.new_context(viewport={"width": 1920, "height": 1080}, user_agent=user_agent)
+             return browser_context
+ 
+diff --git a/media_platform/douyin/login.py b/media_platform/douyin/login.py
+index 4b76d11..85fcda9 100644
+--- a/media_platform/douyin/login.py
++++ b/media_platform/douyin/login.py
+@@ -105,36 +105,75 @@ class DouYinLogin(AbstractLogin):
+ 
+         if cookie_dict.get("LOGIN_STATUS") == "1":
+             return True
++        # 2026 网页端登录后不一定再写 LOGIN_STATUS / HasUserLogin。
++        if any(cookie_dict.get(name) for name in ("sessionid", "sid_guard", "uid_tt", "sid_tt")):
++            return True
+ 
+         return False
+ 
+     async def popup_login_dialog(self):
+         """If the login dialog box does not pop up automatically, we will manually click the login button"""
+-        dialog_selector = "xpath=//div[@id='login-panel-new']"
+-        try:
+-            # check dialog box is auto popup and wait for 10 seconds
+-            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
+-        except Exception as e:
+-            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
+-            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
+-            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
+-            await login_button_ele.click()
+-            await asyncio.sleep(0.5)
++        dialog_selectors = (
++            "xpath=//div[@id='login-panel-new']",
++            "xpath=//div[contains(@class,'login-panel')]",
++            "text=扫码登录",
++        )
++        for selector in dialog_selectors:
++            try:
++                await self.context_page.wait_for_selector(selector, timeout=3000)
++                return
++            except Exception:
++                continue
++        utils.logger.info(
++            "[DouYinLogin.popup_login_dialog] login dialog did not auto-open; clicking visible 登录"
++        )
++        clicked = await self.context_page.evaluate(
++            """() => {
++              const nodes = [...document.querySelectorAll('button, a, div, span, p')];
++              const target = nodes.find((node) => {
++                const text = (node.innerText || '').trim();
++                const rect = node.getBoundingClientRect();
++                return text === '登录' && rect.width > 20 && rect.height > 10;
++              });
++              if (!target) return false;
++              target.click();
++              return true;
++            }"""
++        )
++        if not clicked:
++            raise RuntimeError("Douyin login button not found on homepage")
++        await asyncio.sleep(1.0)
+ 
+     async def login_by_qrcode(self):
+         utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
+-        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
+-        base64_qrcode_img = await utils.find_login_qrcode(
+-            self.context_page,
+-            selector=qrcode_img_selector
++        qrcode_img_selectors = (
++            "xpath=//div[@id='animate_qrcode_container']//img",
++            "xpath=//img[contains(@src,'qr')]",
++        )
++        base64_qrcode_img = ""
++        for selector in qrcode_img_selectors:
++            try:
++                handle = await self.context_page.wait_for_selector(selector, timeout=4000)
++            except Exception:
++                continue
++            if handle is None:
++                continue
++            base64_qrcode_img = await utils.find_login_qrcode(
++                self.context_page,
++                selector=selector,
++            )
++            if base64_qrcode_img:
++                break
++        if base64_qrcode_img:
++            partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++            asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++            await asyncio.sleep(2)
++            return
++        # 页面上已有登录框/验证码时不要退出：关掉浏览器会打断用户正在输入的验证码。
++        utils.logger.info(
++            "[DouYinLogin.login_by_qrcode] QR selector not found; "
++            "keep the browser open and wait for manual scan + captcha"
+         )
+-        if not base64_qrcode_img:
+-            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
+-            sys.exit()
+-
+-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
+-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+-        await asyncio.sleep(2)
+ 
+     async def login_by_mobile(self):
+         utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
+diff --git a/media_platform/tieba/login.py b/media_platform/tieba/login.py
+index a177293..6a8ceab 100644
+--- a/media_platform/tieba/login.py
++++ b/media_platform/tieba/login.py
+@@ -19,13 +19,9 @@
+ 
+ 
+ import asyncio
+-import functools
+-import sys
+ from typing import Optional
+ 
+ from playwright.async_api import BrowserContext, Page
+-from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
+-                      wait_fixed)
+ 
+ import config
+ from base.base_crawler import AbstractLogin
+@@ -33,6 +29,15 @@ from tools import utils
+ 
+ 
+ class BaiduTieBaLogin(AbstractLogin):
++    LOGIN_COOKIE_NAMES = {"STOKEN", "PTOKEN", "BDUSS", "BDUSS_BFESS"}
++    LOGIN_ENTRY_SELECTORS = (
++        "li.u_login",
++        "a.u_login",
++        ".u_login",
++        "button:has-text('登录')",
++        "a:has-text('登录')",
++        "text=登录",
++    )
+ 
+     def __init__(self,
+                  login_type: str,
+@@ -47,7 +52,6 @@ class BaiduTieBaLogin(AbstractLogin):
+         self.login_phone = login_phone
+         self.cookie_str = cookie_str
+ 
+-    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
+     async def check_login_state(self) -> bool:
+         """
+         Poll to check if login status is successful, return True if successful, otherwise return False
+@@ -57,12 +61,35 @@ class BaiduTieBaLogin(AbstractLogin):
+         """
+         current_cookie = await self.browser_context.cookies()
+         _, cookie_dict = utils.convert_cookies(current_cookie)
+-        stoken = cookie_dict.get("STOKEN")
+-        ptoken = cookie_dict.get("PTOKEN")
+-        if stoken or ptoken:
+-            return True
++        return any(cookie_dict.get(name) for name in self.LOGIN_COOKIE_NAMES)
++
++    async def _click_login_entry(self) -> bool:
++        """Try the known login entry variants without depending on one DOM version."""
++        for selector in self.LOGIN_ENTRY_SELECTORS:
++            locator = self.context_page.locator(selector).first
++            try:
++                if await locator.is_visible(timeout=1_500):
++                    await locator.click(timeout=5_000)
++                    utils.logger.info(
++                        f"[BaiduTieBaLogin._click_login_entry] Opened login dialog with selector: {selector}"
++                    )
++                    return True
++            except Exception:
++                continue
+         return False
+ 
++    async def _wait_for_login(self, timeout_seconds: int = 180) -> None:
++        """Keep the visible browser available while the user completes login."""
++        loop = asyncio.get_running_loop()
++        deadline = loop.time() + timeout_seconds
++        while loop.time() < deadline:
++            if await self.check_login_state():
++                return
++            await asyncio.sleep(1)
++        raise TimeoutError(
++            f"Baidu Tieba login was not completed within {timeout_seconds} seconds"
++        )
++
+     async def begin(self):
+         """Start login baidutieba"""
+         utils.logger.info("[BaiduTieBaLogin.begin] Begin login baidutieba ...")
+@@ -82,39 +109,24 @@ class BaiduTieBaLogin(AbstractLogin):
+     async def login_by_qrcode(self):
+         """login baidutieba website and keep webdriver login state"""
+         utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] Begin login baidutieba by qrcode ...")
+-        qrcode_img_selector = "xpath=//img[@class='tang-pass-qrcode-img']"
+-        # find login qrcode
+-        base64_qrcode_img = await utils.find_login_qrcode(
+-            self.context_page,
+-            selector=qrcode_img_selector
+-        )
+-        if not base64_qrcode_img:
+-            utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
+-            # if this website does not automatically popup login dialog box, we will manual click login button
+-            await asyncio.sleep(0.5)
+-            login_button_ele = self.context_page.locator("xpath=//li[@class='u_login']")
+-            await login_button_ele.click()
+-            base64_qrcode_img = await utils.find_login_qrcode(
+-                self.context_page,
+-                selector=qrcode_img_selector
++        opened = await self._click_login_entry()
++        if not opened:
++            utils.logger.warning(
++                "[BaiduTieBaLogin.login_by_qrcode] Automatic login entry detection failed. "
++                "Please click 登录 in the visible browser manually."
+             )
+-            if not base64_qrcode_img:
+-                utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
+-                sys.exit()
+-
+-        # show login qrcode
+-        # fix issue #12
+-        # we need to use partial function to call show_qrcode function and run in executor
+-        # then current asyncio event loop will not be blocked
+-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
+-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+-
+-        utils.logger.info(f"[BaiduTieBaLogin.login_by_qrcode] waiting for scan code login, remaining time is 120s")
++
++        utils.logger.info(
++            "[BaiduTieBaLogin.login_by_qrcode] Please scan the QR code or finish login "
++            "in the visible browser, remaining time is 180s"
++        )
+         try:
+-            await self.check_login_state()
+-        except RetryError:
+-            utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] Login baidutieba failed by qrcode login method ...")
+-            sys.exit()
++            await self._wait_for_login()
++        except TimeoutError as exc:
++            raise RuntimeError(
++                "[BaiduTieBaLogin.login_by_qrcode] Login failed: timed out waiting "
++                "for Baidu authentication cookies"
++            ) from exc
+ 
+         wait_redirect_seconds = 5
+         utils.logger.info(f"[BaiduTieBaLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+diff --git a/media_platform/weibo/core.py b/media_platform/weibo/core.py
+index 4f34da5..7dbae7e 100644
+--- a/media_platform/weibo/core.py
++++ b/media_platform/weibo/core.py
+@@ -80,21 +80,30 @@ class WeiboCrawler(AbstractCrawler):
+                 self.browser_context = await self.launch_browser_with_cdp(
+                     playwright,
+                     playwright_proxy_format,
+-                    self.mobile_user_agent,
++                    self.user_agent,
+                     headless=config.CDP_HEADLESS,
+                 )
+             else:
+                 utils.logger.info("[WeiboCrawler] Launching browser with standard mode")
+                 # Launch a browser context.
+                 chromium = playwright.chromium
+-                self.browser_context = await self.launch_browser(chromium, None, self.mobile_user_agent, headless=config.HEADLESS)
++                self.browser_context = await self.launch_browser(
++                    chromium,
++                    None,
++                    self.user_agent,
++                    headless=config.HEADLESS,
++                )
+ 
+                 # stealth.min.js is a js script to prevent the website from detecting the crawler.
+                 await self.browser_context.add_init_script(path="libs/stealth.min.js")
+ 
+ 
+             self.context_page = await self.browser_context.new_page()
+-            await self.context_page.goto(self.index_url)
++            await self.context_page.goto(
++                self.index_url,
++                wait_until="domcontentloaded",
++                timeout=60_000,
++            )
+             await asyncio.sleep(2)
+ 
+ 
+@@ -141,8 +150,7 @@ class WeiboCrawler(AbstractCrawler):
+         """
+         utils.logger.info("[WeiboCrawler.search] Begin search weibo keywords")
+         weibo_limit_count = 10  # weibo limit page fixed value
+-        if config.CRAWLER_MAX_NOTES_COUNT < weibo_limit_count:
+-            config.CRAWLER_MAX_NOTES_COUNT = weibo_limit_count
++        target_count = max(1, config.CRAWLER_MAX_NOTES_COUNT)
+         start_page = config.START_PAGE
+ 
+         # Set the search type based on the configuration for weibo
+@@ -162,7 +170,8 @@ class WeiboCrawler(AbstractCrawler):
+             source_keyword_var.set(keyword)
+             utils.logger.info(f"[WeiboCrawler.search] Current search keyword: {keyword}")
+             page = 1
+-            while (page - start_page + 1) * weibo_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
++            collected_count = 0
++            while collected_count < target_count:
+                 if page < start_page:
+                     utils.logger.info(f"[WeiboCrawler.search] Skip page: {page}")
+                     page += 1
+@@ -171,6 +180,8 @@ class WeiboCrawler(AbstractCrawler):
+                 search_res = await self.wb_client.get_note_by_keyword(keyword=keyword, page=page, search_type=search_type)
+                 note_id_list: List[str] = []
+                 note_list = filter_search_result_card(search_res.get("cards"))
++                remaining_count = target_count - collected_count
++                note_list = note_list[:remaining_count]
+                 # If full text fetching is enabled, batch get full text of posts
+                 note_list = await self.batch_get_notes_full_text(note_list)
+                 for note_item in note_list:
+@@ -180,6 +191,7 @@ class WeiboCrawler(AbstractCrawler):
+                             note_id_list.append(mblog.get("id"))
+                             await weibo_store.update_weibo_note(note_item)
+                             await self.get_note_images(mblog)
++                            collected_count += 1
+ 
+                 page += 1
+ 
+diff --git a/media_platform/weibo/login.py b/media_platform/weibo/login.py
+index 7916c87..516430b 100644
+--- a/media_platform/weibo/login.py
++++ b/media_platform/weibo/login.py
+@@ -85,9 +85,17 @@ class WeiboLogin(AbstractLogin):
+     async def login_by_qrcode(self):
+         """login weibo website and keep webdriver login state"""
+         utils.logger.info("[WeiboLogin.login_by_qrcode] Begin login weibo by qrcode ...")
+-        await self.context_page.goto(self.weibo_sso_login_url)
++        await self.context_page.goto(
++            self.weibo_sso_login_url,
++            wait_until="domcontentloaded",
++            timeout=60_000,
++        )
+         # find login qrcode
+-        qrcode_img_selector = "xpath=//img[@class='w-full h-full']"
++        # Prefer the QR endpoint URL and retain the historical utility-class
++        # selector as a fallback.
++        qrcode_img_selector = (
++            "img[src*='qr.weibo.cn'], img.w-full.h-full"
++        )
+         base64_qrcode_img = await utils.find_login_qrcode(
+             self.context_page,
+             selector=qrcode_img_selector
+diff --git a/media_platform/zhihu/client.py b/media_platform/zhihu/client.py
+index 073928f..7dad07f 100644
+--- a/media_platform/zhihu/client.py
++++ b/media_platform/zhihu/client.py
+@@ -225,7 +225,10 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+             "vertical": note_type.value,
+         }
+         search_res = await self.get(uri, params)
+-        utils.logger.info(f"[ZhiHuClient.get_note_by_keyword] Search result: {search_res}")
++        utils.logger.info(
++            "[ZhiHuClient.get_note_by_keyword] Search API returned "
++            f"{len(search_res.get('data', []))} raw items"
++        )
+         return self._extractor.extract_contents_from_search(search_res)
+ 
+     async def get_root_comments(
+@@ -290,6 +293,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+         content: ZhihuContent,
+         crawl_interval: float = 1.0,
+         callback: Optional[Callable] = None,
++        max_count: int = 10,
+     ) -> List[ZhihuComment]:
+         """
+         Get all root-level comments for a specified post, this method will retrieve all comment information under a post
+@@ -297,6 +301,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+             content: Content detail object (question|article|video)
+             crawl_interval: Crawl delay interval in seconds
+             callback: Callback after completing one crawl
++            max_count: Maximum total number of root and child comments
+ 
+         Returns:
+ 
+@@ -306,7 +311,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+         offset: str = ""
+         prev_offset: str = ""
+         limit: int = 10
+-        while not is_end:
++        while not is_end and len(result) < max_count:
+             prev_offset = offset
+             root_comment_res = await self.get_root_comments(content.content_id, content.content_type, offset, limit)
+             if not root_comment_res:
+@@ -322,11 +327,21 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+             if prev_offset == offset:
+                 break
+ 
++            comments = comments[: max_count - len(result)]
+             if callback:
+                 await callback(comments)
+ 
+             result.extend(comments)
+-            await self.get_comments_all_sub_comments(content, comments, crawl_interval=crawl_interval, callback=callback)
++            remaining_count = max_count - len(result)
++            if remaining_count > 0:
++                sub_comments = await self.get_comments_all_sub_comments(
++                    content,
++                    comments,
++                    crawl_interval=crawl_interval,
++                    callback=callback,
++                    max_count=remaining_count,
++                )
++                result.extend(sub_comments)
+             await asyncio.sleep(crawl_interval)
+         return result
+ 
+@@ -336,6 +351,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+         comments: List[ZhihuComment],
+         crawl_interval: float = 1.0,
+         callback: Optional[Callable] = None,
++        max_count: int = 10,
+     ) -> List[ZhihuComment]:
+         """
+         Get all sub-comments under specified comments
+@@ -344,6 +360,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+             comments: Comment list
+             crawl_interval: Crawl delay interval in seconds
+             callback: Callback after completing one crawl
++            max_count: Maximum number of child comments
+ 
+         Returns:
+ 
+@@ -353,6 +370,8 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+ 
+         all_sub_comments: List[ZhihuComment] = []
+         for parment_comment in comments:
++            if len(all_sub_comments) >= max_count:
++                break
+             if parment_comment.sub_comment_count == 0:
+                 continue
+ 
+@@ -360,7 +379,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+             offset: str = ""
+             prev_offset: str = ""
+             limit: int = 10
+-            while not is_end:
++            while not is_end and len(all_sub_comments) < max_count:
+                 prev_offset = offset
+                 child_comment_res = await self.get_child_comments(parment_comment.comment_id, offset, limit)
+                 if not child_comment_res:
+@@ -376,6 +395,9 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
+                 if prev_offset == offset:
+                     break
+ 
++                sub_comments = sub_comments[
++                    : max_count - len(all_sub_comments)
++                ]
+                 if callback:
+                     await callback(sub_comments)
+ 
+diff --git a/media_platform/zhihu/core.py b/media_platform/zhihu/core.py
+index 7b21e3b..dc1dbf5 100644
+--- a/media_platform/zhihu/core.py
++++ b/media_platform/zhihu/core.py
+@@ -151,8 +151,6 @@ class ZhihuCrawler(AbstractCrawler):
+         """Search for notes and retrieve their comment information."""
+         utils.logger.info("[ZhihuCrawler.search] Begin search zhihu keywords")
+         zhihu_limit_count = 20  # zhihu limit page fixed value
+-        if config.CRAWLER_MAX_NOTES_COUNT < zhihu_limit_count:
+-            config.CRAWLER_MAX_NOTES_COUNT = zhihu_limit_count
+         start_page = config.START_PAGE
+         for keyword in config.KEYWORDS.split(","):
+             source_keyword_var.set(keyword)
+@@ -160,9 +158,8 @@ class ZhihuCrawler(AbstractCrawler):
+                 f"[ZhihuCrawler.search] Current search keyword: {keyword}"
+             )
+             page = 1
+-            while (
+-                page - start_page + 1
+-            ) * zhihu_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
++            collected_count = 0
++            while collected_count < config.CRAWLER_MAX_NOTES_COUNT:
+                 if page < start_page:
+                     utils.logger.info(f"[ZhihuCrawler.search] Skip page {page}")
+                     page += 1
+@@ -179,12 +176,19 @@ class ZhihuCrawler(AbstractCrawler):
+                         )
+                     )
+                     utils.logger.info(
+-                        f"[ZhihuCrawler.search] Search contents :{content_list}"
++                        "[ZhihuCrawler.search] Extracted "
++                        f"{len(content_list)} candidate contents"
+                     )
+                     if not content_list:
+                         utils.logger.info("No more content!")
+                         break
+ 
++                    remaining_count = (
++                        config.CRAWLER_MAX_NOTES_COUNT - collected_count
++                    )
++                    content_list = content_list[:remaining_count]
++                    collected_count += len(content_list)
++
+                     # Sleep after page navigation
+                     await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
+                     utils.logger.info(f"[ZhihuCrawler.search] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after page {page-1}")
+@@ -247,6 +251,7 @@ class ZhihuCrawler(AbstractCrawler):
+                 content=content_item,
+                 crawl_interval=config.CRAWLER_MAX_SLEEP_SEC,
+                 callback=zhihu_store.batch_update_zhihu_note_comments,
++                max_count=config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
+             )
+ 
+     async def get_creators_and_notes(self) -> None:
+diff --git a/tests/test_bilibili_resilience.py b/tests/test_bilibili_resilience.py
+new file mode 100644
+index 0000000..f43b659
+--- /dev/null
++++ b/tests/test_bilibili_resilience.py
+@@ -0,0 +1,92 @@
++from unittest.mock import AsyncMock, Mock
++
++import httpx
++import pytest
++
++from media_platform.bilibili import client as client_module
++from media_platform.bilibili.client import BilibiliClient
++from media_platform.bilibili.login import BilibiliLogin, LOGIN_ENTRY_SELECTORS
++
++
++class _AsyncClientContext:
++    def __init__(self, client):
++        self.client = client
++
++    async def __aenter__(self):
++        return self.client
++
++    async def __aexit__(self, exc_type, exc, traceback):
++        return False
++
++
++@pytest.mark.asyncio
++async def test_bilibili_request_retries_transport_error(monkeypatch):
++    request = httpx.Request("GET", "https://api.bilibili.com/test")
++    response = Mock(
++        spec=httpx.Response,
++        status_code=200,
++        headers={},
++    )
++    response.json.return_value = {"code": 0, "data": {"ok": True}}
++    http_client = Mock()
++    http_client.request = AsyncMock(
++        side_effect=[httpx.ConnectError("temporary", request=request), response]
++    )
++    monkeypatch.setattr(
++        client_module,
++        "make_async_client",
++        lambda **kwargs: _AsyncClientContext(http_client),
++    )
++    monkeypatch.setattr(client_module.asyncio, "sleep", AsyncMock())
++
++    client = BilibiliClient(
++        headers={},
++        playwright_page=AsyncMock(),
++        cookie_dict={},
++    )
++    client._refresh_proxy_if_expired = AsyncMock()
++
++    assert await client.request("GET", str(request.url)) == {"ok": True}
++    assert http_client.request.await_count == 2
++
++
++@pytest.mark.asyncio
++async def test_qrcode_login_requires_fresh_sessdata():
++    browser_context = AsyncMock()
++    browser_context.cookies = AsyncMock(
++        side_effect=[
++            [{"name": "SESSDATA", "value": "expired"}],
++            [{"name": "SESSDATA", "value": "fresh"}],
++        ]
++    )
++    login = BilibiliLogin(
++        login_type="qrcode",
++        browser_context=browser_context,
++        context_page=Mock(),
++    )
++    login._sessdata_before_qrcode = "expired"
++
++    assert await login._has_fresh_sessdata() is False
++    assert await login._has_fresh_sessdata() is True
++
++
++@pytest.mark.asyncio
++async def test_qrcode_login_clicks_current_header_entry():
++    entry = Mock()
++    entry.count = AsyncMock(return_value=1)
++    entry.nth.return_value = entry
++    entry.is_visible = AsyncMock(return_value=True)
++    entry.click = AsyncMock()
++
++    page = Mock()
++    page.locator.side_effect = lambda selector: (
++        entry if selector == LOGIN_ENTRY_SELECTORS[0] else Mock()
++    )
++    login = BilibiliLogin(
++        login_type="qrcode",
++        browser_context=AsyncMock(),
++        context_page=page,
++    )
++
++    assert await login._click_login_entry() == LOGIN_ENTRY_SELECTORS[0]
++    entry.click.assert_awaited_once_with(timeout=5_000)

@@ -1,0 +1,104 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+backend/.venv/
+backend/data/
+
+# Environment
+.env
+*.local
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.npm-cache/
+
+# Vendored external project (upstream: github.com/NanmiCoder/MediaCrawler)
+vendor/MediaCrawler/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+artifacts/*
+!artifacts/.gitkeep
+
+# Local agent settings
+.claude/
+.zcode/
+.annotator_b_tmp/
+.zcode/
+.annotator_b_tmp/
+
+# Test and regression run artifacts
+/.pytest-basetemp-*/
+backend/test-results/
+backend/.test_env/
+backend/.pytest-*.log
+backend/.test_env/
+backend/.pytest-*.log
+/coifesp-align-*/
+/coifesp-hitl-*/
+/coifesp-job-*/
+/coifesp-monitor-*/
+**/tmp????????/
+
+# One-off batch scratch files
+/.tmp_batch*.txt
+/_tmp_batch*.json
+/_tmp_batch*.jsonl
+evaluation-datasets/**/scripts/.b10_blocks/
+/scripts/r2_tmp*.py
+
+# Private dataset construction and human-review workspace
+evaluation-datasets/
+human_check/
+
+# Implementation/audit working documents and generated screenshots
+docs/implementation-plans/
+docs/superpowers/
+docs/crawl-test-*.md
+docs/manual-smoke-test.md
+gui-test-screenshots/
+frontend/e2e-screenshot-*.png
+
+# Superseded local launch helpers and stage-tracking documents
+backend/_run_dev_pg.py
+backend/_sel_loop.py
+/plan.md
+/new_plan.md
+/remaining.md
+/unimplemented.md
+
+# Private dataset construction and human-review workspace
+evaluation-datasets/
+human_check/
+
+# Implementation/audit working documents and generated screenshots
+docs/implementation-plans/
+docs/superpowers/
+docs/crawl-test-*.md
+docs/manual-smoke-test.md
+gui-test-screenshots/
+frontend/e2e-screenshot-*.png
+
+# Superseded local launch helpers and stage-tracking documents
+backend/_run_dev_pg.py
+backend/_sel_loop.py
+/plan.md
+/new_plan.md
+/remaining.md
+/unimplemented.md
+
+# Visual companion mockups
+.superpowers/
