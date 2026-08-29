@@ -115,7 +115,10 @@ const llmConfigured = computed(
   () => capabilities.value?.llm_configured ?? capabilities.value?.llm?.configured ?? true,
 )
 
-const ACTIVE_STATUSES = ['pending', 'running', 'waiting_approval'] as const
+import {
+  ACTIVE_RUN_STATUSES as ACTIVE_STATUSES,
+  useRunSubscriptions,
+} from '@/composables/useRunSubscriptions'
 
 // ---------------- 通用错误提示（带重试） ----------------
 
@@ -491,41 +494,24 @@ function togglePanel(panel: 'evidence' | 'viz' | 'monitoring' | 'media' | 'align
 
 // ---------------- per-run SSE 订阅与实时内联 ----------------
 
-interface RunSubscription {
-  source: EventSource | null
-  cursor: number
-  pollTimer: number | null
-}
+// M2.1：订阅机制（订阅表 / 游标 / SSE 轮询兜底 / 终态 trace 覆盖）已提取到
+// useRunSubscriptions；本组件只保留事件业务状态机与终态附加动作。
+const {
+  openEventStream,
+  disconnectRun,
+  disconnectAll,
+  finalizeRun,
+  has: hasSubscription,
+  activeIds: activeSubscriptionIds,
+} = useRunSubscriptions({
+  resolveItem: (runId) => runItem(runId),
+  onEvent: (item, event) => applyEventState(item, event),
+  onFinalized: (run) => handleRunFinalized(run),
+  onNotFound: () => fail('Run 不存在或已删除，已停止订阅。'),
+})
 
-// 每个活跃 run 一条独立订阅（含游标与轮询兜底）；终态后由 trace 覆盖。
-const subscriptions = new Map<string, RunSubscription>()
+// deep watch 同步订阅时的防重入标志（幂等同步，避免递归抖动）。
 let syncingSubscriptions = false
-
-function openEventStream(runId: string) {
-  const sub = subscriptions.get(runId) ?? { source: null, cursor: 0, pollTimer: null }
-  subscriptions.set(runId, sub)
-  sub.source = new EventSource(api.runEventStreamUrl(runId, sub.cursor))
-  sub.source.onmessage = (message: MessageEvent) => {
-    const event = JSON.parse(message.data) as RunEvent
-    ingestRunEvent(runId, event)
-  }
-  sub.source.onerror = () => {
-    sub.source?.close()
-    sub.source = null
-    startPolling(runId)
-  }
-}
-
-function ingestRunEvent(runId: string, event: RunEvent) {
-  const sub = subscriptions.get(runId)
-  if (!sub) return
-  if (event.id <= sub.cursor) return
-  sub.cursor = event.id
-  const item = runItem(runId)
-  if (!item) return
-  item.liveEvents.push(event)
-  applyEventState(item, event)
-}
 
 // 单条事件驱动 run 状态机 + 审批卡 + 成果刷新 + 工具/模型调用增量。
 function applyEventState(item: Extract<ChatItem, { type: 'run' }>, event: RunEvent) {
@@ -635,72 +621,12 @@ function applyEventState(item: Extract<ChatItem, { type: 'run' }>, event: RunEve
   }
 }
 
-function startPolling(runId: string) {
-  const sub = subscriptions.get(runId)
-  if (!sub) return
-  if (sub.pollTimer) window.clearInterval(sub.pollTimer)
-  sub.pollTimer = window.setInterval(async () => {
-    try {
-      const fresh = await api.listRunEvents(runId, sub.cursor)
-      for (const event of fresh) ingestRunEvent(runId, event)
-      const run = await api.getRun(runId)
-      if (!ACTIVE_STATUSES.includes(run.status as (typeof ACTIVE_STATUSES)[number])) {
-        if (sub.pollTimer) {
-          window.clearInterval(sub.pollTimer)
-          sub.pollTimer = null
-        }
-        await finalizeRun(run)
-        return
-      }
-      if (fresh.length === 0) {
-        // SSE 断线后没有新事件：重建 SSE 流（事件 id 幂等，不会重复消费）
-        if (sub.pollTimer) {
-          window.clearInterval(sub.pollTimer)
-          sub.pollTimer = null
-        }
-        openEventStream(runId)
-      }
-    } catch (err) {
-      if ((err as { response?: { status?: number } }).response?.status === 404) {
-        if (sub.pollTimer) {
-          window.clearInterval(sub.pollTimer)
-          sub.pollTimer = null
-        }
-        subscriptions.delete(runId)
-        fail('Run 不存在或已删除，已停止订阅。')
-        return
-      }
-      // 其他错误：保持轮询兜底至终态
-    }
-  }, 2000)
-}
-
-function disconnectRun(runId: string) {
-  const sub = subscriptions.get(runId)
-  if (!sub) return
-  sub.source?.close()
-  sub.source = null
-  if (sub.pollTimer) {
-    window.clearInterval(sub.pollTimer)
-    sub.pollTimer = null
-  }
-  subscriptions.delete(runId)
-}
-
-function disconnectAll() {
-  for (const runId of [...subscriptions.keys()]) disconnectRun(runId)
-}
-
-// 终态：断订阅，拉全量 trace 覆盖气泡内联数据。
-async function finalizeRun(run: AgentRun) {
-  if (ACTIVE_STATUSES.includes(run.status as (typeof ACTIVE_STATUSES)[number])) return
-  disconnectRun(run.id)
+// 终态附加动作：activeRun 同步、面板/列表刷新与对话流重建。
+// 订阅断开与 trace 覆盖由 useRunSubscriptions.finalizeRun 负责。
+async function handleRunFinalized(run: AgentRun) {
   if (activeRun.value?.id === run.id) {
     activeRun.value = run
   }
-  const item = runItem(run.id)
-  if (!item) return
-  item.run = run
   if (run.status === 'completed') {
     vizHintVisible.value = true
     // 采集/分析完成后重查辩论前置条件（首次采集入库即解锁滑块）。
@@ -708,31 +634,15 @@ async function finalizeRun(run: AgentRun) {
     // 证据面板数据可能已更新（新帖子/新主张）：作废缓存，面板开着就刷新。
     evidenceLoaded = false
     if (activePanel.value === 'evidence') void loadEvidenceSummary()
-    // 案例 updated_at / 状态变化后同步左侧会话列表。
+    // 案例 updated_at / 状态变化后同步左侧调查列表。
     void refreshCases()
   }
   // 终态后重建对话流：专家成果（artifacts）随子 run 卡片一起出现。
   scheduleChatRefresh()
-  try {
-    const trace = await api.getRunTrace(run.id)
-    item.trace = trace
-    // 全量 trace 覆盖实时增量（同一次运行的最终精确数据）。
-    item.liveToolCalls = trace.tool_calls
-    item.liveModelCalls = trace.model_calls
-    item.approvals = trace.approvals.map((approval) => ({
-      id: approval.id,
-      action: approval.action,
-      reason: approval.reason,
-      status: approval.status,
-      request_payload: approval.request_payload,
-    }))
-  } catch {
-    // trace 拉取失败不影响主流程
-  }
 }
 
 // 订阅同步：活跃 run 建订阅、终态 run 收尾、失效订阅清理。
-// deep watch 在 ingestRunEvent 修改 live 数据时也会触发；sync 幂等 +
+// deep watch 在事件增量修改 live 数据时也会触发；sync 幂等 +
 // 防重入标志避免递归抖动。
 watch(
   chatItems,
@@ -745,13 +655,13 @@ watch(
         if (item.type !== 'run') continue
         remainingIds.add(item.run.id)
         if (ACTIVE_STATUSES.includes(item.run.status as (typeof ACTIVE_STATUSES)[number])) {
-          if (!subscriptions.has(item.run.id)) openEventStream(item.run.id)
-        } else if (subscriptions.has(item.run.id)) {
+          if (!hasSubscription(item.run.id)) openEventStream(item.run.id)
+        } else if (hasSubscription(item.run.id)) {
           // 订阅中的 run 转为终态：拉全量 trace 覆盖内联数据。
           void finalizeRun(item.run)
         }
       }
-      for (const runId of [...subscriptions.keys()]) {
+      for (const runId of activeSubscriptionIds()) {
         if (!remainingIds.has(runId)) disconnectRun(runId)
       }
       // 当前关注 run：优先取第一个活跃 run；无活跃 run 时保留最后关注的

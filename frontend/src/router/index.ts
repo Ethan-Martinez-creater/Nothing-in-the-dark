@@ -19,16 +19,54 @@ export const router = createRouter({
     },
     {
       path: '/investigations/:caseId',
-      redirect: (to) => ({
-        path: `/investigations/${String(to.params.caseId)}/overview`,
-        query: to.query,
-      }),
-    },
-    {
-      path: '/investigations/:caseId/overview',
-      name: 'investigation-overview',
-      // M2.3 前的过渡：直接渲染旧工作台组件（caseId 参数名保持一致）
-      component: () => import('@/views/CaseWorkspaceView.vue'),
+      component: () => import('@/views/investigation/InvestigationShellView.vue'),
+      children: [
+        {
+          path: '',
+          redirect: (to) => `/investigations/${String(to.params.caseId)}/overview`,
+        },
+        {
+          path: 'overview',
+          name: 'investigation-overview',
+          // M2.3 过渡：概览仍渲染旧工作台（含 Copilot 入口），M2.4/M2.5 后拆分。
+          component: () => import('@/views/CaseWorkspaceView.vue'),
+        },
+        {
+          path: 'live-data',
+          name: 'investigation-live-data',
+          component: () => import('@/views/investigation/InvestigationLiveDataView.vue'),
+        },
+        {
+          path: 'evidence',
+          name: 'investigation-evidence',
+          component: () => import('@/views/investigation/InvestigationEvidenceView.vue'),
+        },
+        {
+          path: 'network',
+          name: 'investigation-network',
+          component: () => import('@/views/investigation/InvestigationNetworkView.vue'),
+        },
+        {
+          path: 'timeline',
+          name: 'investigation-timeline',
+          component: () => import('@/views/investigation/InvestigationTimelineView.vue'),
+        },
+        {
+          path: 'findings',
+          name: 'investigation-findings',
+          component: () => import('@/views/investigation/InvestigationFindingsView.vue'),
+        },
+        {
+          path: 'report',
+          name: 'investigation-report',
+          component: () => import('@/views/investigation/InvestigationReportView.vue'),
+        },
+        {
+          path: 'activity',
+          name: 'investigation-activity',
+          component: () => import('@/views/investigation/InvestigationActivityView.vue'),
+        },
+      ],
     },
     {
       path: '/signals',

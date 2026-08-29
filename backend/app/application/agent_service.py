@@ -45,12 +45,29 @@ class AgentRunService:
         content: str,
         approve_crawl: bool,
         artifact_id: str | None = None,
+        ui_context: dict[str, object] | None = None,
     ) -> Any:
         turn = await self._repository.add_turn(case_id, role="user", content=content)
         metadata: dict[str, object] = {"approve_crawl": approve_crawl}
         if artifact_id:
             # M2 Artifact 追问：worker 把目标 Artifact 数据注入上下文。
             metadata["artifact_ref"] = {"artifact_id": artifact_id}
+        if ui_context:
+            # M2.2 Contextual Copilot：结构化 UI 上下文进入 Run metadata，
+            # 由 ContextBuilder 注入为独立 system block（不构成证据）。
+            try:
+                serialized = json.dumps(ui_context, ensure_ascii=False)
+            except (TypeError, ValueError) as exc:
+                raise ApplicationError(
+                    "ui_context is not JSON serializable",
+                    code="ui_context_too_large",
+                ) from exc
+            if len(serialized.encode("utf-8")) > 16 * 1024:
+                raise ApplicationError(
+                    "ui_context exceeds the 16KB limit",
+                    code="ui_context_too_large",
+                )
+            metadata["ui_context"] = ui_context
         run = await self._repository.create_agent_run(
             case_id=case_id,
             turn_id=turn.id,

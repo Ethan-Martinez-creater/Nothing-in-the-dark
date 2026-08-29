@@ -159,6 +159,11 @@ async def create_agent_message(
         content=request.content,
         approve_crawl=request.approve_crawl,
         artifact_id=request.artifact_id,
+        ui_context=(
+            request.ui_context.model_dump(exclude_none=True)
+            if request.ui_context is not None
+            else None
+        ),
     )
     return AgentRunResponse.model_validate(record)
 

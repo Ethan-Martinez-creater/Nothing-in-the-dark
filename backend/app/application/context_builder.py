@@ -79,6 +79,7 @@ class ContextBuilder:
         skill_catalog: str,
     ) -> BuiltContext:
         case_info = self._case_info(case, run, skill_catalog)
+        ui_context_block = self._ui_context_block(run)
         try:
             # M23: 普通上下文只检索 active 记忆（expired/disabled/deleted/
             # pending_review 按策略不进入）。
@@ -88,7 +89,7 @@ class ContextBuilder:
             artifacts = await self._repository.list_artifacts(case.id)
         except Exception:
             return BuiltContext(
-                system_context=case_info,
+                system_context=self._join(case_info, ui_context_block),
                 history_window=list(history),
                 stats={"degraded": True, "reason": "context_lookup_failed"},
             )
@@ -110,6 +111,7 @@ class ContextBuilder:
         budget = self._settings.context_token_budget
         fixed = self._join(
             case_info,
+            ui_context_block,
             self._constraint_block(constraints),
             review_block,
         )
@@ -189,6 +191,53 @@ class ContextBuilder:
     @staticmethod
     def _estimate(text: str) -> int:
         return _estimate_tokens(text)
+
+    @staticmethod
+    def _ui_context_block(run: Any) -> str:
+        """M2.2: 把 Run metadata 中的结构化 ui_context 格式化为独立 system 块。
+
+        只描述"用户正在看什么"，不构成事实证据；事实内容必须经工具查询。
+        不按 selected_id 做任何数据库加载，避免跨 case 读取。
+        """
+        metadata = getattr(run, "metadata_json", None) or {}
+        ui_context = (
+            metadata.get("ui_context")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if not isinstance(ui_context, dict) or not ui_context:
+            return ""
+        lines = [
+            "当前界面导航上下文（仅用于理解用户正在查看的对象，不构成事实证据）：",
+            f"- 工作区：{ui_context.get('workspace', 'unknown')}",
+        ]
+        selected_type = ui_context.get("selected_type")
+        selected_id = ui_context.get("selected_id")
+        if selected_type or selected_id:
+            label = ui_context.get("selected_label")
+            descriptor = " / ".join(
+                part for part in (str(selected_type or ""), str(selected_id or "")) if part
+            )
+            if label:
+                descriptor = f"{descriptor}（{label}）"
+            lines.append(f"- 当前选中对象：{descriptor}")
+        filters = ui_context.get("filters")
+        if isinstance(filters, dict) and filters:
+            lines.append(
+                "- 当前过滤条件："
+                + json.dumps(filters, ensure_ascii=False, sort_keys=True)
+            )
+        time_range = ui_context.get("time_range")
+        if isinstance(time_range, dict) and (time_range.get("start") or time_range.get("end")):
+            lines.append(
+                f"- 时间范围：{time_range.get('start') or '未限定'} ~ "
+                f"{time_range.get('end') or '未限定'}"
+            )
+        lines.append(
+            "若需要该对象的事实内容，必须调用允许的工具查询，"
+            "并仍遵守 Evidence ID 引用规则。"
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _case_info(case: Any, run: Any, skill_catalog: str) -> str:

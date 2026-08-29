@@ -1,9 +1,32 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+class UiContext(BaseModel):
+    """Copilot 发送消息时的结构化界面导航上下文。
+
+    只是导航提示，不构成事实证据；事实内容 Agent 必须通过工具查询。
+    """
+
+    workspace: Literal[
+        "overview",
+        "live_data",
+        "evidence",
+        "network",
+        "timeline",
+        "findings",
+        "report",
+        "activity",
+    ]
+    selected_type: str | None = Field(default=None, max_length=100)
+    selected_id: str | None = Field(default=None, max_length=200)
+    selected_label: str | None = Field(default=None, max_length=500)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    time_range: dict[str, str | None] | None = None
 
 
 class CreateMessageRequest(BaseModel):
@@ -11,6 +34,9 @@ class CreateMessageRequest(BaseModel):
     approve_crawl: bool = False
     # M2 Artifact 追问：目标 artifact id，服务端把该 Artifact 数据注入上下文
     artifact_id: str | None = None
+    # M2.2 Contextual Copilot：结构化 UI 上下文，进入 Run metadata，
+    # 由 ContextBuilder 生成为独立 system context block。
+    ui_context: UiContext | None = None
 
 
 class SteeringRequest(BaseModel):
