@@ -14,11 +14,13 @@ import {
 } from '@/composables/useInvestigationContext'
 import { useRunSubscriptions } from '@/composables/useRunSubscriptions'
 import { api } from '@/services/api'
+import {
+  buildChatItems,
+  preserveRunLiveState,
+} from '@/services/chat/buildChatItems'
 import type {
   AgentRun,
-  Artifact,
   ChatItem,
-  TurnRecord,
 } from '@/types/api'
 
 const props = defineProps<{ caseId: string }>()
@@ -62,71 +64,13 @@ async function loadHistory() {
       api.listCaseRuns(props.caseId),
       api.listArtifacts(props.caseId),
     ])
-    items.value = buildItems(turns, runs, artifacts)
+    // C10：重建时保留 run 项的 live 状态（approvals/trace/liveEvents）
+    items.value = preserveRunLiveState(items.value, buildChatItems(turns, runs, artifacts))
   } catch {
     error.value = 'Copilot 历史加载失败，请重试。'
   } finally {
     loading.value = false
   }
-}
-
-// 简化版对话流重建：按时间合并 turns / runs，run 挂其后的首个未消费
-// assistant turn 作为 finalContent；artifacts 按 run_id 分组。
-function buildItems(turns: TurnRecord[], runs: AgentRun[], artifacts: Artifact[]): ChatItem[] {
-  const artifactsByRun = new Map<string, Artifact[]>()
-  for (const artifact of artifacts) {
-    if (!artifact.run_id) continue
-    const bucket = artifactsByRun.get(artifact.run_id) ?? []
-    bucket.push(artifact)
-    artifactsByRun.set(artifact.run_id, bucket)
-  }
-
-  const items: ChatItem[] = []
-  const consumed = new Set<string>()
-  const timeline = [
-    ...turns.map((turn) => ({ at: turn.created_at, kind: 'turn' as const, turn })),
-    ...runs.map((run) => ({ at: run.created_at, kind: 'run' as const, run })),
-  ].sort((a, b) => a.at.localeCompare(b.at))
-
-  for (const entry of timeline) {
-    if (entry.kind === 'turn') {
-      if (consumed.has(entry.turn.id)) continue
-      items.push({ type: 'turn', turn: entry.turn })
-      continue
-    }
-    const run = entry.run
-    const finalContent = findAssistantAfter(turns, run.created_at, consumed)
-    items.push({
-      type: 'run',
-      run,
-      artifacts: artifactsByRun.get(run.id) ?? [],
-      approvals: [],
-      trace: null,
-      traceLoading: false,
-      liveEvents: [],
-      liveToolCalls: [],
-      liveModelCalls: [],
-      finalContent,
-    })
-  }
-  return items
-}
-
-function findAssistantAfter(
-  turns: TurnRecord[],
-  afterIso: string,
-  consumed: Set<string>,
-): string | undefined {
-  const sorted = [...turns].sort((a, b) => a.created_at.localeCompare(b.created_at))
-  for (const turn of sorted) {
-    if (consumed.has(turn.id)) continue
-    if (turn.role !== 'assistant') continue
-    if (turn.created_at >= afterIso) {
-      consumed.add(turn.id)
-      return turn.content
-    }
-  }
-  return undefined
 }
 
 const subscriptions = useRunSubscriptions({

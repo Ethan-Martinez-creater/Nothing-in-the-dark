@@ -129,3 +129,16 @@
 - 后端：`GET /cases/{id}/posts`（platform/q/from/to 过滤 + limit/offset 分页 + has_more；响应仅暴露稳定字段，raw_payload/embedding/content_hash 不外泄）+ `GET /cases/{id}/posts:stats`。
 - 前端：新 `PostsList.vue`（filters + 加载更多 + 打开原文 + selection）；`InvestigationLiveDataView.vue` 三 tab（Posts | Media | Platform Comparison），selection → Copilot context（workspace=live_data, selected_type=social_post, selected_id）。
 - 测试：后端 `tests/test_posts.py` 2（分页/过滤/case 隔离/404/stats 聚合/字段白名单）；前端 PostsList 6 + LiveDataView 3（Posts 默认 tab/selection context/tab 切换）。
+
+## C9 — M5.7 与 Subscriptions 分流（commit：refactor: migrate semantics and goals into investigation）
+
+- C9.1：抽 `components/semantics/SemanticAnnotationsPanel.vue`（标注表/词典/在线分析三子区，case 由 prop 提供）；Evidence 工作区增加 `Claims / Semantics` 子 tab；后端 semantics API 不变。
+- C9.2：抽 `components/goals/GoalPlanPanel.vue`（目标列表/完成条件/计划版本/计划 DAG/评估）；Investigation Overview 加入 Plan 区域。
+- C9.3：新增 `views/admin/AdministrationNotificationsView.vue`（订阅/Webhook 端点/投递记录，保留 case selector，后端不变），Admin 导航加"通知"；Report 分享迁入 Reports 卡片（createShareLink 72h 链接）；`/subscriptions → /admin/notifications`、`/semantics → /investigations`、`/goals → /investigations` 兼容重定向；旧 SubscriptionsView/SemanticAnnotationsView/GoalPlanningView 路由引用移除（文件在 C11 统一清理）。
+- 测试：AdministrationNotificationsView 4（tab 切换/创建订阅/无 share tab）、EvidenceView +1（semantics tab）；前端全量 171 passed、typecheck 0、lint 0。
+
+## C10 — Copilot 历史重建共享（commit：fix: share robust chat history reconstruction with copilot）
+
+- 新增 `services/chat/buildChatItems.ts`：迁入旧 CaseWorkspaceView 已验证的完整算法（expert assistant turn 归属、coordinator final answer 向后匹配且不消费专家 turn、orphan artifacts、无 turn run 兜底）+ `makeRunItem` + `preserveRunLiveState`（重建时保留 approvals/trace/traceLoading/liveEvents/liveToolCalls/liveModelCalls）。
+- CopilotDrawer 删除简化版 `buildItems`/`findAssistantAfter`，改用共享 helper；`loadHistory()` 重建时保留 live 状态（修复终态重拉导致审批卡闪烁的问题）；CaseWorkspaceView 的 refreshChatItems 改用共享 `preserveRunLiveState`（行为不变）。
+- 测试：buildChatItems 6（coordinator+expert、多 assistant turns、expert turn 不被 coordinator 消费、orphan artifact、无 turn run、refresh 保留 approvals/trace）；CaseWorkspaceView 34 个既有测试全部保持。
