@@ -20,9 +20,14 @@ class Database:
             if database_path and database_path != ":memory:":
                 Path(database_path).parent.mkdir(parents=True, exist_ok=True)
 
+        # SQLite 默认 busy timeout 为 0：并发写（如 graph worker 与
+        # materializer 同时落库）会立刻抛 "database is locked"。
+        # 给予 30s 等待窗口，PostgreSQL 不受影响。
+        connect_args = {"timeout": 30} if database_url.startswith("sqlite") else {}
         self.engine: AsyncEngine = create_async_engine(
             database_url,
             pool_pre_ping=True,
+            connect_args=connect_args,
         )
         self.session_factory = async_sessionmaker(
             bind=self.engine,
