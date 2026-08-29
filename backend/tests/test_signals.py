@@ -1,6 +1,7 @@
 """M6: Global Signals（Alert adapter）与 Workspace Overview 测试。
 
 service 层：alert → signal 映射、状态动作委托既有 alert 状态机、severity 排序。
+C4：Signal 与 Monitor 共用同一 alert 状态机，非法逆向转换被拒绝且语义一致。
 API 层：/signals 过滤参数、未知 signal 404、/workspace/overview 聚合。
 """
 
@@ -8,10 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.application.signal_service import SignalService
 from app.core.config import Settings
+from app.core.errors import ApplicationError
 from app.infrastructure.database import Database
 from app.infrastructure.database.monitor_repository import MonitorRepository
 from app.main import create_app
@@ -82,6 +85,30 @@ async def test_alert_maps_to_signal(tmp_path: Path) -> None:
     assert len(only_resolved) == 1
 
 
+async def test_signal_state_machine_rejects_illegal_transitions(tmp_path: Path) -> None:
+    """C4：Signal 遵循同一 alert 状态机 —— 逆向/旁路转换被拒绝。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 's4.db'}")
+    service = await _seed_signal(database)
+    signal = (await service.list_signals())[0]
+    signal_id = signal.id
+
+    await service.change_status(signal_id, "acknowledge")
+    resolved = await service.change_status(signal_id, "resolve")
+    assert resolved.status == "resolved"
+
+    # resolved -> acknowledged 非法（旧 Monitor 状态机不允许的逆向转换）
+    with pytest.raises(ApplicationError) as exc:
+        await service.change_status(signal_id, "acknowledge")
+    assert exc.value.code == "alert_status_transition_invalid"
+
+    # suppressed 可从 resolved 进入（合法正向），但 suppressed -> resolve 非法
+    suppressed = await service.change_status(signal_id, "suppress")
+    assert suppressed.status == "suppressed"
+    with pytest.raises(ApplicationError) as exc:
+        await service.change_status(signal_id, "resolve")
+    assert exc.value.code == "alert_status_transition_invalid"
+
+
 def test_signals_api_filters_and_404(tmp_path: Path) -> None:
     app = create_app(
         Settings(
@@ -103,6 +130,62 @@ def test_signals_api_filters_and_404(tmp_path: Path) -> None:
         missing = client.get("/api/v1/signals/does-not-exist")
         assert missing.status_code == 404
         assert missing.json()["code"] == "signal_not_found"
+
+
+def test_signal_and_monitor_api_share_state_machine(tmp_path: Path) -> None:
+    """C4：Signal API 与 Monitor API 对合法/非法转换语义完全一致。"""
+    import asyncio
+
+    db_path = tmp_path / "s5.db"
+    database = Database(f"sqlite+aiosqlite:///{db_path}")
+    asyncio.run(database.create_schema())
+    repo = MonitorRepository(database)
+    from app.application.repositories import ApplicationRepository
+
+    app_repo = ApplicationRepository(database)
+
+    async def seed() -> tuple[str, str]:
+        case = await app_repo.create_case(
+            CreateCaseRequest(topic="共用状态机", platforms=["weibo"])
+        )
+        monitor = await repo.create_monitor(case_id=case.id, name="m", interval_seconds=3600)
+        rule = await repo.create_rule(monitor_id=monitor.id, rule_type="absolute_volume")
+        alert, _ = await repo.upsert_alert_occurrence(
+            monitor_id=monitor.id,
+            rule_id=rule.id,
+            fingerprint="f",
+            cooldown_bucket="all",
+            severity="warning",
+            explanation="e",
+            metric_snapshot={},
+            evidence_refs={},
+        )
+        return case.id, alert.id
+
+    case_id, alert_id = asyncio.run(seed())
+    asyncio.run(database.dispose())
+
+    app = create_app(Settings(database_url=f"sqlite+aiosqlite:///{db_path}", demo_mode=True))
+    with TestClient(app) as client:
+        # Signal API acknowledge → Monitor API resolve（跨 API 正向路径）
+        ack = client.post(f"/api/v1/signals/{alert_id}:acknowledge", json={})
+        assert ack.status_code == 200 and ack.json()["status"] == "acknowledged"
+        resolved = client.post(
+            f"/api/v1/cases/{case_id}/alerts/{alert_id}:resolve", json={}
+        )
+        assert resolved.status_code == 200
+
+        # Signal API resolved -> acknowledge 非法，错误码与 Monitor 状态机一致
+        illegal = client.post(f"/api/v1/signals/{alert_id}:acknowledge", json={})
+        assert illegal.status_code == 400
+        assert illegal.json()["code"] == "alert_status_transition_invalid"
+
+        # Monitor API 同一非法转换返回相同错误码
+        monitor_illegal = client.post(
+            f"/api/v1/cases/{case_id}/alerts/{alert_id}:acknowledge", json={}
+        )
+        assert monitor_illegal.status_code == 400
+        assert monitor_illegal.json()["code"] == "alert_status_transition_invalid"
 
 
 def test_workspace_overview_aggregate(tmp_path: Path) -> None:

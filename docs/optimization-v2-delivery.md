@@ -78,3 +78,11 @@
 - `ApplicationError` 增加可选 `details`，publish 失败响应携带逐条定位（如 `citation_links[0].evidence_ids[1] → evidence_not_found` / `evidence_not_in_case`）。
 - 测试：`evidence_ids[]` 全合法通过、不存在/跨 case 阻止（details 精确断言）、finding/artifact/generic 引用合法、unknown shape 阻止、generic 幽灵对象 `unresolvable_ref`、API 层跨 case citation publish 被 400 + details 阻止。
 - 专项测试：`pytest tests/test_report_documents.py`（9 passed）。
+
+## C4 — Signal 与 Monitor 共用 Alert 状态机（commit：fix: unify monitor and signal alert transitions）
+
+- 新增 `app/services/alert_state.py`：纯 domain validator `validate_alert_transition(current, target)`（不访问数据库），`VALID_ALERT_TRANSITIONS` 从 monitors 路由迁入成为单一事实来源（open→acknowledged→resolved；suppressed 可自 open/acknowledged/resolved 进入；重复同状态非法）。
+- `MonitorRepository.set_alert_status()` 加最终防线：读 current → validator → 非法抛 `alert_status_transition_invalid` → 更新。
+- `SignalService.change_status()` 只做 action mapping（acknowledge/resolve/suppress），合法性由同一 validator 决定；monitors 路由删除本地 `_VALID_TRANSITIONS` 副本。
+- 测试：resolved→acknowledge 拒绝、suppressed→resolve 拒绝、resolved→suppress 合法、Signal API 与 Monitor API 跨端操作后非法转换错误码一致（400 `alert_status_transition_invalid`）；既有 Monitor 状态机测试保持通过。
+- 专项测试：`pytest tests/test_signals.py tests/test_monitoring.py::test_api_alert_status_machine`（6 passed）。

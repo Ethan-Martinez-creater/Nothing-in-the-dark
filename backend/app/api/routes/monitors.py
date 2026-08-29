@@ -25,6 +25,7 @@ from app.schemas.monitoring import (
     RunNowRequest,
 )
 from app.services import monitoring
+from app.services.alert_state import validate_alert_transition
 
 router = APIRouter()
 
@@ -34,12 +35,6 @@ _VALID_RULE_TYPES = {
     "anomaly",
     "key_account",
     "narrative",
-}
-
-_VALID_TRANSITIONS: dict[str, set[str]] = {
-    "acknowledged": {"open"},
-    "resolved": {"open", "acknowledged"},
-    "suppressed": {"open", "acknowledged", "resolved"},
 }
 
 
@@ -326,12 +321,8 @@ async def _set_alert_status(
     monitor = await container.monitor_repository.get_monitor(alert.monitor_id)
     if monitor.case_id != case_id:
         raise ApplicationError("告警不属于该案件", code="alert_scope_mismatch")
-    allowed = _VALID_TRANSITIONS.get(status, set())
-    if alert.status not in allowed:
-        raise ApplicationError(
-            f"告警状态不能从 '{alert.status}' 变更为 '{status}'",
-            code="alert_status_transition_invalid",
-        )
+    # 共用 alert_state validator（Signal API 与本路由同一状态机）
+    validate_alert_transition(alert.status, status)
     updated = await container.monitor_repository.set_alert_status(alert_id, status, by=by)
     return AlertResponse.model_validate(updated)
 

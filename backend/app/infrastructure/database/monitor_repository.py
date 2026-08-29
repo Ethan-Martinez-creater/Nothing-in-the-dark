@@ -23,6 +23,7 @@ from app.infrastructure.database.models import (
     MonitorDefinitionRecord,
     MonitorExecutionRecord,
 )
+from app.services.alert_state import validate_alert_transition
 
 
 def _now() -> datetime:
@@ -685,10 +686,12 @@ class MonitorRepository:
         *,
         by: str | None = None,
     ) -> AlertOccurrenceRecord:
+        """更新告警状态；仓储层为状态机最终防线（C4：与 Signal API 共用）。"""
         await self.get_alert(alert_id)  # 404 for unknown alert
         async with self._database.session_factory() as session:
             current = await session.get(AlertOccurrenceRecord, alert_id)
             assert current is not None
+            validate_alert_transition(current.status, status)
             current.status = status
             if status == "acknowledged" and by:
                 current.acknowledged_by = by
