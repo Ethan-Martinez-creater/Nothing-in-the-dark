@@ -40,3 +40,17 @@
 4. **Live Data 的 Posts 列表**：无统一 raw-post 列表 API，页面先提供 Platform Comparison + Media 两个 tab（不伪造完整列表）。
 5. **E2E（Playwright）**：`e2e:smoke` / `e2e:interact` 依赖运行中的前后端服务，本轮未在 CI 环境执行；Scenario A–H 的浏览器级 E2E 待环境具备后补跑。
 6. Copilot Drawer 的历史构建为简化版顺序配对（与旧工作台的重建算法存在差异），属于过渡实现。
+
+---
+
+# Optimization V2 Closure（返工阶段）记录
+
+> 依据：`docs/optimization-v2-review-and-closure-plan.md`（2026-08-29 评审结论）
+> 返工基线 HEAD：`543d267`（"chore: ignore pytest basetemp directories"）
+> 执行协议：C-01 原子工作包（读代码 → 实现 → 专项测试 → 回归 → 独立提交）、C-02 不回退新架构、C-03 Harness 保护区不动、C-04 复用唯一生产路径、C-05 后端约束优先、C-06 错误路径必须测。
+
+## C0 — 返工基线与仓库清理
+
+- 清理对象：`backend/.pytest-*-tmp/` 下 21 个 pytest basetemp 目录、93 个被误跟踪的运行时产物（测试 SQLite `.db`、MediaCrawler 运行 JSONL、MediaCrawler stub `main.py`）。
+- 处理方式：`git rm --cached`（仅解除 Git 跟踪，磁盘文件保留，由 `.gitignore` 的 `.pytest-*-tmp/` 规则持续忽略）；不触碰任何静态 fixture。
+- 验收：`git ls-files` 中不再出现 `.pytest-*-tmp/`；`git status` 仅含本次清理与文档记录。
