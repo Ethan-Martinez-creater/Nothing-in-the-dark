@@ -697,3 +697,102 @@ class MonitorRepository:
             await session.commit()
             await session.refresh(current)
         return current
+
+    # ---------------- M6: Global Signals（alert join 视图，无新表） ----------------
+
+    async def list_signal_rows(
+        self,
+        *,
+        statuses: Sequence[str] | None = None,
+        severity: str | None = None,
+        case_id: str | None = None,
+        rule_type: str | None = None,
+        limit: int = 100,
+    ) -> Sequence[SignalRow]:
+        """全局 Signal 查询：alert × rule × monitor × case 单次 join。
+
+        服务端排序：critical > warning > info，再按 last_seen_at desc。
+        """
+        from sqlalchemy import case as sa_case
+
+        from app.infrastructure.database.models import (
+            AlertRuleRecord,
+            CaseRecord,
+            MonitorDefinitionRecord,
+        )
+
+        query = (
+            select(
+                AlertOccurrenceRecord,
+                AlertRuleRecord.rule_type,
+                AlertRuleRecord.severity,
+                MonitorDefinitionRecord.name,
+                MonitorDefinitionRecord.case_id,
+                CaseRecord.title,
+            )
+            .join(AlertRuleRecord, AlertRuleRecord.id == AlertOccurrenceRecord.rule_id)
+            .join(
+                MonitorDefinitionRecord,
+                MonitorDefinitionRecord.id == AlertOccurrenceRecord.monitor_id,
+            )
+            .join(CaseRecord, CaseRecord.id == MonitorDefinitionRecord.case_id)
+        )
+        if statuses:
+            query = query.where(AlertOccurrenceRecord.status.in_(list(statuses)))
+        if severity:
+            query = query.where(AlertRuleRecord.severity == severity)
+        if case_id:
+            query = query.where(MonitorDefinitionRecord.case_id == case_id)
+        if rule_type:
+            query = query.where(AlertRuleRecord.rule_type == rule_type)
+        severity_order = sa_case(
+            (AlertRuleRecord.severity == "critical", 0),
+            (AlertRuleRecord.severity == "warning", 1),
+            else_=2,
+        )
+        query = query.order_by(
+            severity_order, AlertOccurrenceRecord.last_seen_at.desc()
+        ).limit(limit)
+        async with self._database.session_factory() as session:
+            rows = (await session.execute(query)).all()
+            return [
+                SignalRow(
+                    alert=row[0],
+                    rule_type=row[1],
+                    severity=row[2],
+                    monitor_name=row[3],
+                    case_id=row[4],
+                    case_title=row[5],
+                )
+                for row in rows
+            ]
+
+
+class SignalRow:
+    """M6: 全局 Signal 行（alert + rule/monitor/case 元数据）。"""
+
+    __slots__ = (
+        "alert",
+        "rule_type",
+        "severity",
+        "monitor_name",
+        "case_id",
+        "case_title",
+    )
+
+    def __init__(
+        self,
+        *,
+        alert: Any,
+        rule_type: str,
+        severity: str,
+        monitor_name: str,
+        case_id: str,
+        case_title: str,
+    ) -> None:
+        self.alert = alert
+        self.rule_type = rule_type
+        self.severity = severity
+        self.monitor_name = monitor_name
+        self.case_id = case_id
+        self.case_title = case_title

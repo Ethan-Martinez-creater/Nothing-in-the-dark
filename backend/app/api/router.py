@@ -30,9 +30,11 @@ from app.api.routes import (
     runs,
     security,
     semantics,
+    signals,
     system,
     tasks,
     uncertainty,
+    workspace,
 )
 
 api_router = APIRouter()
@@ -97,3 +99,5 @@ api_router.include_router(findings.router, prefix="/cases", tags=["findings"])
 api_router.include_router(
     provenance.router, prefix="/cases", tags=["provenance"]
 )
+api_router.include_router(signals.router, prefix="/signals", tags=["signals"])
+api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])

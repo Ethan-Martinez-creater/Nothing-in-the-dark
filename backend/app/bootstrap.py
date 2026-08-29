@@ -15,7 +15,6 @@ from app.application.conversation_summary import ConversationSummarizer
 from app.application.debate_service import DebateService
 from app.application.evaluation_service import EvaluationService
 from app.application.finding_service import FindingService
-from app.application.provenance_service import ProvenanceService
 from app.application.goal_service import GoalService
 from app.application.graph_worker import GraphWorker
 from app.application.integrity_service import IntegrityService
@@ -31,10 +30,13 @@ from app.application.notification_service import (
     NotificationService,
 )
 from app.application.platform_profile import PlatformProfileService
+from app.application.provenance_service import ProvenanceService
 from app.application.repositories import ApplicationRepository
 from app.application.resilience_service import ResilienceService
 from app.application.review_service import ReviewService
 from app.application.runner import AnalysisRunner
+from app.application.signal_service import SignalService
+from app.application.workspace_service import WorkspaceOverviewService
 from app.core.config import Settings
 from app.core.errors import ApplicationError
 from app.graphs.case_analysis import CaseAnalysisGraph
@@ -392,6 +394,11 @@ class ApplicationContainer:
         )
         self.media_capabilities = probe_capabilities()
         self.monitor_repository = MonitorRepository(self.database)
+        # M6: Global Signals（Alert adapter）与 Home 聚合端点。
+        self.signal_service = SignalService(self.database, self.monitor_repository)
+        self.workspace_service = WorkspaceOverviewService(
+            self.database, self.signal_service
+        )
         self.monitor_scheduler = MonitorScheduler(
             self.monitor_repository,
             self.social,

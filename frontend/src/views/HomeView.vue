@@ -1,20 +1,23 @@
 <script setup lang="ts">
-// Optimization V2 (M1.4)：Operational Home v1。
-// 首页回答：有哪些调查、有什么需要我处理。产品介绍压缩到次要 About 区。
-// M6 接入 Signals 后由 /workspace/overview 聚合端点替换逐项请求。
+// Optimization V2 (M6.6)：Operational Home v2。
+// 聚合端点 /workspace/overview 提供全部数据（禁止 N+1）。
+// 结构：KPI 行 → Open/Critical Signals → Active/Recent Investigations → Recent Reports。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { Plus, Search } from 'lucide-vue-next'
 
 import { api } from '@/services/api'
-import type { CaseRecord, SystemCapabilities } from '@/types/api'
+import {
+  workspaceApi,
+  type WorkspaceOverview,
+} from '@/services/api/signals'
+import type { SystemCapabilities } from '@/types/api'
 
 const router = useRouter()
 
-const cases = ref<CaseRecord[]>([])
+const overview = ref<WorkspaceOverview | null>(null)
 const capabilities = ref<SystemCapabilities | null>(null)
-const pendingApprovalCount = ref(0)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const keyword = ref('')
@@ -26,28 +29,27 @@ const llmConfigured = computed(
 )
 
 const recentCases = computed(() => {
-  const filtered = keyword.value.trim()
-    ? cases.value.filter((item) =>
-        item.topic.toLowerCase().includes(keyword.value.trim().toLowerCase()),
-      )
-    : cases.value
-  return filtered.slice(0, 8)
+  const items = overview.value?.recent_investigations ?? []
+  const q = keyword.value.trim().toLowerCase()
+  return q ? items.filter((item) => item.topic.toLowerCase().includes(q)) : items
 })
 
-async function loadData() {
+const severityLabels: Record<string, string> = {
+  critical: '严重',
+  warning: '警告',
+  info: '提示',
+}
+
+async function load() {
   loading.value = true
   error.value = null
   try {
-    const [caseList, capabilitiesData, approvals] = await Promise.all([
-      api.listCases(),
+    const [data, caps] = await Promise.all([
+      workspaceApi.overview(),
       api.getCapabilities().catch(() => null),
-      api
-        .listApprovals({ status: 'pending' })
-        .catch(() => [] as Array<Record<string, unknown>>),
     ])
-    cases.value = caseList
-    capabilities.value = capabilitiesData
-    pendingApprovalCount.value = approvals.length
+    overview.value = data
+    capabilities.value = caps
   } catch {
     error.value = '加载工作台数据失败，请检查后端服务后重试'
   } finally {
@@ -61,6 +63,10 @@ function openInvestigation(caseId: string) {
 
 function openApprovals() {
   router.push('/admin/approvals')
+}
+
+function openSignals() {
+  router.push('/signals')
 }
 
 async function createInvestigation() {
@@ -79,7 +85,7 @@ async function createInvestigation() {
   }
 }
 
-onMounted(loadData)
+onMounted(load)
 </script>
 
 <template>
@@ -96,52 +102,114 @@ onMounted(loadData)
           </span>
         </p>
       </div>
-      <button
-        class="home-view__cta"
-        :disabled="creating"
-        @click="createInvestigation"
-      >
+      <button class="home-view__cta" :disabled="creating" @click="createInvestigation">
         <Plus :size="16" />
         {{ creating ? '创建中…' : '新建调查' }}
       </button>
     </header>
 
-    <section class="home-view__kpis" aria-label="待处理事项">
-      <button class="home-view__kpi" @click="openApprovals">
-        <span class="home-view__kpi-value">{{ pendingApprovalCount }}</span>
-        <span class="home-view__kpi-label">待审批</span>
-      </button>
-      <div class="home-view__kpi">
-        <span class="home-view__kpi-value">{{ cases.length }}</span>
-        <span class="home-view__kpi-label">调查总数</span>
-      </div>
-    </section>
+    <p v-if="error" class="home-view__error">{{ error }}</p>
+    <p v-else-if="loading" class="home-view__hint">正在加载…</p>
 
-    <section class="home-view__recent" aria-label="最近调查">
-      <div class="home-view__section-head">
-        <h2>最近调查</h2>
-        <label class="home-view__search">
-          <Search :size="14" />
-          <input v-model="keyword" type="search" placeholder="搜索调查" />
-        </label>
+    <template v-else-if="overview">
+      <!-- KPI 行 -->
+      <section class="home-view__kpis" aria-label="运营概览">
+        <button class="home-view__kpi home-view__kpi--link" @click="openSignals">
+          <span class="home-view__kpi-value">{{ overview.counts.open_signals }}</span>
+          <span class="home-view__kpi-label">Open Signals</span>
+        </button>
+        <div class="home-view__kpi">
+          <span class="home-view__kpi-value">{{ overview.counts.investigations }}</span>
+          <span class="home-view__kpi-label">调查总数</span>
+        </div>
+        <button class="home-view__kpi home-view__kpi--link" @click="openApprovals">
+          <span class="home-view__kpi-value">{{ overview.counts.pending_approvals }}</span>
+          <span class="home-view__kpi-label">待审批</span>
+        </button>
+        <div class="home-view__kpi">
+          <span class="home-view__kpi-value">{{ overview.counts.running_runs }}</span>
+          <span class="home-view__kpi-label">运行中的 Agent</span>
+        </div>
+      </section>
+
+      <div class="home-view__columns">
+        <!-- Open/Critical Signals -->
+        <section class="home-view__panel" aria-label="关键信号">
+          <div class="home-view__panel-head">
+            <h2>关键信号</h2>
+            <button type="button" class="home-view__more" @click="openSignals">
+              全部信号
+            </button>
+          </div>
+          <p v-if="overview.top_signals.length === 0" class="home-view__hint">
+            尚无信号 — 创建调查后配置持续监测。
+          </p>
+          <ul v-else class="home-view__signal-list">
+            <li v-for="signal in overview.top_signals" :key="signal.id">
+              <button type="button" class="home-view__signal" @click="openSignals">
+                <span class="home-view__severity" :data-severity="signal.severity">
+                  {{ severityLabels[signal.severity] ?? signal.severity }}
+                </span>
+                <span class="home-view__signal-body">
+                  <span class="home-view__signal-title">{{ signal.title }}</span>
+                  <span class="home-view__signal-meta">{{ signal.case_title }}</span>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Active/Recent Investigations -->
+        <section class="home-view__panel" aria-label="最近调查">
+          <div class="home-view__panel-head">
+            <h2>最近调查</h2>
+            <label class="home-view__search">
+              <Search :size="14" />
+              <input v-model="keyword" type="search" placeholder="搜索调查" />
+            </label>
+          </div>
+          <p v-if="recentCases.length === 0" class="home-view__hint">
+            尚无调查 — 点击右上角「新建调查」开始
+          </p>
+          <ul v-else class="home-view__case-list">
+            <li v-for="item in recentCases" :key="item.id">
+              <button
+                type="button"
+                class="home-view__case"
+                @click="openInvestigation(item.id)"
+              >
+                <span class="home-view__case-topic">{{ item.topic }}</span>
+                <span class="home-view__case-meta">{{ item.platforms.join(' · ') }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
       </div>
 
-      <p v-if="error" class="home-view__error">{{ error }}</p>
-      <p v-else-if="loading" class="home-view__hint">正在加载…</p>
-      <p v-else-if="recentCases.length === 0" class="home-view__hint">
-        尚无调查 — 点击右上角「新建调查」开始
-      </p>
-      <ul v-else class="home-view__list">
-        <li v-for="item in recentCases" :key="item.id">
-          <button class="home-view__item" @click="openInvestigation(item.id)">
-            <span class="home-view__item-topic">{{ item.topic }}</span>
-            <span class="home-view__item-meta">
-              {{ item.platforms.join(' · ') }}
-            </span>
+      <!-- Recent Reports -->
+      <section v-if="overview.recent_reports.length" class="home-view__panel" aria-label="最近报告">
+        <div class="home-view__panel-head">
+          <h2>最近报告</h2>
+          <button type="button" class="home-view__more" @click="router.push('/reports')">
+            报告中心
           </button>
-        </li>
-      </ul>
-    </section>
+        </div>
+        <ul class="home-view__report-list">
+          <li v-for="report in overview.recent_reports" :key="report.artifact_id">
+            <button
+              type="button"
+              class="home-view__case"
+              @click="openInvestigation(report.case_id)"
+            >
+              <span class="home-view__case-topic">{{ report.title }}</span>
+              <span class="home-view__case-meta">
+                {{ new Date(report.created_at).toLocaleDateString('zh-CN') }}
+              </span>
+            </button>
+          </li>
+        </ul>
+      </section>
+    </template>
 
     <details class="home-view__about">
       <summary>About this workspace</summary>
@@ -223,9 +291,20 @@ onMounted(loadData)
   cursor: default;
 }
 
+.home-view__error {
+  color: var(--red);
+  font-size: 13px;
+}
+
+.home-view__hint {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .home-view__kpis {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .home-view__kpi {
@@ -258,25 +337,48 @@ button.home-view__kpi:hover {
   color: var(--text-muted);
 }
 
-.home-view__section-head {
+.home-view__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.home-view__panel {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-view__panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 10px;
 }
 
-.home-view__section-head h2 {
+.home-view__panel-head h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+}
+
+.home-view__more {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .home-view__search {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
@@ -287,57 +389,89 @@ button.home-view__kpi:hover {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text);
-  min-width: 160px;
+  min-width: 120px;
 }
 
-.home-view__error {
-  color: var(--red);
-  font-size: 13px;
-}
-
-.home-view__hint {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.home-view__list {
+.home-view__signal-list,
+.home-view__case-list,
+.home-view__report-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
-}
-
-.home-view__item {
-  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  text-align: left;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  cursor: pointer;
-  transition: border-color 0.15s ease;
+  gap: 8px;
 }
 
-.home-view__item:hover {
+.home-view__signal,
+.home-view__case {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.home-view__signal:hover,
+.home-view__case:hover {
   border-color: var(--accent);
 }
 
-.home-view__item-topic {
-  font-size: 14px;
-  font-weight: 600;
+.home-view__severity {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.home-view__severity[data-severity='critical'] {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--red);
+}
+
+.home-view__severity[data-severity='warning'] {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.home-view__signal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-view__signal-title {
+  font-size: 13px;
   color: var(--text);
 }
 
-.home-view__item-meta {
-  font-size: 12px;
+.home-view__signal-meta,
+.home-view__case-meta {
+  font-size: 11px;
   color: var(--text-muted);
+}
+
+.home-view__case-topic {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.home-view__case {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .home-view__about {
