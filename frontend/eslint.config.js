@@ -5,7 +5,7 @@ import pluginVue from 'eslint-plugin-vue'
 
 export default withVueTs(
   {
-    ignores: ['**/dist/**', '**/node_modules/**'],
+    ignores: ['**/dist/**', '**/node_modules/**', 'e2e-*.cjs'],
   },
   eslint.configs.recommended,
   pluginVue.configs['flat/essential'],

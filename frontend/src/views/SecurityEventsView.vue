@@ -20,8 +20,6 @@ const policy = ref<ContentSecurityPolicy | null>(null)
 const summary = ref<ContentSecuritySummary | null>(null)
 const assessments = ref<ContentSecurityAssessment[]>([])
 const decisions = ref<GuardrailDecision[]>([])
-const dispositionFilter = ref('')
-const decisionFilter = ref('')
 
 const DISPOSITION_LABELS: Record<string, string> = {
   allowed: '放行',

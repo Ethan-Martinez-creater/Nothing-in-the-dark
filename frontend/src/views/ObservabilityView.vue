@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, Bell, LineChart, RefreshCw, Search } from 'lucide-vue-next'
+import { Activity, RefreshCw, Search } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 
 import { api } from '@/services/api'

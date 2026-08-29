@@ -3,7 +3,7 @@
 // 复用 ChatThread / ChatInputBar 渲染与输入；发送时 snapshot 当前 UI 上下文，
 // 经结构化 ui_context 字段进入 Run metadata（不拼进 content）。
 // 历史属于同一 Case Turn/Run 流，不在各页面重复创建独立聊天记录。
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { X } from 'lucide-vue-next'
 
@@ -12,13 +12,12 @@ import ChatThread from '@/components/chat/ChatThread.vue'
 import {
   useInvestigationContext,
 } from '@/composables/useInvestigationContext'
-import { useRunSubscriptions, isActiveRunStatus } from '@/composables/useRunSubscriptions'
+import { useRunSubscriptions } from '@/composables/useRunSubscriptions'
 import { api } from '@/services/api'
 import type {
   AgentRun,
   Artifact,
   ChatItem,
-  RunEvent,
   TurnRecord,
 } from '@/types/api'
 

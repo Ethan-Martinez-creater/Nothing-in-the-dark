@@ -2,7 +2,6 @@
 import {
   Activity,
   AlertTriangle,
-  CheckCircle2,
   CircleOff,
   FileClock,
   HeartPulse,
@@ -18,7 +17,6 @@ import { api } from '@/services/api'
 import type {
   CircuitBreakerState,
   DeadLetterItem,
-  DependencyHealth,
   IncidentRecord,
   KillSwitch,
   ResilienceHealthSummary,
@@ -106,7 +104,7 @@ async function load() {
 }
 
 // ---- Kill Switch ----
-function openKillSwitchDialog(kind: 'enable' | 'disable', target: string, scope = 'tool') {
+function openKillSwitchDialog(kind: 'enable' | 'disable', target: string) {
   actionTarget.value = target
   actionKind.value = kind
   actionReason.value = ''

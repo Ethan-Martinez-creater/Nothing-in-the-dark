@@ -1,14 +1,10 @@
 <script setup lang="ts">
 import {
-  Check,
-  CheckCircle2,
   FolderSearch,
   Gavel,
   MessageSquare,
   RefreshCw,
   Undo2,
-  UserCheck,
-  X,
 } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 

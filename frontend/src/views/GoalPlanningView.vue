@@ -15,7 +15,6 @@ const detail = ref<GoalDetail | null>(null)
 const plan = ref<PlanDetail | null>(null)
 const expandedGoalId = ref<string | null>(null)
 const selectedPlanVersion = ref('')
-const busy = ref(false)
 
 const STATUS_LABELS: Record<string, string> = {
   proposed: '提议',
@@ -42,12 +41,6 @@ const depsByStep = computed<Record<string, string[]>>(() => {
   }
   return map
 })
-
-function fmt(value: string | null | undefined): string {
-  if (!value) return '—'
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString()
-}
 
 async function load() {
   loading.value = true

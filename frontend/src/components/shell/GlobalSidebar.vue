@@ -2,7 +2,7 @@
 // Optimization V2 (M1.2)：全局一级导航。
 // 结构：Brand → Primary nav → Investigations 树（slot）→ Administration（折叠）→ footer。
 import { Boxes, ChevronDown, ChevronRight, MessageSquarePlus } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -33,8 +33,6 @@ const adminLinks = [
   { path: '/admin/observability', label: '可观测' },
   { path: '/admin/resilience', label: '韧性' },
 ] as const
-
-const adminActive = computed(() => route.path.startsWith('/admin'))
 </script>
 
 <template>

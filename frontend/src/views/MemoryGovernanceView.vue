@@ -3,11 +3,9 @@ import {
   AlertTriangle,
   Check,
   Eye,
-  FileClock,
   GitBranch,
   History,
   RefreshCw,
-  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-vue-next'

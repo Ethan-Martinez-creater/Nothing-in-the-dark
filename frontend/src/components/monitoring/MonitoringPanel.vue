@@ -98,7 +98,7 @@ async function loadAll() {
         void loadMonitorDetails(monitor.id)
       }
     }
-  } catch (err) {
+  } catch {
     error.value = '加载监测数据失败，请重试。'
   } finally {
     loading.value = false
