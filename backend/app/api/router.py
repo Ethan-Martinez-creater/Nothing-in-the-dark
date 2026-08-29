@@ -25,6 +25,7 @@ from app.api.routes import (
     projects,
     propagation,
     provenance,
+    reports,
     resilience,
     reviews,
     runs,
@@ -101,3 +102,5 @@ api_router.include_router(
 )
 api_router.include_router(signals.router, prefix="/signals", tags=["signals"])
 api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(reports.case_router, prefix="/cases", tags=["reports"])

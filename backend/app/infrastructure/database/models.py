@@ -2774,3 +2774,39 @@ class FindingSourceLinkRecord(Base):
             "source_type", "source_id", "source_path", name="uq_finding_source"
         ),
     )
+
+
+class ReportDocumentRecord(Base):
+    """M7：产品层报告文档（Draft/In Review/Published/Archived）。
+
+    Agent Report 仍以 Artifact 不可变保存；ReportDocument 是可编辑、可发布
+    的产品层。乐观锁 lock_version 与发布修订（family/supersedes）分离。
+    """
+
+    __tablename__ = "report_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    family_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id"), index=True, nullable=False
+    )
+    source_artifact_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("artifacts.id"), index=True, nullable=False
+    )
+    supersedes_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    content_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    lock_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_report_documents_case_status", "case_id", "status"),
+        Index("ix_report_documents_family", "family_id", "created_at"),
+    )

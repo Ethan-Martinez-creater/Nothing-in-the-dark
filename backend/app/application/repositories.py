@@ -91,6 +91,7 @@ from app.infrastructure.database.models import (
     QualityAssessmentRecord,
     RawSocialRecord,
     ReleaseGateRecord,
+    ReportDocumentRecord,
     ReviewAssignmentRecord,
     ReviewCommentRecord,
     ReviewDecisionRecord,
@@ -361,6 +362,12 @@ class ApplicationRepository:
             await session.execute(
                 delete(CollectionDefinitionRecord).where(
                     CollectionDefinitionRecord.case_id == case_id
+                )
+            )
+            # M7：report_documents 必须先于 artifacts 删除（FK 依赖）。
+            await session.execute(
+                delete(ReportDocumentRecord).where(
+                    ReportDocumentRecord.case_id == case_id
                 )
             )
             await session.execute(

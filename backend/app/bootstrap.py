@@ -31,6 +31,7 @@ from app.application.notification_service import (
 )
 from app.application.platform_profile import PlatformProfileService
 from app.application.provenance_service import ProvenanceService
+from app.application.report_document_service import ReportDocumentService
 from app.application.repositories import ApplicationRepository
 from app.application.resilience_service import ResilienceService
 from app.application.review_service import ReviewService
@@ -399,6 +400,8 @@ class ApplicationContainer:
         self.workspace_service = WorkspaceOverviewService(
             self.database, self.signal_service
         )
+        # M7: 产品层报告发布流。
+        self.report_document_service = ReportDocumentService(self.database)
         self.monitor_scheduler = MonitorScheduler(
             self.monitor_repository,
             self.social,
