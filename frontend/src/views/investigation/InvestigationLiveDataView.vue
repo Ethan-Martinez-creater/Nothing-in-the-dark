@@ -1,25 +1,36 @@
 <script setup lang="ts">
-// Optimization V2 (M5.6)：Live Data 工作区。
-// 回答"系统收集到了什么"：Platform Comparison + Media；Posts 列表在
-// 出现统一 raw-post 列表 API 前先经采集定义/证据页提供（不伪造完整列表）。
+// Optimization V2 (M5.6 + C8.3)：Live Data 工作区。
+// Tabs：Posts（原始帖子分页列表）/ Media / Platform Comparison。
+// 选中帖子进入 Copilot context（workspace=live_data）。
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import MediaPanel from '@/components/media/MediaPanel.vue'
 import PlatformComparisonCard from '@/components/platform/PlatformComparisonCard.vue'
+import PostsList from '@/components/livedata/PostsList.vue'
+import type { SocialPostDTO } from '@/types/api'
 import { useInvestigationContext } from '@/composables/useInvestigationContext'
 
 const route = useRoute()
 const caseId = computed(() => String(route.params.caseId ?? ''))
 
-type LiveDataTab = 'comparison' | 'media'
-const tab = ref<LiveDataTab>('comparison')
+type LiveDataTab = 'posts' | 'media' | 'comparison'
+const tab = ref<LiveDataTab>('posts')
 
 const { setUiContext } = useInvestigationContext()
 
 const tabLabels: Record<LiveDataTab, string> = {
-  comparison: '平台对比',
+  posts: 'Posts',
   media: '媒体',
+  comparison: '平台对比',
+}
+
+function onSelectPost(post: SocialPostDTO) {
+  setUiContext({
+    workspace: 'live_data',
+    selected_type: 'social_post',
+    selected_id: post.id,
+  })
 }
 
 onMounted(() => {
@@ -40,12 +51,12 @@ onMounted(() => {
       >
         {{ label }}
       </button>
-      <span class="ilive__note">原始帖列表将随后续采集定义深化提供。</span>
     </div>
 
     <div class="ilive__body">
-      <PlatformComparisonCard v-if="tab === 'comparison'" :case-id="caseId" />
-      <MediaPanel v-else :case-id="caseId" :open="true" />
+      <PostsList v-if="tab === 'posts'" :case-id="caseId" @select-post="onSelectPost" />
+      <MediaPanel v-else-if="tab === 'media'" :case-id="caseId" :open="true" />
+      <PlatformComparisonCard v-else :case-id="caseId" />
     </div>
   </div>
 </template>
@@ -80,12 +91,6 @@ onMounted(() => {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-}
-
-.ilive__note {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-soft);
 }
 
 .ilive__body {

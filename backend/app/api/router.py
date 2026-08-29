@@ -22,6 +22,7 @@ from app.api.routes import (
     narratives,
     notifications,
     platform_comparison,
+    posts,
     projects,
     propagation,
     provenance,
@@ -68,6 +69,7 @@ api_router.include_router(knowledge.router, prefix="/cases", tags=["knowledge"])
 api_router.include_router(
     propagation.router, prefix="/cases", tags=["propagation"]
 )
+api_router.include_router(posts.router, prefix="/cases", tags=["posts"])
 api_router.include_router(memories.router, prefix="/memories", tags=["memories"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(runs.router, prefix="/runs", tags=["agent-runs"])

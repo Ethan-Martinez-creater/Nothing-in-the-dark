@@ -171,6 +171,55 @@ class SocialRepository:
             )
             return result.all()
 
+    async def list_posts_page(
+        self,
+        case_id: str,
+        *,
+        platform: str | None = None,
+        q: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[SourcePostRecord]:
+        """C8.3: 分页 raw posts（platform/关键词/时间范围过滤， newest first）。"""
+        conditions = [SourcePostRecord.case_id == case_id]
+        if platform:
+            conditions.append(SourcePostRecord.platform == platform)
+        if q:
+            conditions.append(
+                or_(
+                    SourcePostRecord.content.ilike(f"%{q}%"),
+                    SourcePostRecord.title.ilike(f"%{q}%"),
+                )
+            )
+        if date_from is not None:
+            conditions.append(SourcePostRecord.published_at >= date_from)
+        if date_to is not None:
+            conditions.append(SourcePostRecord.published_at <= date_to)
+        async with self._database.session_factory() as session:
+            result = await session.scalars(
+                select(SourcePostRecord)
+                .where(*conditions)
+                .order_by(SourcePostRecord.published_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            return result.all()
+
+    async def list_post_time_rows(
+        self, case_id: str
+    ) -> list[tuple[datetime | None, str]]:
+        """C8.2: 轻量聚合原始行 —— (published_at, platform)，Python 侧按
+        天/平台聚合（双方言安全：不依赖 SQL date 函数）。"""
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    SourcePostRecord.published_at, SourcePostRecord.platform
+                ).where(SourcePostRecord.case_id == case_id)
+            )
+            return [(row[0], row[1]) for row in rows.all()]
+
     async def find_related_posts(
         self,
         case_id: str,
