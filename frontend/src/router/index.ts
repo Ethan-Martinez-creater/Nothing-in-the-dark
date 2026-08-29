@@ -117,6 +117,12 @@ export const router = createRouter({
           name: 'admin-resilience',
           component: () => import('@/views/ResilienceConsoleView.vue'),
         },
+        {
+          // C9.3: 订阅/端点/投递记录迁入 Administration → Notifications
+          path: 'notifications',
+          name: 'admin-notifications',
+          component: () => import('@/views/admin/AdministrationNotificationsView.vue'),
+        },
       ],
     },
     // ---- Legacy redirects（保留兼容，不删除旧路径）----
@@ -155,17 +161,16 @@ export const router = createRouter({
       path: '/resilience',
       redirect: '/admin/resilience',
     },
-    // ---- 旧独立页面路由（M5/M8 迁移：goals→Overview Plan、narratives→Timeline、
-    // semantics→Evidence/Semantics、subscriptions→按实际能力分流），M1 阶段保留原样 ----
+    // ---- 旧独立页面路由（C9 分流完成：semantics→Evidence/Semantics 子 tab、
+    // goals→Overview Plan、subscriptions→Administration/Notifications；
+    // share → Reports 卡片）。旧路径保留兼容重定向。----
     {
       path: '/goals',
-      name: 'goal-planning',
-      component: () => import('@/views/GoalPlanningView.vue'),
+      redirect: '/investigations',
     },
     {
       path: '/subscriptions',
-      name: 'subscriptions',
-      component: () => import('@/views/SubscriptionsView.vue'),
+      redirect: '/admin/notifications',
     },
     {
       path: '/narratives',
@@ -174,8 +179,7 @@ export const router = createRouter({
     },
     {
       path: '/semantics',
-      name: 'semantic-annotations',
-      component: () => import('@/views/SemanticAnnotationsView.vue'),
+      redirect: '/investigations',
     },
     {
       path: '/dashboard',

@@ -11,6 +11,7 @@ const route = useRoute()
 const tabs = [
   { path: '/admin/approvals', label: '审批' },
   { path: '/admin/reviews', label: '审核' },
+  { path: '/admin/notifications', label: '通知' },
   { path: '/admin/memories', label: '记忆' },
   { path: '/admin/security', label: '安全' },
   { path: '/admin/observability', label: '可观测' },

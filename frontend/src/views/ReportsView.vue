@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// Optimization V2 (M7.6)：全局报告中心。
-// 按状态分组（draft/in_review/published/archived）；跳转调查报告页编辑。
+// Optimization V2 (M7.6 + C9.3)：全局报告中心。
+// 按状态分组（draft/in_review/published/archived）；跳转调查报告页编辑；
+// 分享（share link）从旧 SubscriptionsView 迁入 report 卡片。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import { api } from '@/services/api'
 import {
   reportApi,
   type ReportDocument,
@@ -16,6 +18,8 @@ const reports = ref<ReportDocument[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const statusFilter = ref<ReportStatus | ''>('')
+const shareLinks = ref<Record<string, string>>({})
+const shareBusy = ref<Record<string, boolean>>({})
 
 const statusLabels: Record<ReportStatus, string> = {
   draft: '草稿',
@@ -44,6 +48,24 @@ async function load() {
 
 function open(report: ReportDocument) {
   router.push(`/investigations/${report.case_id}/report`)
+}
+
+// C9.3: Report 分享 —— 生成 72h share link 并展示
+async function share(report: ReportDocument) {
+  if (shareBusy.value[report.id]) return
+  shareBusy.value = { ...shareBusy.value, [report.id]: true }
+  try {
+    const result = await api.createShareLink(report.case_id, {
+      target_type: 'report',
+      target_id: report.id,
+      expires_in_hours: 72,
+    })
+    shareLinks.value = { ...shareLinks.value, [report.id]: result.token }
+  } catch {
+    error.value = '分享链接生成失败，请重试。'
+  } finally {
+    shareBusy.value = { ...shareBusy.value, [report.id]: false }
+  }
 }
 
 onMounted(load)
@@ -83,6 +105,19 @@ onMounted(load)
             更新于 {{ new Date(report.updated_at).toLocaleString('zh-CN') }}
           </span>
         </button>
+        <div class="rview__share">
+          <button
+            type="button"
+            class="rview__share-btn"
+            :disabled="!!shareBusy[report.id]"
+            @click.stop="share(report)"
+          >
+            {{ shareLinks[report.id] ? '重新生成分享' : '分享' }}
+          </button>
+          <code v-if="shareLinks[report.id]" class="rview__share-link">
+            {{ shareLinks[report.id] }}
+          </code>
+        </div>
       </li>
     </ul>
   </div>
@@ -144,6 +179,33 @@ onMounted(load)
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 10px;
+}
+
+.rview__share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.rview__share-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rview__share-link {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 .rview__card {

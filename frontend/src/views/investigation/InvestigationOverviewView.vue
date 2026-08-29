@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// Optimization V2 (M3.9)：Investigation Overview。
-// Scope（Active Collection Definition）+ 当前状态；Copilot 由 Shell 右侧提供。
-// M5/M6 逐步补充 Investigation Plan / Latest Outputs / Monitoring 卡。
+// Optimization V2 (M3.9 + C9.2)：Investigation Overview。
+// Scope（Active Collection Definition）+ 当前状态 + Plan 区域（M5.7 迁入
+// 的显式目标与计划图）。Copilot 由 Shell 右侧提供。
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import CollectionDefinitionCard from '@/components/collection/CollectionDefinitionCard.vue'
+import GoalPlanPanel from '@/components/goals/GoalPlanPanel.vue'
 import { api } from '@/services/api'
 import type { AgentRun, Artifact, CaseRecord } from '@/types/api'
 
@@ -61,6 +62,11 @@ onMounted(async () => {
         :case-id="caseId"
         :case-platforms="investigation?.platforms ?? []"
       />
+
+      <section class="ioverview__plan" aria-label="调查计划">
+        <h3 class="ioverview__plan-title">Plan · 目标与计划图</h3>
+        <GoalPlanPanel :case-id="caseId" />
+      </section>
     </template>
   </div>
 </template>
@@ -103,5 +109,21 @@ onMounted(async () => {
 .ioverview__stat-label {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.ioverview__plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.ioverview__plan-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 </style>

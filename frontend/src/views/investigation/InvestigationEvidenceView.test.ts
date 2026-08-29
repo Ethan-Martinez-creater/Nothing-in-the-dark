@@ -13,6 +13,14 @@ vi.mock('@/composables/useInvestigationContext', () => ({
   useInvestigationContext: () => ({ setUiContext }),
 }))
 
+vi.mock('@/components/semantics/SemanticAnnotationsPanel.vue', () => ({
+  default: {
+    name: 'SemanticAnnotationsPanel',
+    template: '<div data-stub="semantics" />',
+    props: ['caseId'],
+  },
+}))
+
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { caseId: 'case-1' } }),
 }))
@@ -133,6 +141,19 @@ describe('InvestigationEvidenceView', () => {
     const wrapper = mount(InvestigationEvidenceView)
     await flushPromises()
     expect(wrapper.text()).toContain('证据加载失败')
+  })
+
+  it('shows semantics panel on semantics tab (C9.1)', async () => {
+    const wrapper = mount(InvestigationEvidenceView)
+    await flushPromises()
+    const tabs = wrapper.findAll('.iev__tab')
+    await tabs[1]!.trigger('click')
+    const stub = wrapper.find('[data-stub="semantics"]')
+    expect(stub.exists()).toBe(true)
+    expect(stub.attributes('caseid')).toBeUndefined() // caseId 经 prop 传递
+    expect(
+      wrapper.findComponent({ name: 'SemanticAnnotationsPanel' }).props('caseId'),
+    ).toBe('case-1')
   })
 
   it('shows empty guide when no evidence exists', async () => {
