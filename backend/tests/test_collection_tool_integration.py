@@ -9,9 +9,17 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
+import pytest
+
+from app.application.collection_service import CollectionDefinitionService
+from app.application.repositories import ApplicationRepository
+from app.core.errors import ApplicationError
 from app.harness.tool_factory import build_tool_registry
+from app.infrastructure.database import Database
+from app.schemas.cases import CreateCaseRequest
 from app.services.crawl_coverage import CrawlRequest
 
 
@@ -50,6 +58,7 @@ class FakeActiveDefinition:
     version = 3
     platform_queries = {"weibo": ["召回"], "bilibili": ["自燃"]}
     exclusions: list[str] = []
+    filters: dict[str, Any] = {}
 
 
 class FakeCollectionService:
@@ -146,3 +155,118 @@ async def test_crawl_definition_subset_platform_falls_back_to_topic() -> None:
         "weibo": ["召回"],
         "zhihu": ["新能源汽车"],
     }
+
+
+class FlexibleCrawler:
+    """C6：返回预置 posts（含 comments），用于 exclusions 过滤验证。"""
+
+    def __init__(self, posts: list[dict[str, object]]) -> None:
+        self.posts = posts
+        self.requests: list[CrawlRequest] = []
+
+    async def collect(self, request: Any) -> list[dict[str, object]]:
+        self.requests.append(request)
+        return list(self.posts)
+
+
+async def test_crawl_exclusions_filter_posts_with_audit_stats() -> None:
+    crawler = FlexibleCrawler(
+        [
+            {"id": "p1", "platform": "weibo", "title": "正常讨论", "content": "延期开学影响"},
+            {"id": "p2", "platform": "weibo", "title": "推广", "content": "点击广告链接"},
+            {"id": "p3", "platform": "weibo", "content": "Title 含 Exclusion 大小写不敏感",
+             "comments": [{"id": "c1"}]},
+        ]
+    )
+    definition = FakeActiveDefinition()
+    definition.exclusions = ["广告", "exclusion"]
+    service = FakeCollectionService(definition)
+    registry = build_tool_registry(crawler, llm=None, collection_service=service)
+    registry.set_sandbox_executor(CrawlerSandboxStub(crawler))
+
+    result = await registry.invoke(
+        "collect_social_posts",
+        {
+            "case_id": "case-1",
+            "topic": "延期开学",
+            "platforms": ["weibo"],
+            "time_range": {},
+        },
+    )
+
+    # keyword 路径不受影响（active definition 继续生效）
+    assert crawler.requests[0].keywords == {"weibo": ["召回"]}
+    # 命中排除词（大小写不敏感 substring）的 post 被剔除，comment 跟随父记录
+    returned_ids = [post["id"] for post in result["posts"]]
+    assert returned_ids == ["p1"]
+    assert result["collection_filter_stats"] == {"before": 3, "after": 1, "excluded": 2}
+
+
+async def test_crawl_without_active_definition_has_no_filter_stats() -> None:
+    crawler = FlexibleCrawler(
+        [{"id": "p1", "platform": "weibo",
+          "content": "这条帖子内容足够长，可以通过 coverage 的最短文本门槛检查。"}]
+    )
+    service = FakeCollectionService(None)
+    registry = build_tool_registry(crawler, llm=None, collection_service=service)
+    registry.set_sandbox_executor(CrawlerSandboxStub(crawler))
+
+    result = await registry.invoke(
+        "collect_social_posts",
+        {
+            "case_id": "case-1",
+            "topic": "新能源汽车",
+            "platforms": ["weibo"],
+            "time_range": {},
+        },
+    )
+    assert "collection_filter_stats" not in result
+    assert len(result["posts"]) == 1
+
+
+async def test_crawl_unknown_filter_key_fails_closed() -> None:
+    crawler = FlexibleCrawler([])
+    definition = FakeActiveDefinition()
+    definition.filters = {"some_unknown_key": True}
+    service = FakeCollectionService(definition)
+    registry = build_tool_registry(crawler, llm=None, collection_service=service)
+    registry.set_sandbox_executor(CrawlerSandboxStub(crawler))
+
+    with pytest.raises(ApplicationError) as exc:
+        await registry.invoke(
+            "collect_social_posts",
+            {
+                "case_id": "case-1",
+                "topic": "新能源汽车",
+                "platforms": ["weibo"],
+                "time_range": {},
+            },
+        )
+    assert exc.value.code == "collection_filter_unsupported"
+
+
+async def test_collection_service_rejects_unknown_filter_on_save(tmp_path: Path) -> None:
+    """C6：保存时未知 filter key 同样拒绝（不允许保存成功、运行时忽略）。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'cf.db'}")
+    await database.create_schema()
+    repository = ApplicationRepository(database)
+    case = await repository.create_case(
+        CreateCaseRequest(topic="过滤校验", platforms=["weibo"])
+    )
+    service = CollectionDefinitionService(database)
+    with pytest.raises(ApplicationError) as exc:
+        await service.create_manual(
+            case.id,
+            goal="收集讨论",
+            platforms=["weibo"],
+            filters={"boolean_query": "a OR b"},
+        )
+    assert exc.value.code == "collection_filter_unsupported"
+    # generated_by 是内部保留键，允许保存
+    record = await service.create_manual(
+        case.id,
+        goal="收集讨论",
+        platforms=["weibo"],
+        filters={"generated_by": "llm"},
+    )
+    assert record.filters == {"generated_by": "llm"}

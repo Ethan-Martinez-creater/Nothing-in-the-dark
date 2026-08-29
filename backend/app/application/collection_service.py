@@ -14,6 +14,7 @@ from app.harness.search_optimizer import generate_platform_keywords
 from app.infrastructure.database.collection_repository import CollectionRepository
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import CaseRecord, CollectionDefinitionRecord
+from app.services.collection_filters import validate_collection_filters
 
 _MAX_QUERY_LENGTH = 200
 
@@ -112,6 +113,8 @@ class CollectionDefinitionService:
             raise ApplicationError(
                 "goal must not be empty", code="collection_validation_failed"
             )
+        # C6：未知 filter key 在保存时就拒绝（不出现"保存成功、运行时忽略"）
+        validate_collection_filters(filters)
         record = CollectionDefinitionRecord(
             case_id=case_id,
             version=await self._repository.max_version(case_id) + 1,
@@ -185,6 +188,8 @@ class CollectionDefinitionService:
             raise ApplicationError(
                 "goal must not be empty", code="collection_validation_failed"
             )
+        filters = dict(filters) if filters is not None else dict(previous.filters or {})
+        validate_collection_filters(filters)
         record = CollectionDefinitionRecord(
             case_id=case_id,
             version=await self._repository.max_version(case_id) + 1,
@@ -200,7 +205,7 @@ class CollectionDefinitionService:
             exclusions=_clean_str_list(
                 exclusions if exclusions is not None else list(previous.exclusions or [])
             ),
-            filters=dict(filters) if filters is not None else dict(previous.filters or {}),
+            filters=filters,
         )
         return await self._repository.create(record)
 

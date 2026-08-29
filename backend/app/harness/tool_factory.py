@@ -34,6 +34,10 @@ from app.services.analysis import (
 )
 from app.services.classifiers import ModelSentimentClassifier
 from app.services.crawl_coverage import apply_coverage, format_coverage_memory
+from app.services.collection_filters import (
+    apply_collection_exclusions,
+    validate_collection_filters,
+)
 from app.services.platform_comparison import build_platform_comparison
 
 _DISPATCH_TIMEOUT_SECONDS = 600.0
@@ -472,6 +476,7 @@ def build_tool_registry(
         # case_id 仍由 Runtime scope 注入；approval/sandbox 顺序完全不变。
         keywords: dict[str, list[str]] | None = None
         collection_ref: dict[str, Any] | None = None
+        collection_exclusions: list[str] | None = None
         if request.case_id and collection_service is not None:
             try:
                 active = await collection_service.get_active(request.case_id)
@@ -484,6 +489,9 @@ def build_tool_registry(
                     fallback_topic=request.topic,
                 )
                 collection_ref = {"id": active.id, "version": active.version}
+                # C6：未知 filter key 运行时同样 fail closed（防御保存旁路）
+                validate_collection_filters(active.filters)
+                collection_exclusions = list(active.exclusions or [])
         if keywords is None:
             # LLM 检索优化：按平台特点生成多组检索关键词（失败回退 topic）。
             keywords = await generate_platform_keywords(
@@ -514,6 +522,11 @@ def build_tool_registry(
             *(collect_platform(platform) for platform in request.platforms)
         )
         raw_posts = [post for result in platform_results for post in result]
+        # C6：active definition 的 exclusions 在 coverage/persistence 前过滤；
+        # comment 跟随父记录。无 active definition 时保持旧路径。
+        raw_posts, collection_filter_stats = apply_collection_exclusions(
+            raw_posts, collection_exclusions
+        )
         coverage = apply_coverage(
             raw_posts,
             CrawlRequest(
@@ -638,6 +651,8 @@ def build_tool_registry(
         # M3: 采集定义审计引用（使用 Active Definition 时附带 id/version）。
         if collection_ref is not None:
             result["collection_definition"] = collection_ref
+            # C6: exclusions 过滤审计（before/after/excluded）。
+            result["collection_filter_stats"] = collection_filter_stats
         return result
 
     async def classify_sentiment(arguments: BaseModel) -> dict[str, Any]:
