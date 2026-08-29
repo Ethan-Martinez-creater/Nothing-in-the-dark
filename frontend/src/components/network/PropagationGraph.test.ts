@@ -72,6 +72,19 @@ function makeGraph(overrides: Partial<PropagationGraphDTO> = {}): PropagationGra
   }
 }
 
+interface GraphOption {
+  series: Array<{
+    data: Array<Record<string, unknown>>
+    links: Array<Record<string, unknown>>
+  }>
+}
+
+function firstGraphOption(): GraphOption {
+  const arg = setOption.mock.calls[0]?.[0]
+  if (!arg) throw new Error('expected setOption to be called')
+  return arg as GraphOption
+}
+
 describe('PropagationGraph', () => {
   it('shows loading state', () => {
     const wrapper = mount(PropagationGraph, {
@@ -98,36 +111,29 @@ describe('PropagationGraph', () => {
     setOption.mockClear()
     mount(PropagationGraph, { props: { graph: makeGraph(), loading: false, error: '' } })
     expect(setOption).toHaveBeenCalled()
-    const option = setOption.mock.calls[0][0] as {
-      series: Array<{
-        data: Array<Record<string, unknown>>
-        links: Array<Record<string, unknown>>
-      }>
-    }
-    const series = option.series[0]
+    const option = firstGraphOption()
+    const series = option.series[0]!
     expect(series.data).toHaveLength(2)
     // 主 role 取最高分 source；尺寸映射 score
     expect(series.data[0]).toMatchObject({ id: 'p1', role: 'source', score: 0.9 })
     // 未确认边 → 推断虚线
-    expect(series.links[0]).toMatchObject({
+    const link = series.links[0]!
+    expect(link).toMatchObject({
       id: 'edge-1',
       source: 'p1',
       target: 'p2',
     })
-    expect((series.links[0].lineStyle as Record<string, unknown>).type).toBe('dashed')
+    expect((link.lineStyle as Record<string, unknown>).type).toBe('dashed')
   })
 
   it('renders confirmed edges as solid lines', async () => {
     setOption.mockClear()
     const graph = makeGraph()
-    graph.edges[0].human_confirmed = true
+    graph.edges[0]!.human_confirmed = true
     mount(PropagationGraph, { props: { graph, loading: false, error: '' } })
-    const option = setOption.mock.calls[0][0] as {
-      series: Array<{ links: Array<Record<string, unknown>> }>
-    }
-    expect((option.series[0].links[0].lineStyle as Record<string, unknown>).type).toBe(
-      'solid',
-    )
+    const option = firstGraphOption()
+    const link = option.series[0]!.links[0]!
+    expect((link.lineStyle as Record<string, unknown>).type).toBe('solid')
   })
 
   it('emits node selection on chart click', async () => {
