@@ -6,6 +6,7 @@ from app.api.routes import (
     approvals,
     artifacts,
     cases,
+    collections,
     debates,
     evaluation,
     evidence,
@@ -86,4 +87,7 @@ api_router.include_router(
 )
 api_router.include_router(
     uncertainty.router, prefix="/cases", tags=["uncertainty"]
+)
+api_router.include_router(
+    collections.router, prefix="/cases", tags=["collections"]
 )

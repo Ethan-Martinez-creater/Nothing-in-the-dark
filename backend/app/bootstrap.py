@@ -9,6 +9,7 @@ from app.application.agent_service import AgentRunService
 from app.application.alignment_service import AlignmentService
 from app.application.analysis_job_worker import AnalysisJobWorker
 from app.application.authorization_service import AuthorizationService
+from app.application.collection_service import CollectionDefinitionService
 from app.application.context_builder import ContextBuilder
 from app.application.conversation_summary import ConversationSummarizer
 from app.application.debate_service import DebateService
@@ -191,6 +192,10 @@ class ApplicationContainer:
             telemetry=self.telemetry,
             write_policy_version=settings.memory_governance_policy_version,
         )
+        # M3: 采集定义服务（版本化 Active Definition；crawl 工具运行时读取）。
+        self.collection_service = CollectionDefinitionService(
+            self.database, self.llm
+        )
         self.tools = build_tool_registry(
             self.crawler,
             self.skills,
@@ -202,6 +207,7 @@ class ApplicationContainer:
             self.llm,
             security=self.content_security,
             governance=self.memory_governance,
+            collection_service=self.collection_service,
         )
         execution_class = settings.tool_sandbox_execution
         if execution_class == "container" and not container_supported():

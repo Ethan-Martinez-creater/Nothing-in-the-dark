@@ -280,6 +280,10 @@ export interface RunTrace {
   tool_calls: ToolCallTrace[]
   approvals: ApprovalTrace[]
   events: RunEvent[]
+  // 费用累计（后端 RunTraceResponse；旧响应可能缺省）
+  model_cost_total?: number
+  tool_cost_total?: number
+  total_cost?: number
 }
 
 // ---------- 审批卡片（来自 approval_pending / approval_required 事件 payload） ----------

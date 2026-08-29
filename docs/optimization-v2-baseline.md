@@ -33,7 +33,9 @@
 
 ## 后端基线
 
-（pytest 全量结果待补）
+- `pytest`（全量，2026-08-29 基线）：**778 passed / 0 failed**（2h30m，Windows 本机）
+- `ruff check app tests`：**All checks passed**
+- pytest addopts：`--basetemp=.pytest-tmp`（backend 目录内），asyncio_mode=auto
 
 ## 兼容性关键行为快照（M0.2 核对项）
 

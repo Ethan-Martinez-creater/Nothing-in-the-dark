@@ -28,8 +28,9 @@ export const router = createRouter({
         {
           path: 'overview',
           name: 'investigation-overview',
-          // M2.3 过渡：概览仍渲染旧工作台（含 Copilot 入口），M2.4/M2.5 后拆分。
-          component: () => import('@/views/CaseWorkspaceView.vue'),
+          // M3.9：Overview 正式页面（Scope/Collection + 状态）；旧工作台
+          // CaseWorkspaceView 保留至 M8 删除（Part VIII 迁移矩阵）。
+          component: () => import('@/views/investigation/InvestigationOverviewView.vue'),
         },
         {
           path: 'live-data',

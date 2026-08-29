@@ -14,6 +14,7 @@ import {
 import { computed, onMounted, ref } from 'vue'
 
 import { api } from '@/services/api'
+import { collectionApi, type CollectionDefinition } from '@/services/api/collections'
 import type {
   AlertRule,
   MonitorAlert,
@@ -117,16 +118,38 @@ async function loadMonitorDetails(monitorId: string) {
   }
 }
 
+// M3.8: 创建 Monitor 时从 Active Collection Definition 预填并保存
+// snapshot（后端不动态追踪 active version，保证历史执行可复现）。
+const activeCollection = ref<CollectionDefinition | null>(null)
+
+onMounted(async () => {
+  try {
+    activeCollection.value = await collectionApi.getActive(props.caseId)
+  } catch {
+    activeCollection.value = null
+  }
+})
+
 async function createMonitor() {
   if (!newName.value.trim() || creating.value) return
   creating.value = true
   actionError.value = ''
   try {
+    const collection = activeCollection.value
+    const querySpec: Record<string, unknown> | undefined = collection
+      ? {
+          collection_definition_id: collection.id,
+          collection_definition_version: collection.version,
+          platform_queries: collection.platform_queries,
+          exclusions: collection.exclusions,
+        }
+      : undefined
     await api.createMonitor(props.caseId, {
       name: newName.value.trim(),
       schedule_type: 'interval',
       interval_seconds: newInterval.value,
       platforms: newPlatforms.value.split(',').map((s) => s.trim()).filter(Boolean),
+      ...(querySpec ? { query_spec: querySpec } : {}),
     })
     newName.value = ''
     showCreate.value = false

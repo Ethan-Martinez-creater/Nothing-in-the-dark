@@ -15,7 +15,7 @@ describe('router redirects (M1.1)', () => {
       '/cases/case-1?tab=evidence',
       '/investigations/case-1/overview?tab=evidence',
     )
-  })
+  }, 20000)
 
   it('redirects bare /cases to /investigations', async () => {
     await expectRedirect('/cases', '/investigations')

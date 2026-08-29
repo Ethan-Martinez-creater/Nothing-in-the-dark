@@ -235,11 +235,13 @@ export const api = {
     content: string,
     approveCrawl = false,
     artifactId?: string,
+    uiContext?: Record<string, unknown>,
   ): Promise<AgentRun> {
     const { data } = await http.post<AgentRun>(`/cases/${caseId}/messages`, {
       content,
       approve_crawl: approveCrawl,
       ...(artifactId ? { artifact_id: artifactId } : {}),
+      ...(uiContext ? { ui_context: uiContext } : {}),
     })
     return data
   },

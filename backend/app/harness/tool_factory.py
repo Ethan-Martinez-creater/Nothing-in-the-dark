@@ -328,6 +328,7 @@ def build_tool_registry(
     llm: LLMGateway | None = None,
     security: Any = None,
     governance: Any = None,
+    collection_service: Any = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     platform_semaphores: dict[str, asyncio.Semaphore] = {}
@@ -466,10 +467,28 @@ def build_tool_registry(
 
     async def crawl(arguments: BaseModel) -> dict[str, Any]:
         request = CrawlInput.model_validate(arguments)
-        # LLM 检索优化：按平台特点生成多组检索关键词（失败回退 topic）。
-        keywords = await generate_platform_keywords(
-            llm, request.topic, request.platforms
-        )
+        # M3: 优先使用该 case 的 Active Collection Definition（关键词/
+        # 排除词由用户确认的定义提供）；无定义时回退既有 LLM 检索优化。
+        # case_id 仍由 Runtime scope 注入；approval/sandbox 顺序完全不变。
+        keywords: dict[str, list[str]] | None = None
+        collection_ref: dict[str, Any] | None = None
+        if request.case_id and collection_service is not None:
+            try:
+                active = await collection_service.get_active(request.case_id)
+            except Exception:
+                active = None
+            if active is not None:
+                keywords = collection_service.keywords_for(
+                    active,
+                    requested_platforms=list(request.platforms),
+                    fallback_topic=request.topic,
+                )
+                collection_ref = {"id": active.id, "version": active.version}
+        if keywords is None:
+            # LLM 检索优化：按平台特点生成多组检索关键词（失败回退 topic）。
+            keywords = await generate_platform_keywords(
+                llm, request.topic, request.platforms
+            )
 
         # M15 强制沙箱：采集（外部副作用段）必须通过受限子进程执行；
         # 未装配沙箱执行器时 fail closed（绝不降级裸跑）。
@@ -610,12 +629,16 @@ def build_tool_registry(
             comments = post.get("comments")
             if isinstance(comments, list):
                 comment_count += len(comments)
-        return {
+        result: dict[str, Any] = {
             "posts": public_posts,
             "comment_count": comment_count,
             "persistence": persisted,
             "coverage": coverage.stats.to_dict(),
         }
+        # M3: 采集定义审计引用（使用 Active Definition 时附带 id/version）。
+        if collection_ref is not None:
+            result["collection_definition"] = collection_ref
+        return result
 
     async def classify_sentiment(arguments: BaseModel) -> dict[str, Any]:
         request = SentimentInput.model_validate(arguments)

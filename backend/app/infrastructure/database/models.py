@@ -12,10 +12,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -2658,3 +2660,43 @@ class MemoryConflictRecord(Base):
     )
 
     __table_args__ = (UniqueConstraint("memory_id", "conflicting_memory_id"),)
+
+
+class CollectionDefinitionRecord(Base):
+    """M3：显式采集定义（版本化）。
+
+    每个调查可拥有多个版本，至多一个 active；激活新版本时旧 active 由
+    service 事务置为 superseded。版本不可变，修改只能产生新版本。
+    """
+
+    __tablename__ = "collection_definitions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id"), index=True, nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    goal: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    platforms: Mapped[list[Any]] = mapped_column(_Utf8JSON, default=list)
+    platform_queries: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    exclusions: Mapped[list[Any]] = mapped_column(_Utf8JSON, default=list)
+    filters: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    generated_by_run_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("agent_runs.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "version", name="uq_collection_case_version"),
+        Index(
+            "uq_collection_case_active",
+            "case_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
