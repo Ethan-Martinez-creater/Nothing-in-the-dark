@@ -17,6 +17,7 @@ from app.application.repositories import ApplicationRepository
 from app.core.config import Settings
 from app.core.errors import ApplicationError
 from app.infrastructure.database import Database
+from app.infrastructure.database.models import ReportDocumentRecord
 from app.main import create_app
 from app.schemas.cases import CreateCaseRequest
 
@@ -119,6 +120,200 @@ async def test_publish_blocked_without_content(tmp_path: Path) -> None:
     with pytest.raises(ApplicationError) as exc:
         await service.change_status(case_id, draft.id, "published")
     assert exc.value.code == "report_publish_validation_failed"
+
+
+async def _import_with_citations(
+    repository: ApplicationRepository,
+    service: ReportDocumentService,
+    case_id: str,
+    citation_links: list,
+    tmp_path: Path,
+    name: str,
+) -> ReportDocumentRecord:
+    artifact = await repository.create_artifact(
+        case_id=case_id,
+        run_id=None,
+        kind="report",
+        title=f"报告 {name}",
+        data={
+            "title": "发布校验报告",
+            "summary": "摘要内容。",
+            "sections": [{"title": "背景", "content": "时间线。"}],
+            "citation_links": citation_links,
+        },
+    )
+    return await service.import_from_artifact(case_id, artifact.id)
+
+
+async def test_citation_evidence_ids_array_validation(tmp_path: Path) -> None:
+    """C3：evidence_ids[] 逐条校验（合法通过；不存在/跨 case 阻止发布）。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'r7.db'}")
+    repository, service, case_id = await _seed(database)
+    other = await repository.create_case(
+        CreateCaseRequest(topic="其他案例", platforms=["weibo"])
+    )
+    from app.infrastructure.database.models import EvidenceRecord
+
+    async with database.session_factory() as session:
+        session.add(
+            EvidenceRecord(
+                id="ev-2", case_id=case_id, source_type="social_post",
+                source_id="p-2", excerpt="ev-2 摘录",
+            )
+        )
+        session.add(
+            EvidenceRecord(
+                id="ev-cross", case_id=other.id, source_type="social_post",
+                source_id="p-3", excerpt="他 case 摘录",
+            )
+        )
+        await session.commit()
+
+    # evidence_ids[] 全合法（真实 Report Agent 形状）→ publish 成功
+    draft = await _import_with_citations(
+        repository, service, case_id,
+        [{"conclusion": "结论一", "evidence_ids": ["ev-1", "ev-2"]}],
+        tmp_path, "ok",
+    )
+    published = await service.change_status(case_id, draft.id, "published")
+    assert published.status == "published"
+
+    # 含不存在 Evidence → publish 失败，details 定位到具体元素
+    draft_bad = await _import_with_citations(
+        repository, service, case_id,
+        [{"conclusion": "结论二", "evidence_ids": ["ev-1", "ev-ghost"]}],
+        tmp_path, "missing",
+    )
+    with pytest.raises(ApplicationError) as exc:
+        await service.change_status(case_id, draft_bad.id, "published")
+    assert exc.value.code == "report_publish_validation_failed"
+    assert exc.value.details == [
+        {"field": "citation_links[0].evidence_ids[1]", "issue": "evidence_not_found"}
+    ]
+
+    # 含跨 Case Evidence → publish 失败
+    draft_cross = await _import_with_citations(
+        repository, service, case_id,
+        [{"conclusion": "结论三", "evidence_ids": ["ev-cross"]}],
+        tmp_path, "cross",
+    )
+    with pytest.raises(ApplicationError) as exc:
+        await service.change_status(case_id, draft_cross.id, "published")
+    assert exc.value.code == "report_publish_validation_failed"
+    assert exc.value.details == [
+        {"field": "citation_links[0].evidence_ids[0]", "issue": "evidence_not_in_case"}
+    ]
+
+
+async def test_citation_finding_artifact_and_generic_refs(tmp_path: Path) -> None:
+    """C3：finding/artifact 引用合法；generic ref 可解析；unknown shape 阻止。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'r8.db'}")
+    repository, service, case_id = await _seed(database)
+    from app.infrastructure.database.models import FindingRecord
+
+    finding = FindingRecord(
+        case_id=case_id, kind="opinion", title="结论标题",
+        statement="传播存在协同", status="candidate",
+    )
+    async with database.session_factory() as session:
+        session.add(finding)
+        await session.commit()
+    artifact = await repository.create_artifact(
+        case_id=case_id, run_id=None, kind="opinion_analysis",
+        title="来源 artifact", data={"conclusions": []},
+    )
+
+    # finding 引用 + artifact 引用 + generic ref 混合 → 全部可解析，publish 成功
+    draft = await _import_with_citations(
+        repository, service, case_id,
+        [
+            {"conclusion": "结论 A", "finding_ids": [finding.id]},
+            {"artifact_id": artifact.id},
+            {"ref": finding.id},  # generic：在 case 内解析为 Finding
+        ],
+        tmp_path, "mixed",
+    )
+    published = await service.change_status(case_id, draft.id, "published")
+    assert published.status == "published"
+
+    # unknown dict shape（无任何可解析引用）→ 阻止并给出 unresolvable_ref
+    draft_unknown = await _import_with_citations(
+        repository, service, case_id,
+        [{"conclusion": "只有文字没有引用"}],
+        tmp_path, "unknown",
+    )
+    with pytest.raises(ApplicationError) as exc:
+        await service.change_status(case_id, draft_unknown.id, "published")
+    assert exc.value.code == "report_publish_validation_failed"
+    assert exc.value.details == [
+        {"field": "citation_links[0]", "issue": "unresolvable_ref"}
+    ]
+
+    # generic ref 指向不存在对象 → unresolvable_ref
+    draft_ghost = await _import_with_citations(
+        repository, service, case_id,
+        [{"ref": "no-such-object"}],
+        tmp_path, "ghost",
+    )
+    with pytest.raises(ApplicationError) as exc:
+        await service.change_status(case_id, draft_ghost.id, "published")
+    assert exc.value.code == "report_publish_validation_failed"
+    assert exc.value.details == [
+        {"field": "citation_links[0].ref", "issue": "unresolvable_ref"}
+    ]
+
+
+async def test_report_api_cross_case_citation_blocked(tmp_path: Path) -> None:
+    """C3 API 层：跨 case citation 的 publish 被 400 + details 阻止。"""
+    app = create_app(
+        Settings(
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'r9.db'}",
+            demo_mode=True,
+        )
+    )
+    with TestClient(app) as client:
+        case_id = client.post(
+            "/api/v1/cases", json={"topic": "API 引用案例", "platforms": ["weibo"]}
+        ).json()["id"]
+        other_id = client.post(
+            "/api/v1/cases", json={"topic": "其他案例", "platforms": ["weibo"]}
+        ).json()["id"]
+
+        container = app.state.container
+        from app.infrastructure.database.models import EvidenceRecord
+
+        async with container.database.session_factory() as session:
+            session.add(
+                EvidenceRecord(
+                    id="ev-other", case_id=other_id, source_type="social_post",
+                    source_id="p-9", excerpt="他 case 摘录",
+                )
+            )
+            await session.commit()
+        artifact = await container.repository.create_artifact(
+            case_id=case_id, run_id=None, kind="report", title="跨引用报告",
+            data={
+                "title": "API 发布校验",
+                "summary": "摘要。",
+                "sections": [{"title": "s", "content": "c"}],
+                "citation_links": [{"evidence_ids": ["ev-other"]}],
+            },
+        )
+        imported = client.post(
+            f"/api/v1/cases/{case_id}/reports:from-artifact",
+            json={"artifact_id": artifact.id},
+        )
+        assert imported.status_code in (200, 201), imported.text
+        report_id = imported.json()["id"]
+
+        blocked = client.post(
+            f"/api/v1/cases/{case_id}/reports/{report_id}:publish",
+        )
+        assert blocked.status_code == 400
+        assert blocked.json()["code"] == "report_publish_validation_failed"
+        assert blocked.json()["details"] == [
+            {"field": "citation_links[0].evidence_ids[0]", "issue": "evidence_not_in_case"}
+        ]
 
 
 async def test_stale_lock_version_conflicts(tmp_path: Path) -> None:

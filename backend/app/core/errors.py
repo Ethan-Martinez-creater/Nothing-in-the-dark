@@ -5,10 +5,17 @@ from fastapi.responses import JSONResponse
 
 
 class ApplicationError(Exception):
-    def __init__(self, message: str, *, code: str = "application_error") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "application_error",
+        details: list[dict[str, str]] | dict[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
+        self.details = details
 
 
 class ResourceNotFoundError(ApplicationError):
@@ -81,7 +88,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         status_code = status.HTTP_400_BAD_REQUEST
         if isinstance(exc, A2ARemoteNotDeployedError):
             status_code = status.HTTP_501_NOT_IMPLEMENTED
-        return JSONResponse(
-            status_code=status_code,
-            content={"code": exc.code, "message": exc.message},
-        )
+        content: dict[str, object] = {"code": exc.code, "message": exc.message}
+        if exc.details:
+            content["details"] = exc.details
+        return JSONResponse(status_code=status_code, content=content)
