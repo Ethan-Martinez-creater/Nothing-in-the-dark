@@ -181,6 +181,49 @@ export interface PropagationGraphDTO {
   edges: PropagationGraphEdgeDTO[]
 }
 
+/** C5/C8: Provenance 一跳上下游响应（GET /cases/{id}/provenance/...）。 */
+export interface ProvenanceRefDTO {
+  type: string
+  id: string
+  relation?: string | null
+  label?: string | null
+}
+
+export interface ProvenanceResponse {
+  root: ProvenanceRefDTO
+  upstream: ProvenanceRefDTO[]
+  downstream: ProvenanceRefDTO[]
+  warnings: Record<string, string>[]
+}
+
+/** C8.3: 原始帖子（分页列表项，仅稳定字段）。 */
+export interface SocialPostDTO {
+  id: string
+  platform: string
+  native_id: string
+  content_type: string
+  title: string
+  content: string
+  author_name: string
+  source_url: string
+  published_at: string | null
+  engagement: Record<string, unknown>
+}
+
+export interface PostsPageDTO {
+  posts: SocialPostDTO[]
+  limit: number
+  offset: number
+  has_more: boolean
+}
+
+/** C8.2: 帖子时间聚合（Volume/Platform Timeline 源数据）。 */
+export interface PostsStatsDTO {
+  total: number
+  volume_by_day: Array<{ day: string; count: number }>
+  platform_by_day: Array<{ platform: string; day: string; count: number }>
+}
+
 export interface OriginCandidate {
   node_id: string
   confidence: number

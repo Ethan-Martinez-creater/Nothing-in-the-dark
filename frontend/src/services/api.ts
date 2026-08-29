@@ -44,6 +44,9 @@ import type {
   Project,
   PropagationEdgeState,
   PropagationGraphDTO,
+  ProvenanceResponse,
+  PostsPageDTO,
+  PostsStatsDTO,
   QualityAssessment,
   RiskAssessment,
   RunEvent,
@@ -288,6 +291,35 @@ export const api = {
     const { data } = await http.get<PropagationGraphDTO>(
       `/cases/${caseId}/propagation-graph`,
     )
+    return data
+  },
+  async getEvidenceProvenance(
+    caseId: string,
+    evidenceId: string,
+  ): Promise<ProvenanceResponse> {
+    const { data } = await http.get<ProvenanceResponse>(
+      `/cases/${caseId}/provenance/evidence/${evidenceId}`,
+    )
+    return data
+  },
+  async listCasePosts(
+    caseId: string,
+    params: {
+      platform?: string
+      q?: string
+      from?: string
+      to?: string
+      limit?: number
+      offset?: number
+    } = {},
+  ): Promise<PostsPageDTO> {
+    const { data } = await http.get<PostsPageDTO>(`/cases/${caseId}/posts`, {
+      params,
+    })
+    return data
+  },
+  async getPostStats(caseId: string): Promise<PostsStatsDTO> {
+    const { data } = await http.get<PostsStatsDTO>(`/cases/${caseId}/posts:stats`)
     return data
   },
   async getRun(runId: string): Promise<AgentRun> {

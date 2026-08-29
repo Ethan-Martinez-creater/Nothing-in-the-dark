@@ -1,13 +1,16 @@
 <script setup lang="ts">
-// Optimization V2 (M4.8)：Evidence full workspace。
-// 复用 EvidenceSidebar 的 claim/evidence 探索逻辑（过渡：组件作为全尺寸
-// 工作区渲染，M8 收尾时按 Part VIII 矩阵移除 sidebar-only 入口）。
-import { computed, onMounted, ref } from 'vue'
+// Optimization V2 (M4.8 + C8.1)：Evidence 全尺寸工作区。
+// 左：claim 列表（filter all/pending/verified/rejected）+ 未分组证据计数；
+// 右：EvidenceDetailPanel（claim 全文 / evidence 来源与关联 Finding）。
+// selection 进入 Copilot context（workspace=evidence）。
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import EvidenceSidebar from '@/components/evidence/EvidenceSidebar.vue'
+import EvidenceClaimList from '@/components/evidence/EvidenceClaimList.vue'
+import EvidenceDetailPanel from '@/components/evidence/EvidenceDetailPanel.vue'
 import { api } from '@/services/api'
-import type { EvidenceSummary } from '@/types/api'
+import type { ClaimEvidence, EvidenceItem, EvidenceSummary } from '@/types/api'
+import { useInvestigationContext } from '@/composables/useInvestigationContext'
 
 const route = useRoute()
 const caseId = computed(() => String(route.params.caseId ?? ''))
@@ -15,6 +18,29 @@ const caseId = computed(() => String(route.params.caseId ?? ''))
 const summary = ref<EvidenceSummary | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
+
+type ClaimFilter = 'all' | 'pending' | 'verified' | 'rejected'
+const filter = ref<ClaimFilter>('all')
+const filterLabels: Record<ClaimFilter, string> = {
+  all: '全部',
+  pending: '待核查',
+  verified: '已核实',
+  rejected: '已剔除',
+}
+
+const selectedClaim = ref<ClaimEvidence | null>(null)
+const selectedItem = ref<EvidenceItem | null>(null)
+
+const { setUiContext } = useInvestigationContext()
+
+const claimCount = computed(() => summary.value?.claims.length ?? 0)
+const unassignedCount = computed(() => summary.value?.unassigned.length ?? 0)
+
+const filteredClaims = computed(() => {
+  const claims = summary.value?.claims ?? []
+  if (filter.value === 'all') return claims
+  return claims.filter((claim) => claim.status === filter.value)
+})
 
 async function load() {
   loading.value = true
@@ -28,6 +54,32 @@ async function load() {
   }
 }
 
+function onSelectClaim(claim: ClaimEvidence) {
+  selectedClaim.value = claim
+  selectedItem.value = null
+  setUiContext({
+    workspace: 'evidence',
+    selected_type: 'claim',
+    selected_id: claim.id,
+  })
+}
+
+function onSelectEvidence(payload: { claim: ClaimEvidence; item: EvidenceItem }) {
+  selectedClaim.value = payload.claim
+  selectedItem.value = payload.item
+  setUiContext({
+    workspace: 'evidence',
+    selected_type: 'evidence',
+    selected_id: payload.item.id,
+  })
+}
+
+watch(caseId, () => {
+  selectedClaim.value = null
+  selectedItem.value = null
+  void load()
+})
+
 onMounted(load)
 </script>
 
@@ -35,12 +87,41 @@ onMounted(load)
   <div class="iev">
     <p v-if="error" class="iev__error">{{ error }}</p>
     <p v-else-if="loading" class="iev__hint">正在加载…</p>
-    <div v-else-if="summary" class="iev__body">
-      <EvidenceSidebar :open="true" :summary="summary" @close="load" />
+    <div v-else-if="summary && (claimCount || unassignedCount)" class="iev__workspace">
+      <div class="iev__list">
+        <div class="iev__filters">
+          <button
+            v-for="(label, key) in filterLabels"
+            :key="key"
+            type="button"
+            class="iev__filter"
+            :class="{ 'iev__filter--active': filter === key }"
+            @click="filter = key as ClaimFilter"
+          >
+            {{ label }}
+          </button>
+          <span class="iev__meta">主张 {{ claimCount }} · 未分组证据 {{ unassignedCount }}</span>
+        </div>
+        <EvidenceClaimList
+          :claims="filteredClaims"
+          :case-id="caseId"
+          @select-claim="onSelectClaim"
+          @select-evidence="onSelectEvidence"
+          @reviewed="load"
+        />
+      </div>
+      <div class="iev__detail">
+        <EvidenceDetailPanel
+          :case-id="caseId"
+          :claim="selectedClaim"
+          :item="selectedItem"
+          @reviewed="load"
+        />
+      </div>
     </div>
-    <p v-else class="iev__hint">
-      尚无证据 — 在 Copilot 中发送分析指令开始采集与核查。
-    </p>
+    <div v-else class="iev__empty-guide">
+      <p>尚无证据 — 在 Copilot 中发送分析指令开始采集与核查。</p>
+    </div>
   </div>
 </template>
 
@@ -51,11 +132,52 @@ onMounted(load)
   min-height: 480px;
 }
 
-.iev__body {
+.iev__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
   flex: 1;
   min-height: 0;
-  border: 0;
-  background: transparent;
+}
+
+.iev__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.iev__filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.iev__filter {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.iev__filter--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.iev__meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.iev__detail {
+  min-height: 0;
 }
 
 .iev__error {
@@ -68,5 +190,17 @@ onMounted(load)
   margin: 20px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.iev__empty-guide {
+  margin: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 960px) {
+  .iev__workspace {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
