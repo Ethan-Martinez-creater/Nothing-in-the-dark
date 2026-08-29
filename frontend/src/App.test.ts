@@ -19,7 +19,7 @@ import App from '@/App.vue'
 function makeCase(overrides: Record<string, unknown> = {}) {
   return {
     id: 'case-1',
-    title: '暴雨泄洪谣言案例',
+    title: '暴雨泄洪谣言调查',
     topic: '暴雨泄洪',
     description: '',
     status: 'ready',
@@ -37,17 +37,25 @@ async function mountApp(initialPath = '/') {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div>home</div>' } },
-      { path: '/cases/:caseId', component: { template: '<div>workspace</div>' } },
-      { path: '/approvals', component: { template: '<div>approvals</div>' } },
-      { path: '/reviews', component: { template: '<div>reviews</div>' } },
-      { path: '/resilience', component: { template: '<div>resilience</div>' } },
-      { path: '/memories', component: { template: '<div>memories</div>' } },
-      { path: '/observability', component: { template: '<div>observability</div>' } },
-      { path: '/goals', component: { template: '<div>goals</div>' } },
-      { path: '/subscriptions', component: { template: '<div>subscriptions</div>' } },
-      { path: '/narratives', component: { template: '<div>narratives</div>' } },
-      { path: '/semantics', component: { template: '<div>semantics</div>' } },
-      { path: '/security', component: { template: '<div>security</div>' } },
+      {
+        path: '/investigations/:caseId/overview',
+        component: { template: '<div>workspace</div>' },
+      },
+      { path: '/investigations', component: { template: '<div>investigations</div>' } },
+      { path: '/signals', component: { template: '<div>signals</div>' } },
+      { path: '/reports', component: { template: '<div>reports</div>' } },
+      {
+        path: '/admin',
+        component: { template: '<div>admin<router-view /></div>' },
+        children: [
+          { path: 'approvals', component: { template: '<div>approvals</div>' } },
+          { path: 'reviews', component: { template: '<div>reviews</div>' } },
+          { path: 'memories', component: { template: '<div>memories</div>' } },
+          { path: 'security', component: { template: '<div>security</div>' } },
+          { path: 'observability', component: { template: '<div>observability</div>' } },
+          { path: 'resilience', component: { template: '<div>resilience</div>' } },
+        ],
+      },
     ],
   })
   router.push(initialPath)
@@ -65,7 +73,7 @@ async function mountApp(initialPath = '/') {
   return { wrapper, router }
 }
 
-describe('App conversation sidebar', () => {
+describe('App investigation shell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiMock.listProjects.mockResolvedValue([
@@ -81,7 +89,7 @@ describe('App conversation sidebar', () => {
       makeCase({ id: 'case-2', title: '华为事件', updated_at: '2026-08-02T00:00:00Z' }),
       makeCase({
         id: 'case-4',
-        title: '项目内对话',
+        title: '项目内调查',
         project_id: 'proj-1',
         updated_at: '2026-08-02T00:00:00Z',
       }),
@@ -97,43 +105,43 @@ describe('App conversation sidebar', () => {
     apiMock.deleteProject.mockResolvedValue(undefined)
   })
 
-  it('renders projects and conversations grouped from API', async () => {
+  it('renders projects and investigations grouped from API', async () => {
     const { wrapper } = await mountApp()
     expect(apiMock.listCases).toHaveBeenCalled()
     expect(apiMock.listProjects).toHaveBeenCalled()
     expect(wrapper.text()).toContain('灾害舆情项目')
-    // 未分组对话 + 项目内对话
-    expect(wrapper.findAll('.conversation-item')).toHaveLength(3)
-    expect(wrapper.text()).toContain('项目内对话')
+    // 未分组调查 + 项目内调查
+    expect(wrapper.findAll('.ilist__item')).toHaveLength(3)
+    expect(wrapper.text()).toContain('项目内调查')
   })
 
-  it('filters conversations by search query', async () => {
+  it('filters investigations by search query', async () => {
     const { wrapper } = await mountApp()
-    await wrapper.find('.sidebar-search input').setValue('华为')
-    expect(wrapper.findAll('.conversation-item')).toHaveLength(1)
+    await wrapper.find('.ilist__search input').setValue('华为')
+    expect(wrapper.findAll('.ilist__item')).toHaveLength(1)
     expect(wrapper.text()).toContain('华为事件')
   })
 
-  it('collapses and expands project and conversation groups', async () => {
+  it('collapses and expands project and investigation groups', async () => {
     const { wrapper } = await mountApp()
-    expect(wrapper.text()).toContain('项目内对话')
-    // 第一个 toggle = 对话组（折叠未分组对话）
-    await wrapper.findAll('.group-toggle')[0]!.trigger('click')
-    expect(wrapper.text()).not.toContain('暴雨泄洪谣言案例')
-    await wrapper.findAll('.group-toggle')[0]!.trigger('click')
-    expect(wrapper.text()).toContain('暴雨泄洪谣言案例')
+    expect(wrapper.text()).toContain('项目内调查')
+    // 第一个 toggle = 调查组（折叠未分组调查）
+    await wrapper.findAll('.ilist__group-toggle')[0]!.trigger('click')
+    expect(wrapper.text()).not.toContain('暴雨泄洪谣言调查')
+    await wrapper.findAll('.ilist__group-toggle')[0]!.trigger('click')
+    expect(wrapper.text()).toContain('暴雨泄洪谣言调查')
     // 第二个 toggle = 项目组
-    await wrapper.findAll('.group-toggle')[1]!.trigger('click')
-    expect(wrapper.text()).not.toContain('项目内对话')
-    await wrapper.findAll('.group-toggle')[1]!.trigger('click')
-    expect(wrapper.text()).toContain('项目内对话')
+    await wrapper.findAll('.ilist__group-toggle')[1]!.trigger('click')
+    expect(wrapper.text()).not.toContain('项目内调查')
+    await wrapper.findAll('.ilist__group-toggle')[1]!.trigger('click')
+    expect(wrapper.text()).toContain('项目内调查')
   })
 
-  it('keeps governance controls collapsed by default and lets users expand them', async () => {
+  it('keeps administration collapsed by default and lets users expand it', async () => {
     const { wrapper } = await mountApp()
-    const toggle = wrapper.find('.governance-toggle')
+    const toggle = wrapper.find('.gsidebar__admin-toggle')
 
-    const links = wrapper.find('#governance-links')
+    const links = wrapper.find('#gsidebar-admin-links')
     expect(toggle.attributes('aria-expanded')).toBe('false')
     expect((links.element as HTMLElement).style.display).toBe('none')
 
@@ -141,90 +149,92 @@ describe('App conversation sidebar', () => {
 
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect((links.element as HTMLElement).style.display).not.toBe('none')
-    expect(wrapper.text()).toContain('审批箱')
+    expect(wrapper.text()).toContain('审批')
   })
 
   it('creates a project from the inline input', async () => {
     const { wrapper } = await mountApp()
-    await wrapper.findAll('.tool-button')[1]!.trigger('click') // 新建项目
-    await wrapper.find('.inline-create input').setValue('新项目')
-    await wrapper.find('.inline-create input').trigger('keydown.enter')
+    await wrapper.find('.ilist__new-project').trigger('click')
+    await wrapper.find('.ilist__inline-create input').setValue('新项目')
+    await wrapper.find('.ilist__inline-create input').trigger('keydown.enter')
     await flushPromises()
     expect(apiMock.createProject).toHaveBeenCalledWith('新项目')
   })
 
-  it('opens the new-chat modal and creates a case', async () => {
+  it('opens the new-investigation modal and creates a case', async () => {
     const { wrapper, router } = await mountApp()
-    await wrapper.findAll('.tool-button')[0]!.trigger('click') // 新建会话
+    await wrapper.findAll('.gsidebar__tool')[0]!.trigger('click') // 新建调查
     expect(wrapper.find('.modal-overlay').exists()).toBe(true)
     const composer = wrapper.findComponent(CaseComposer)
     composer.vm.$emit('submit', {
-      topic: '新案例',
+      topic: '新调查',
       description: '',
       platforms: ['weibo'],
     })
     await flushPromises()
     expect(apiMock.createCase).toHaveBeenCalled()
-    expect(router.currentRoute.value.path).toBe('/cases/case-3')
+    expect(router.currentRoute.value.path).toBe('/investigations/case-3/overview')
   })
 
-  it('deletes a conversation after confirmation', async () => {
+  it('deletes an investigation after confirmation', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { wrapper } = await mountApp()
-    await wrapper.findAll('.conversation-delete')[0]!.trigger('click')
+    await wrapper.findAll('.ilist__delete')[0]!.trigger('click')
     await flushPromises()
     expect(apiMock.deleteCase).toHaveBeenCalledWith('case-1')
     vi.restoreAllMocks()
   })
 
-  it('navigates to another conversation when deleting the currently open one', async () => {
+  it('navigates to another investigation when deleting the currently open one', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const { wrapper, router } = await mountApp('/cases/case-1')
-    await wrapper.findAll('.conversation-delete')[0]!.trigger('click') // case-1
+    const { wrapper, router } = await mountApp('/investigations/case-1/overview')
+    await wrapper.findAll('.ilist__delete')[0]!.trigger('click') // case-1
     await flushPromises()
     expect(apiMock.deleteCase).toHaveBeenCalledWith('case-1')
-    // 删除当前打开的会话：优先切到同分组（未分组「对话」）的下一个会话。
-    expect(router.currentRoute.value.path).toBe('/cases/case-2')
+    // 删除当前打开的调查：优先切到同分组（未分组「调查」）的下一个调查。
+    expect(router.currentRoute.value.path).toBe('/investigations/case-2/overview')
     vi.restoreAllMocks()
   })
 
-  it('returns to the dashboard when the last conversation is deleted', async () => {
+  it('returns to home when the last investigation is deleted', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     apiMock.listCases.mockResolvedValue([makeCase()])
-    const { wrapper, router } = await mountApp('/cases/case-1')
-    await wrapper.findAll('.conversation-delete')[0]!.trigger('click') // 唯一的 case-1
+    const { wrapper, router } = await mountApp('/investigations/case-1/overview')
+    await wrapper.findAll('.ilist__delete')[0]!.trigger('click') // 唯一的 case-1
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/')
     vi.restoreAllMocks()
   })
 
-  it('keeps the conversation and project group labels when lists are empty', async () => {
+  it('keeps the investigation and project group labels when lists are empty', async () => {
     apiMock.listCases.mockResolvedValue([])
     const { wrapper } = await mountApp()
     await flushPromises()
-    // 「对话」分组标签无条件保留：会话全部删完后仍可在此新建会话。
-    expect(wrapper.findAll('.group-title').some((node) => node.text() === '对话')).toBe(true)
+    // 「调查」分组标签无条件保留：调查全部删完后仍可在此新建调查。
+    expect(wrapper.findAll('.ilist__group-title').some((node) => node.text() === '调查')).toBe(
+      true,
+    )
     // 项目标签仍显示（项目本身未被删除）。
     expect(wrapper.text()).toContain('灾害舆情项目')
-    expect(wrapper.text()).toContain('还没有会话，点击「新建会话」开始分析')
+    expect(wrapper.text()).toContain('还没有调查，点击「新建调查」开始分析')
   })
 
   it('opens the skills panel', async () => {
     const { wrapper } = await mountApp()
-    await wrapper.findAll('.tool-button')[2]!.trigger('click') // 技能
+    await wrapper.findAll('.gsidebar__tool')[1]!.trigger('click') // 技能
     expect(wrapper.find('.skills-stub').exists()).toBe(true)
   })
 
-  it('shows a retryable error when the conversation list fails', async () => {
+  it('shows a retryable error when the investigation list fails', async () => {
     apiMock.listCases.mockRejectedValueOnce(new Error('down'))
     const { wrapper } = await mountApp()
-    expect(wrapper.text()).toContain('会话列表加载失败')
-    expect(wrapper.find('.sidebar-retry').exists()).toBe(true)
+    expect(wrapper.text()).toContain('调查列表加载失败')
+    expect(wrapper.find('.ilist__retry').exists()).toBe(true)
 
     apiMock.listCases.mockResolvedValue([makeCase()])
-    await wrapper.find('.sidebar-retry').trigger('click')
+    await wrapper.find('.ilist__retry').trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('暴雨泄洪谣言案例')
-    expect(wrapper.text()).not.toContain('会话列表加载失败')
+    expect(wrapper.text()).toContain('暴雨泄洪谣言调查')
+    expect(wrapper.text()).not.toContain('调查列表加载失败')
   })
 })

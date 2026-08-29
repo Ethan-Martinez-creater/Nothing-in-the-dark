@@ -106,7 +106,7 @@ async function createDebate() {
     active.value = await api.getDebate(debate.id)
     await loadDebates()
   } catch {
-    error.value = '发起辩论失败，请确认该会话已采集到平台数据。'
+    error.value = '发起辩论失败，请确认该调查已采集到平台数据。'
   } finally {
     creating.value = false
   }

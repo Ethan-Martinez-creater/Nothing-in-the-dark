@@ -1,44 +1,123 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+// Optimization V2 (M1.1)：Investigation-centric 路由骨架。
+// - 新一级路由：Home / Investigations / Signals / Reports / Administration
+// - legacy 路由全部 redirect 保留，不删除（E-07：新行为接管后才允许删除）
+// - /investigations/:caseId/overview 过渡期直接复用 CaseWorkspaceView（M2 拆分）
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
       path: '/',
-      name: 'dashboard',
-      component: () => import('@/views/CaseDashboardView.vue'),
+      name: 'home',
+      component: () => import('@/views/HomeView.vue'),
     },
     {
-      path: '/cases/:caseId',
-      name: 'case-workspace',
+      path: '/investigations',
+      name: 'investigations',
+      component: () => import('@/views/InvestigationsView.vue'),
+    },
+    {
+      path: '/investigations/:caseId',
+      redirect: (to) => ({
+        path: `/investigations/${String(to.params.caseId)}/overview`,
+        query: to.query,
+      }),
+    },
+    {
+      path: '/investigations/:caseId/overview',
+      name: 'investigation-overview',
+      // M2.3 前的过渡：直接渲染旧工作台组件（caseId 参数名保持一致）
       component: () => import('@/views/CaseWorkspaceView.vue'),
-      props: true,
+    },
+    {
+      path: '/signals',
+      name: 'signals',
+      component: () => import('@/views/SignalsView.vue'),
+    },
+    {
+      path: '/reports',
+      name: 'reports',
+      component: () => import('@/views/ReportsView.vue'),
+    },
+    {
+      path: '/admin',
+      redirect: '/admin/approvals',
+    },
+    {
+      path: '/admin',
+      component: () => import('@/views/admin/AdminShellView.vue'),
+      children: [
+        {
+          path: 'approvals',
+          name: 'admin-approvals',
+          component: () => import('@/views/ApprovalInboxView.vue'),
+        },
+        {
+          path: 'reviews',
+          name: 'admin-reviews',
+          component: () => import('@/views/ReviewWorkbenchView.vue'),
+        },
+        {
+          path: 'memories',
+          name: 'admin-memories',
+          component: () => import('@/views/MemoryGovernanceView.vue'),
+        },
+        {
+          path: 'security',
+          name: 'admin-security',
+          component: () => import('@/views/SecurityEventsView.vue'),
+        },
+        {
+          path: 'observability',
+          name: 'admin-observability',
+          component: () => import('@/views/ObservabilityView.vue'),
+        },
+        {
+          path: 'resilience',
+          name: 'admin-resilience',
+          component: () => import('@/views/ResilienceConsoleView.vue'),
+        },
+      ],
+    },
+    // ---- Legacy redirects（保留兼容，不删除旧路径）----
+    {
+      path: '/cases/:caseId',
+      redirect: (to) => ({
+        path: `/investigations/${String(to.params.caseId)}/overview`,
+        query: to.query,
+      }),
+    },
+    {
+      path: '/cases',
+      redirect: '/investigations',
     },
     {
       path: '/approvals',
-      name: 'approval-inbox',
-      component: () => import('@/views/ApprovalInboxView.vue'),
+      redirect: '/admin/approvals',
     },
     {
       path: '/reviews',
-      name: 'review-workbench',
-      component: () => import('@/views/ReviewWorkbenchView.vue'),
-    },
-    {
-      path: '/resilience',
-      name: 'resilience-console',
-      component: () => import('@/views/ResilienceConsoleView.vue'),
+      redirect: '/admin/reviews',
     },
     {
       path: '/memories',
-      name: 'memory-governance',
-      component: () => import('@/views/MemoryGovernanceView.vue'),
+      redirect: '/admin/memories',
+    },
+    {
+      path: '/security',
+      redirect: '/admin/security',
     },
     {
       path: '/observability',
-      name: 'observability',
-      component: () => import('@/views/ObservabilityView.vue'),
+      redirect: '/admin/observability',
     },
+    {
+      path: '/resilience',
+      redirect: '/admin/resilience',
+    },
+    // ---- 旧独立页面路由（M5/M8 迁移：goals→Overview Plan、narratives→Timeline、
+    // semantics→Evidence/Semantics、subscriptions→按实际能力分流），M1 阶段保留原样 ----
     {
       path: '/goals',
       name: 'goal-planning',
@@ -60,9 +139,8 @@ export const router = createRouter({
       component: () => import('@/views/SemanticAnnotationsView.vue'),
     },
     {
-      path: '/security',
-      name: 'security-events',
-      component: () => import('@/views/SecurityEventsView.vue'),
+      path: '/dashboard',
+      redirect: '/',
     },
   ],
 })

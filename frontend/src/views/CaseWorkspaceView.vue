@@ -904,7 +904,7 @@ onBeforeUnmount(disconnectAll)
             <h1>让每条结论，都能回到证据。</h1>
             <p>
               从多平台采集、证据化对话分析到跨平台对齐与辩论验证，一站式舆情研究工作台。
-              当前会话不可用或已被删除，返回工作台选择一个会话继续分析。
+              当前调查不可用或已被删除，返回工作台选择一个调查继续分析。
             </p>
             <button type="button" class="primary-button" @click="router.push('/')">
               返回工作台

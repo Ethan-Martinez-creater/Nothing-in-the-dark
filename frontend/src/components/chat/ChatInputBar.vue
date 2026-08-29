@@ -101,7 +101,7 @@ defineExpose({ fill })
     <div v-if="llmConfigured === false" class="llm-missing-banner">
       未配置大模型。在 <code>backend/.env</code> 填写
       <code>LLM_API_KEY</code> 与 <code>LLM_FAST_MODEL</code> 后重启后端，
-      即可在本会话继续发消息，不会回退到固定模板结论。
+      即可在本调查继续发消息，不会回退到固定模板结论。
     </div>
     <button
       type="button"
