@@ -252,8 +252,8 @@ onMounted(load)
               <td>{{ d.subscription_id.slice(0, 8) }}</td>
               <td class="anot__mono">{{ d.event_id.slice(0, 8) }}</td>
               <td>{{ d.status }}</td>
-              <td class="anot__muted">{{ fmt(d.attempted_at) }}</td>
-              <td class="anot__muted">{{ d.last_error || '—' }}</td>
+              <td class="anot__muted">{{ fmt(d.next_retry_at) }}</td>
+              <td class="anot__muted">{{ d.error_code || d.http_summary || '—' }}</td>
             </tr>
             <tr v-if="deliveries.length === 0"><td colspan="5" class="anot__muted anot__center">暂无投递记录</td></tr>
           </tbody>
