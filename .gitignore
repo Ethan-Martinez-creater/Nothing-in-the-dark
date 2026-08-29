@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-tmp/
+# pytest basetemp 变体（M8 回归等自定义 --basetemp 目录）
+.pytest-*-tmp/
 .ruff_cache/
 .mypy_cache/
 .coverage
