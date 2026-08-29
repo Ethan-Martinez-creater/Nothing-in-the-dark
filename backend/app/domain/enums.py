@@ -34,3 +34,14 @@ class ArtifactKind(StrEnum):
     FACT_CHECK = "fact_check"
     REPORT = "report"
 
+
+
+# M4: Review 决策状态 → Finding 状态映射（ReviewService 是决策事实来源）。
+REVIEW_STATUS_TO_FINDING_STATUS = {
+    "unreviewed": "candidate",
+    "in_review": "under_review",
+    "needs_more_evidence": "under_review",
+    "accepted": "verified",
+    "rejected": "rejected",
+    "superseded": "superseded",
+}

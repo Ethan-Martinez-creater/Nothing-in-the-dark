@@ -45,7 +45,7 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
     "superseded": {"in_review"},
 }
 
-# 对象类型白名单（09 文档：七类调查对象）。
+# 对象类型白名单（09 文档：七类调查对象 + M4 finding）。
 OBJECT_TYPES = (
     "evidence",
     "claim",
@@ -54,6 +54,7 @@ OBJECT_TYPES = (
     "risk_assessment",
     "hypothesis",
     "report_conclusion",
+    "finding",
 )
 
 # Evidence 原始内容不可编辑；允许的 patch 键。

@@ -14,6 +14,8 @@ from app.application.context_builder import ContextBuilder
 from app.application.conversation_summary import ConversationSummarizer
 from app.application.debate_service import DebateService
 from app.application.evaluation_service import EvaluationService
+from app.application.finding_service import FindingService
+from app.application.provenance_service import ProvenanceService
 from app.application.goal_service import GoalService
 from app.application.graph_worker import GraphWorker
 from app.application.integrity_service import IntegrityService
@@ -338,6 +340,10 @@ class ApplicationContainer:
         self._checkpointer_cm: Any = None
         # M21/M22: 一次性授权消费（审批 → 授权签发 → 业务同事务原子消费）。
         self.authorization = AuthorizationService(self.repository)
+        # M4: Finding 服务（Expert Artifact 确定性物化 + 状态机）。
+        self.finding_service = FindingService(self.database, self.repository)
+        # M4: Provenance 一跳上下游（relational links 聚合）。
+        self.provenance_service = ProvenanceService(self.database)
         self.worker = GraphWorker(
             self.repository,
             self.llm,
@@ -356,6 +362,7 @@ class ApplicationContainer:
             social=self.social,
             telemetry=self.telemetry,
             authorization=self.authorization,
+            finding_service=self.finding_service,
         )
         self.agent_service = AgentRunService(
             self.repository,

@@ -2700,3 +2700,77 @@ class CollectionDefinitionRecord(Base):
             sqlite_where=text("status = 'active'"),
         ),
     )
+
+
+class FindingRecord(Base):
+    """M4：调查结论对象（用户可审核/接受/拒绝/追溯证据的稳定 Finding）。
+
+    Agent 产出的 Artifact 经 deterministic materializer 创建为 candidate；
+    verified/rejected 只能来自 Review 决策（ReviewService 是事实来源）。
+    """
+
+    __tablename__ = "findings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="candidate")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    attributes_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    source_run_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("agent_runs.id"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_findings_case_status", "case_id", "status"),
+        Index("ix_findings_case_kind", "case_id", "kind"),
+    )
+
+
+class FindingEvidenceLinkRecord(Base):
+    """M4：Finding ↔ Evidence 关联（supports/contradicts/context）。"""
+
+    __tablename__ = "finding_evidence_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    finding_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("findings.id"), index=True, nullable=False
+    )
+    evidence_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    relation: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "finding_id", "evidence_ref", "relation", name="uq_finding_evidence"
+        ),
+    )
+
+
+class FindingSourceLinkRecord(Base):
+    """M4：Finding 来源链接（幂等键：重复 sync 不创建重复 Finding）。"""
+
+    __tablename__ = "finding_source_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    finding_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("findings.id"), index=True, nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_path: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_type", "source_id", "source_path", name="uq_finding_source"
+        ),
+    )

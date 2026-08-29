@@ -28,6 +28,7 @@ from app.infrastructure.database.models import (
     CaseActivityLogRecord,
     CaseRecord,
     ClaimRecord,
+    CollectionDefinitionRecord,
     CompletionAssessmentRecord,
     ConclusionConfidenceRecord,
     ContentFamilyMemberRecord,
@@ -55,6 +56,9 @@ from app.infrastructure.database.models import (
     EvidenceRecord,
     ExecutionAuthorizationRecord,
     ExportJobRecord,
+    FindingEvidenceLinkRecord,
+    FindingRecord,
+    FindingSourceLinkRecord,
     GoalRecord,
     GuardrailDecisionRecord,
     KnowledgeChunkRecord,
@@ -333,6 +337,32 @@ class ApplicationRepository:
                 delete(RawSocialRecord).where(RawSocialRecord.case_id == case_id)
             )
             # 其余 case 域表
+            # M3/M4 新增产品层表：Finding links（无 case_id，经 findings 中转）
+            # → findings → collection_definitions，均在 artifacts 之前删除。
+            finding_ids = (
+                await session.scalars(
+                    select(FindingRecord.id).where(FindingRecord.case_id == case_id)
+                )
+            ).all()
+            if finding_ids:
+                await session.execute(
+                    delete(FindingEvidenceLinkRecord).where(
+                        FindingEvidenceLinkRecord.finding_id.in_(finding_ids)
+                    )
+                )
+                await session.execute(
+                    delete(FindingSourceLinkRecord).where(
+                        FindingSourceLinkRecord.finding_id.in_(finding_ids)
+                    )
+                )
+            await session.execute(
+                delete(FindingRecord).where(FindingRecord.case_id == case_id)
+            )
+            await session.execute(
+                delete(CollectionDefinitionRecord).where(
+                    CollectionDefinitionRecord.case_id == case_id
+                )
+            )
             await session.execute(
                 delete(ArtifactRecord).where(ArtifactRecord.case_id == case_id)
             )
@@ -2737,28 +2767,63 @@ class ApplicationRepository:
         target_status: str,
         decision: ReviewDecisionRecord,
     ) -> tuple[ReviewItemRecord, ReviewDecisionRecord] | None:
-        """Append a decision and update its item in one transaction."""
-        from sqlalchemy import update as sa_update
+        """Append a decision and update its item in one transaction.
+
+        M4: 当对象是 finding 时，在同一事务内把 Review 状态映射同步到
+        Finding.status（避免 Review 已 accepted 而 Finding 仍是 candidate）。
+        """
+
+        from app.domain.enums import REVIEW_STATUS_TO_FINDING_STATUS
 
         async with self._database.session_factory() as session:
-            result = await session.execute(
-                sa_update(ReviewItemRecord)
-                .where(
-                    ReviewItemRecord.id == item_id,
-                    ReviewItemRecord.status == expected_status,
-                    ReviewItemRecord.current_version == expected_version,
-                )
-                .values(status=target_status)
-            )
-            if int(result.rowcount or 0) != 1:
+            item = await session.get(ReviewItemRecord, item_id)
+            if (
+                item is None
+                or item.status != expected_status
+                or item.current_version != expected_version
+            ):
                 await session.rollback()
                 return None
+            item.status = target_status
+            session.add(item)
+            if item.object_type == "finding":
+                finding = await session.get(FindingRecord, item.object_id)
+                if finding is not None and finding.case_id == item.case_id:
+                    finding_status = REVIEW_STATUS_TO_FINDING_STATUS.get(target_status)
+                    if finding_status is not None:
+                        finding.status = finding_status
+                        session.add(finding)
             session.add(decision)
             await session.commit()
-            item = await session.get(ReviewItemRecord, item_id)
-            assert item is not None
+            await session.refresh(item)
             await session.refresh(decision)
             return item, decision
+
+    async def get_review_item_for_object(
+        self, case_id: str, object_type: str, object_id: str
+    ) -> dict[str, Any] | None:
+        """返回对象的最新 Review item 摘要（Finding detail 聚合用）。"""
+        async with self._database.session_factory() as session:
+            record = (
+                await session.scalars(
+                    select(ReviewItemRecord)
+                    .where(
+                        ReviewItemRecord.case_id == case_id,
+                        ReviewItemRecord.object_type == object_type,
+                        ReviewItemRecord.object_id == object_id,
+                    )
+                    .order_by(ReviewItemRecord.created_at.desc())
+                    .limit(1)
+                )
+            ).first()
+            if record is None:
+                return None
+            return {
+                "id": record.id,
+                "status": record.status,
+                "summary": record.summary,
+                "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            }
 
     async def release_review_item(
         self, item_id: str, actor: str

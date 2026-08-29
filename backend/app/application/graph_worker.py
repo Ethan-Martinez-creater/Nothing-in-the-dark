@@ -82,6 +82,7 @@ class GraphWorker:
         social: SocialRepository | None = None,
         telemetry: Any = None,
         authorization: Any = None,
+        finding_service: Any = None,
     ) -> None:
         self._repository = repository
         self._gateway = gateway
@@ -101,6 +102,7 @@ class GraphWorker:
         self._context_builder = context_builder
         self._summarizer = summarizer
         self._extractor = extractor
+        self._finding_service = finding_service
         self._stopping = False
         self._task: asyncio.Task[None] | None = None
         self._run_tasks: dict[str, asyncio.Task[None]] = {}
@@ -556,6 +558,14 @@ class GraphWorker:
             title=f"案例「{case.title}」的 {run.agent} 分析结果",
             data=data,
         )
+        # M4: Expert Artifact 确定性物化为 candidate Findings（幂等）。
+        # Artifact 是主产物：materializer 失败只记录，不标 failed、不删 artifact；
+        # 可经 POST /cases/{id}/findings:sync 重试。
+        if self._finding_service is not None:
+            try:
+                await self._finding_service.sync_from_artifact(artifact)
+            except Exception:
+                logger.exception("finding sync failed for artifact %s", artifact.id)
         await self._repository.add_agent_message(
             sender_run_id=run.id,
             receiver_run_id=run.parent_run_id,

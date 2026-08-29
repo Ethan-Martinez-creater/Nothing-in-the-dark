@@ -10,6 +10,7 @@ from app.api.routes import (
     debates,
     evaluation,
     evidence,
+    findings,
     goals,
     health,
     integrity,
@@ -23,6 +24,7 @@ from app.api.routes import (
     platform_comparison,
     projects,
     propagation,
+    provenance,
     resilience,
     reviews,
     runs,
@@ -90,4 +92,8 @@ api_router.include_router(
 )
 api_router.include_router(
     collections.router, prefix="/cases", tags=["collections"]
+)
+api_router.include_router(findings.router, prefix="/cases", tags=["findings"])
+api_router.include_router(
+    provenance.router, prefix="/cases", tags=["provenance"]
 )
