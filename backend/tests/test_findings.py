@@ -37,9 +37,28 @@ async def _seed(database: Database) -> tuple[ApplicationRepository, FindingServi
     return repository, service, case.id
 
 
+async def _seed_evidence(database: Database, case_id: str, *evidence_ids: str) -> None:
+    """在 case 内插入真实 EvidenceRecord（C2：link 只认数据库中的 Evidence）。"""
+    from app.infrastructure.database.models import EvidenceRecord
+
+    async with database.session_factory() as session:
+        for evidence_id in evidence_ids:
+            session.add(
+                EvidenceRecord(
+                    id=evidence_id,
+                    case_id=case_id,
+                    source_type="social_post",
+                    source_id=f"post-{evidence_id}",
+                    excerpt=f"{evidence_id} 摘录",
+                )
+            )
+        await session.commit()
+
+
 async def test_opinion_artifact_materializes_findings(tmp_path: Path) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f1.db'}")
     repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-1", "ev-2")
     run = await repository.create_agent_run(
         case_id=case_id, turn_id=None, objective="分析", metadata={}
     )
@@ -62,10 +81,10 @@ async def test_opinion_artifact_materializes_findings(tmp_path: Path) -> None:
     )
 
     first = await service.sync_from_artifact(artifact)
-    assert first == {"created": 2, "skipped": 0}
-    # 幂等：重复 sync 不重置、不重复创建
+    assert first == {"created": 2, "skipped": 0, "warnings": []}
+    # 幂等：重复 sync 不重置、不重复创建、不重复 link
     second = await service.sync_from_artifact(artifact)
-    assert second == {"created": 0, "skipped": 2}
+    assert second == {"created": 0, "skipped": 2, "warnings": []}
 
     findings = await service.list(case_id)
     assert len(findings) == 2
@@ -81,8 +100,10 @@ async def test_opinion_artifact_materializes_findings(tmp_path: Path) -> None:
 
 
 async def test_fact_check_artifact_maps_verdict_and_contradicts(tmp_path: Path) -> None:
+    """混合合法/非法 Evidence：只保存合法 link，坏引用返回 warning（C2）。"""
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f2.db'}")
     repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-a")  # ev-b 故意不 seed
     artifact = await repository.create_artifact(
         case_id=case_id,
         run_id=None,
@@ -94,21 +115,32 @@ async def test_fact_check_artifact_maps_verdict_and_contradicts(tmp_path: Path) 
                     "claim": "官方已确认延期",
                     "verdict": "supported",
                     "confidence": 0.9,
-                    "supporting_evidence": ["ev-a"],
+                    "supporting_evidence": ["ev-a", "ev-missing"],
                     "contradicting_evidence": ["ev-b"],
                 }
             ]
         },
     )
     result = await service.sync_from_artifact(artifact)
-    assert result == {"created": 1, "skipped": 0}
+    assert result["created"] == 1
+    assert result["skipped"] == 0
+    # Finding 照常物化，无效引用逐条 warning，不阻断
+    warning_refs = {item["evidence_ref"] for item in result["warnings"]}
+    assert warning_refs == {"ev-missing", "ev-b"}
+    assert all(
+        item["type"] == "invalid_evidence_ref"
+        and item["artifact_id"] == str(artifact.id)
+        and item["finding_source_path"] == "cards[0]"
+        for item in result["warnings"]
+    )
 
     finding = (await service.list(case_id))[0]
     assert finding.kind == "verification"
     assert finding.attributes_json.get("verdict") == "supported"
     detail = await service.detail(case_id, finding.id)
     relations = {link.evidence_ref: link.relation for link in detail["evidence_links"]}
-    assert relations == {"ev-a": "supports", "ev-b": "contradicts"}
+    # 只保存真实存在的合法 link
+    assert relations == {"ev-a": "supports"}
     # verdict 不改变状态：始终 candidate
     assert finding.status == "candidate"
 
@@ -174,6 +206,42 @@ async def test_cross_case_finding_access_denied(tmp_path: Path) -> None:
     with pytest.raises(ApplicationError) as exc:
         await service.get_for_case(other.id, finding.id)
     assert exc.value.code == "finding_scope_mismatch"
+
+
+async def test_manual_evidence_link_requires_real_case_evidence(tmp_path: Path) -> None:
+    """C2：手动 link fail closed —— 不存在/跨 case 的 Evidence 都被拒绝。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f11.db'}")
+    repository, service, case_id = await _seed(database)
+    other = await repository.create_case(
+        CreateCaseRequest(topic="另一个案例", platforms=["weibo"])
+    )
+    await _seed_evidence(database, other.id, "ev-other")
+    finding = await service.create_manual(case_id, statement="需要证据支撑")
+
+    # 不存在 → finding_evidence_not_found
+    with pytest.raises(ApplicationError) as exc:
+        await service.add_evidence_link(case_id, finding.id, "ev-nope", "supports")
+    assert exc.value.code == "finding_evidence_not_found"
+
+    # 跨 case → finding_evidence_scope_mismatch
+    with pytest.raises(ApplicationError) as exc:
+        await service.add_evidence_link(case_id, finding.id, "ev-other", "supports")
+    assert exc.value.code == "finding_evidence_scope_mismatch"
+
+    # 手动创建时混入非法引用同样整体拒绝（fail closed）
+    await _seed_evidence(database, case_id, "ev-real")
+    with pytest.raises(ApplicationError) as exc:
+        await service.create_manual(
+            case_id,
+            statement="混合引用创建",
+            evidence_links=[("ev-real", "supports"), ("ev-nope", "context")],
+        )
+    assert exc.value.code == "finding_evidence_not_found"
+
+    # 真实同 case Evidence → 成功
+    updated = await service.add_evidence_link(case_id, finding.id, "ev-real", "supports")
+    detail = await service.detail(case_id, finding.id)
+    assert [link.evidence_ref for link in detail["evidence_links"]] == ["ev-real"]
 
 
 async def test_review_accepted_syncs_finding_verified_atomically(tmp_path: Path) -> None:
@@ -294,6 +362,7 @@ async def test_verified_finding_reopens_via_under_review_only(tmp_path: Path) ->
 async def test_delete_case_removes_finding_tables(tmp_path: Path) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f6.db'}")
     repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-x")
     finding = await service.create_manual(
         case_id, statement="级联删除验证", evidence_links=[("ev-x", "supports")]
     )
@@ -318,7 +387,7 @@ async def test_delete_case_removes_finding_tables(tmp_path: Path) -> None:
         assert orphan_links == []
 
 
-def test_findings_api_and_provenance(tmp_path: Path) -> None:
+async def test_findings_api_and_provenance(tmp_path: Path) -> None:
     """API 层：create/list/detail + provenance 一跳 + 跨 case 拒绝。"""
     app = create_app(
         Settings(
@@ -345,12 +414,24 @@ def test_findings_api_and_provenance(tmp_path: Path) -> None:
         assert body["status"] == "candidate"
         assert body["attributes"] == {}
 
+        # C2：link 只接受真实存在的 case 内 Evidence —— seed ev-77
+        await _seed_evidence(app.state.container.database, case_id, "ev-77")
+
         # evidence link 添加 + detail 聚合
         linked = client.post(
             f"/api/v1/cases/{case_id}/findings/{body['id']}/evidence",
             json={"evidence_ref": "ev-77", "relation": "supports"},
         )
         assert linked.status_code == 200
+
+        # 不存在的 Evidence 引用被拒绝（fail closed）
+        bad_link = client.post(
+            f"/api/v1/cases/{case_id}/findings/{body['id']}/evidence",
+            json={"evidence_ref": "ev-ghost", "relation": "supports"},
+        )
+        assert bad_link.status_code == 400
+        assert bad_link.json()["code"] == "finding_evidence_not_found"
+
         detail = client.get(f"/api/v1/cases/{case_id}/findings/{body['id']}")
         assert detail.status_code == 200
         detail_body = detail.json()

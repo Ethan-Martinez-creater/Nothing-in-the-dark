@@ -16,7 +16,11 @@ from app.application.repositories import ApplicationRepository
 from app.core.errors import ApplicationError
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.finding_repository import FindingRepository
-from app.infrastructure.database.models import ArtifactRecord, FindingRecord
+from app.infrastructure.database.models import (
+    ArtifactRecord,
+    EvidenceRecord,
+    FindingRecord,
+)
 
 SUPPORTED_ARTIFACT_KINDS = {"opinion_analysis", "fact_check"}
 
@@ -62,13 +66,18 @@ class FindingService:
 
     # ---------------- materializer ----------------
 
-    async def sync_from_artifact(self, artifact: ArtifactRecord) -> dict[str, int]:
-        """把单个 Expert Artifact 确定性物化为 candidate Findings（幂等）。"""
+    async def sync_from_artifact(self, artifact: ArtifactRecord) -> dict[str, Any]:
+        """把单个 Expert Artifact 确定性物化为 candidate Findings（幂等）。
+
+        C2：artifact 引用的 Evidence ID 只有真实存在且属于同一 case 时才
+        创建 link；无效引用跳过并返回 warning，不阻断 Finding 物化。
+        """
         if artifact.kind not in SUPPORTED_ARTIFACT_KINDS:
-            return {"created": 0, "skipped": 0}
+            return {"created": 0, "skipped": 0, "warnings": []}
         data = artifact.data if isinstance(artifact.data, dict) else {}
         created = 0
         skipped = 0
+        warnings: list[dict[str, str]] = []
         if artifact.kind == "opinion_analysis":
             conclusions = data.get("conclusions")
             if isinstance(conclusions, list):
@@ -79,7 +88,7 @@ class FindingService:
                     if not claim:
                         continue
                     source_path = f"conclusions[{index}]"
-                    finding = await self._materialize(
+                    finding, link_warnings = await self._materialize(
                         artifact,
                         kind="opinion",
                         statement=claim,
@@ -91,6 +100,10 @@ class FindingService:
                             if str(evidence_id)
                         ],
                         source_path=source_path,
+                    )
+                    warnings.extend(
+                        {**item, "artifact_id": str(artifact.id), "finding_source_path": source_path}
+                        for item in link_warnings
                     )
                     if finding is None:
                         skipped += 1
@@ -116,7 +129,7 @@ class FindingService:
                         for evidence_id in (card.get("contradicting_evidence") or [])
                         if str(evidence_id)
                     ]
-                    finding = await self._materialize(
+                    finding, link_warnings = await self._materialize(
                         artifact,
                         kind="verification",
                         statement=claim,
@@ -125,11 +138,15 @@ class FindingService:
                         evidence_links=links,
                         source_path=source_path,
                     )
+                    warnings.extend(
+                        {**item, "artifact_id": str(artifact.id), "finding_source_path": source_path}
+                        for item in link_warnings
+                    )
                     if finding is None:
                         skipped += 1
                     else:
                         created += 1
-        return {"created": created, "skipped": skipped}
+        return {"created": created, "skipped": skipped, "warnings": warnings}
 
     async def _materialize(
         self,
@@ -141,13 +158,17 @@ class FindingService:
         attributes: dict[str, Any],
         evidence_links: list[tuple[str, str]],
         source_path: str,
-    ) -> FindingRecord | None:
-        """创建 candidate Finding + source link；来源已存在时跳过（幂等）。"""
+    ) -> tuple[FindingRecord | None, list[dict[str, str]]]:
+        """创建 candidate Finding + source link；来源已存在时跳过（幂等）。
+
+        返回 (finding | None, warnings)。Evidence link 逐条校验：无效引用
+        只跳过该 link 并记录 warning，不让整个物化失败。
+        """
         existing = await self._findings.get_source_link(
             "artifact", str(artifact.id), source_path
         )
         if existing is not None:
-            return None
+            return None, []
         record = FindingRecord(
             case_id=artifact.case_id,
             kind=kind,
@@ -162,9 +183,16 @@ class FindingService:
         await self._findings.create_source_link(
             record.id, "artifact", str(artifact.id), source_path
         )
+        warnings: list[dict[str, str]] = []
         for evidence_ref, relation in evidence_links:
+            problem = await self._evidence_ref_problem(artifact.case_id, evidence_ref)
+            if problem is not None:
+                warnings.append(
+                    {"type": "invalid_evidence_ref", "evidence_ref": evidence_ref, "reason": problem}
+                )
+                continue
             await self._findings.add_evidence_link(record.id, evidence_ref, relation)
-        return record
+        return record, warnings
 
     async def sync_case_history(self, case_id: str) -> dict[str, Any]:
         """历史同步：全量 artifacts 幂等物化；单个 malformed 不中断。"""
@@ -173,6 +201,7 @@ class FindingService:
         skipped = 0
         unsupported = 0
         errors: list[dict[str, str]] = []
+        warnings: list[dict[str, str]] = []
         for artifact in artifacts:
             if artifact.kind not in SUPPORTED_ARTIFACT_KINDS:
                 unsupported += 1
@@ -181,6 +210,7 @@ class FindingService:
                 result = await self.sync_from_artifact(artifact)
                 created += result["created"]
                 skipped += result["skipped"]
+                warnings.extend(result["warnings"])
             except Exception as exc:  # noqa: BLE001 - 单个失败不中断
                 errors.append({"artifact_id": str(artifact.id), "error": str(exc)})
         return {
@@ -188,7 +218,37 @@ class FindingService:
             "skipped": skipped,
             "unsupported": unsupported,
             "errors": errors,
+            "warnings": warnings,
         }
+
+    # ---------------- evidence integrity（C2） ----------------
+
+    async def _evidence_ref_problem(self, case_id: str, evidence_ref: str) -> str | None:
+        """宽容模式用：返回问题原因（"not_found"/"scope_mismatch"）或 None。
+
+        只认数据库里的 EvidenceRecord，不靠 ``ev-`` 前缀猜测。
+        """
+        async with self._database.session_factory() as session:
+            evidence = await session.get(EvidenceRecord, evidence_ref)
+        if evidence is None:
+            return "not_found"
+        if evidence.case_id != case_id:
+            return "scope_mismatch"
+        return None
+
+    async def _validate_evidence_ref(self, case_id: str, evidence_ref: str) -> None:
+        """手动 API fail closed：evidence_ref 必须是当前 case 内真实 Evidence。"""
+        problem = await self._evidence_ref_problem(case_id, evidence_ref)
+        if problem == "not_found":
+            raise ApplicationError(
+                f"evidence '{evidence_ref}' does not exist",
+                code="finding_evidence_not_found",
+            )
+        if problem == "scope_mismatch":
+            raise ApplicationError(
+                f"evidence '{evidence_ref}' belongs to another case",
+                code="finding_evidence_scope_mismatch",
+            )
 
     # ---------------- 手动 Finding ----------------
 
@@ -229,6 +289,7 @@ class FindingService:
                 record.id, source_type, source_id, source_path
             )
         for evidence_ref, relation in evidence_links or []:
+            await self._validate_evidence_ref(case_id, evidence_ref)
             await self._findings.add_evidence_link(record.id, evidence_ref, relation)
         return record
 
@@ -285,7 +346,9 @@ class FindingService:
                 f"invalid evidence relation '{relation}'",
                 code="finding_evidence_invalid",
             )
+        # 顺序：Finding → relation → Evidence 存在性 + case scope → 创建 link
         await self.get_for_case(case_id, finding_id)
+        await self._validate_evidence_ref(case_id, evidence_ref)
         await self._findings.add_evidence_link(finding_id, evidence_ref, relation)
         return (await self._findings.get(finding_id))  # type: ignore[return-value]
 

@@ -94,6 +94,7 @@ class FindingSyncResponse(BaseModel):
     skipped: int
     unsupported: int
     errors: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def link_response(link: FindingEvidenceLinkRecord) -> FindingEvidenceLinkResponse:

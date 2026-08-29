@@ -62,3 +62,19 @@
 - `schemas/findings.py`：`UpdateFindingStatusRequest.status` 收窄为 `Literal["candidate","under_review","superseded"]`，Service 保留最终防线。
 - 测试（`tests/test_findings.py`）：candidate→verified 拒绝、under_review→verified/rejected 拒绝（finding_review_required）、Review approved→verified、Review rejected→rejected、Review 冲突（乐观锁失败）Finding 状态不变、verified→under_review 重开后再 verified 仍需 Review、API 层 verified 请求 422 + under_review 200。旧 `under_review→verified` 通路测试已改写。
 - 专项测试：`pytest tests/test_findings.py`（10 passed）；受影响回归：`pytest tests/test_findings.py tests/test_claim_review.py tests/test_legacy_compatibility.py`（15 passed, 0 failed）。
+
+## C2 — Finding Evidence Integrity 与 Case Scope（commit：fix: validate finding evidence references and case scope）
+
+- `finding_service.py` 新增 `_evidence_ref_problem()` / `_validate_evidence_ref()`：只认数据库 `EvidenceRecord`（禁止 `ev-` 前缀猜测）；不存在 → `finding_evidence_not_found`，跨 case → `finding_evidence_scope_mismatch`。
+- 手动路径 fail closed：`add_evidence_link()` 顺序为 Finding → relation → Evidence 校验 → 创建；`create_manual()` 混入非法引用时整体拒绝。
+- Materializer 宽容化：`sync_from_artifact()`/`_materialize()` 对 artifact 引用的 Evidence ID 逐条校验，无效引用跳过 link、Finding 照常物化、返回可审计 `warnings`（type/artifact_id/finding_source_path/evidence_ref/reason）；`FindingSyncResponse` 增加 `warnings` 字段；幂等保持（重复 sync 不重复 link）。
+- 测试：真实同 case Evidence 成功、不存在/跨 case 拒绝（service + API 400）、混合合法/非法只保存合法 link、无效引用 warning、幂等、provenance 无幽灵节点。
+- 专项测试：`pytest tests/test_findings.py tests/test_report_documents.py::test_delete_case_removes_finding_tables`（10 passed）。
+
+## C3 — Report Publish Gate citation 校验重写（commit：fix: validate real report citation structures before publish）
+
+- `report_document_service.py`：删除基于前缀的 `_evidence_id_from_ref()`，重写为 `_normalize_citation_refs()`（归一化为 `(type, id, path)`，支持字符串 / evidence(_id)(_ids) / finding(_id)(_ids) / artifact(_id)(_ids) / generic ref|id）+ `_citation_ref_problem()`（Evidence→Finding→Artifact 顺序在当前 case 内解析，generic 无类型时依次尝试）。
+- Unknown shape fail closed：无可解析引用（如只有 `conclusion` 文本）→ `unresolvable_ref` 阻止 publish。
+- `ApplicationError` 增加可选 `details`，publish 失败响应携带逐条定位（如 `citation_links[0].evidence_ids[1] → evidence_not_found` / `evidence_not_in_case`）。
+- 测试：`evidence_ids[]` 全合法通过、不存在/跨 case 阻止（details 精确断言）、finding/artifact/generic 引用合法、unknown shape 阻止、generic 幽灵对象 `unresolvable_ref`、API 层跨 case citation publish 被 400 + details 阻止。
+- 专项测试：`pytest tests/test_report_documents.py`（9 passed）。
