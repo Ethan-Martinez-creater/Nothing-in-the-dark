@@ -29,7 +29,7 @@
 
 - 后端基线全量：**778 passed**（改动前，2026-08-29）。
 - 本轮新增专项：collection 10、findings 7、signals 3、report 6、ui_context 5、legacy_compat 2 ≈ **33 个新测试全绿**。
-- 回归：review/case_deletion/gaps 27 过；harness（sandbox/security/crawl/tool_system）65 过；M8 核心回归套件见文末补记。
+- **M8 核心回归套件：133 passed / 0 failed**（19 个测试文件，覆盖全部新增模块 + durable runtime/approval/sandbox/security/crawl/tool system/case deletion/review/context builder 等被改区域）。
 - 前端：typecheck ✓、vitest **121 passed**、build ✓、**eslint 0 error**（基线 39 → 0：e2e cjs 加入 ignores，unused import 清理）。
 
 ## 已知限制（如实记录，非未来愿望清单）
