@@ -2187,6 +2187,51 @@ class ApplicationRepository:
             result = await session.scalars(query)
             return result.all()
 
+    async def list_propagation_graph(
+        self, case_id: str
+    ) -> tuple[
+        Sequence[PropagationNodeRecord],
+        Sequence[PropagationEdgeRecord],
+        dict[str, SourcePostRecord],
+    ]:
+        """C7: 传播图一次装配 —— nodes + edges + 涉及的 source posts。
+
+        只读取现有持久化表；posts 按图实际涉及的 post_id 过滤。
+        """
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            nodes = (
+                await session.scalars(
+                    select(PropagationNodeRecord)
+                    .where(PropagationNodeRecord.case_id == case_id)
+                    .order_by(PropagationNodeRecord.score.desc())
+                )
+            ).all()
+            edges = (
+                await session.scalars(
+                    select(PropagationEdgeRecord).where(
+                        PropagationEdgeRecord.case_id == case_id
+                    )
+                )
+            ).all()
+            post_ids = {node.post_id for node in nodes}
+            for edge in edges:
+                post_ids.add(edge.source_post_id)
+                post_ids.add(edge.target_post_id)
+            posts: dict[str, SourcePostRecord] = {}
+            if post_ids:
+                rows = (
+                    await session.scalars(
+                        select(SourcePostRecord).where(
+                            SourcePostRecord.id.in_(post_ids),
+                            # case scope：跨 case 引用的 post 不提供元数据
+                            SourcePostRecord.case_id == case_id,
+                        )
+                    )
+                ).all()
+                posts = {row.id: row for row in rows}
+            return nodes, edges, posts
+
     async def create_evaluation(
         self,
         *,

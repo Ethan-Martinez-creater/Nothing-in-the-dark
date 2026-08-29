@@ -147,6 +147,40 @@ export interface PropagationEdgeState {
   human_confirmed: boolean
 }
 
+/** C7: 传播图节点 DTO（按 post 去重聚合，GET /cases/{id}/propagation-graph）。 */
+export interface PropagationGraphNodeDTO {
+  post_id: string
+  role: string
+  roles: string[]
+  score: number
+  attributes: Record<string, unknown>
+  algorithm_version: string
+  platform: string
+  label: string
+  excerpt: string
+  published_at: string | null
+  author_name: string
+}
+
+/** C7: 传播图完整边 DTO（含人工确认状态与特征分数）。 */
+export interface PropagationGraphEdgeDTO {
+  id: string
+  case_id: string
+  source_post_id: string
+  target_post_id: string
+  relation: string
+  confidence: number
+  feature_scores: Record<string, unknown>
+  evidence_ids: string[]
+  algorithm_version: string
+  human_confirmed: boolean
+}
+
+export interface PropagationGraphDTO {
+  nodes: PropagationGraphNodeDTO[]
+  edges: PropagationGraphEdgeDTO[]
+}
+
 export interface OriginCandidate {
   node_id: string
   confidence: number

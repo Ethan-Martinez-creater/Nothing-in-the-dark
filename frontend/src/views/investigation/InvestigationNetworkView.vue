@@ -1,14 +1,19 @@
 <script setup lang="ts">
-// Optimization V2 (M5.1/M5.3)：Network 全尺寸工作区。
-// 三种模式共用 toolbar shell 与右侧详情（过渡期复用现有面板组件，
-// open=true 全尺寸渲染；M8 移除 sidebar-only 入口）。选中对象进入
-// Copilot context（workspace=network）。
+// Optimization V2 (M5.1/M5.3 + C7)：Network 全尺寸工作区。
+// Propagation 模式为真实图工作区（PropagationGraph + DetailPanel），
+// 不再挂载 VisualSidebar/PlatformComparisonCard。选中节点/边进入
+// Copilot context（workspace=network, selected_type=propagation_node/edge）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AlignmentPanel from '@/components/alignment/AlignmentPanel.vue'
 import IntegrityPanel from '@/components/integrity/IntegrityPanel.vue'
-import VisualSidebar from '@/components/visual/VisualSidebar.vue'
+import PropagationDetailPanel from '@/components/network/PropagationDetailPanel.vue'
+import PropagationGraph, {
+  type PropagationSelection,
+} from '@/components/network/PropagationGraph.vue'
+import { api } from '@/services/api'
+import type { PropagationGraphDTO } from '@/types/api'
 import {
   useInvestigationContext,
 } from '@/composables/useInvestigationContext'
@@ -27,10 +32,45 @@ const modeLabels: Record<NetworkMode, string> = {
   integrity: '协同行为',
 }
 
+const graph = ref<PropagationGraphDTO | null>(null)
+const graphLoading = ref(false)
+const graphError = ref('')
+const selection = ref<PropagationSelection | null>(null)
+
+async function loadGraph() {
+  if (!caseId.value) return
+  graphLoading.value = true
+  graphError.value = ''
+  try {
+    graph.value = await api.getPropagationGraph(caseId.value)
+  } catch {
+    graphError.value = '传播图加载失败，请稍后重试。'
+  } finally {
+    graphLoading.value = false
+  }
+}
+
+function onSelect(next: PropagationSelection) {
+  selection.value = next
+  // 选中对象进入 Copilot context（workspace=network）
+  setUiContext({
+    workspace: 'network',
+    selected_type: next.type,
+    selected_id: next.id,
+  })
+}
+
+function refreshGraph() {
+  void loadGraph()
+}
+
 // 进入 Network 工作区：设置 copilot 上下文（保留 filters/time_range）。
 watch(
   mode,
   (value) => {
+    if (value !== 'propagation') {
+      selection.value = null
+    }
     setUiContext({ workspace: 'network', selected_type: `network_mode_${value}` })
   },
   { immediate: true },
@@ -38,6 +78,7 @@ watch(
 
 onMounted(() => {
   setUiContext({ workspace: 'network' })
+  void loadGraph()
 })
 </script>
 
@@ -61,9 +102,26 @@ onMounted(() => {
       </p>
     </div>
 
-    <div class="inet__canvas">
-      <VisualSidebar v-if="mode === 'propagation'" :open="true" :case-id="caseId" />
-      <AlignmentPanel v-else-if="mode === 'alignment'" :case-id="caseId" :open="true" />
+    <div v-if="mode === 'propagation'" class="inet__propagation">
+      <div class="inet__canvas">
+        <PropagationGraph
+          :graph="graph"
+          :loading="graphLoading"
+          :error="graphError"
+          @select="onSelect"
+        />
+      </div>
+      <div class="inet__detail">
+        <PropagationDetailPanel
+          :case-id="caseId"
+          :graph="graph"
+          :selection="selection"
+          @refresh="refreshGraph"
+        />
+      </div>
+    </div>
+    <div v-else class="inet__canvas">
+      <AlignmentPanel v-if="mode === 'alignment'" :case-id="caseId" :open="true" />
       <IntegrityPanel v-else :case-id="caseId" :open="true" />
     </div>
   </div>
@@ -115,8 +173,21 @@ onMounted(() => {
   color: var(--text-soft);
 }
 
+.inet__propagation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  flex: 1;
+  min-height: 0;
+}
+
 .inet__canvas {
   flex: 1;
   min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .inet__propagation {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

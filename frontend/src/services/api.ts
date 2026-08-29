@@ -43,6 +43,7 @@ import type {
   PlatformComparison,
   Project,
   PropagationEdgeState,
+  PropagationGraphDTO,
   QualityAssessment,
   RiskAssessment,
   RunEvent,
@@ -280,6 +281,12 @@ export const api = {
   ): Promise<PropagationEdgeState[]> {
     const { data } = await http.get<PropagationEdgeState[]>(
       `/cases/${caseId}/propagation-edges`,
+    )
+    return data
+  },
+  async getPropagationGraph(caseId: string): Promise<PropagationGraphDTO> {
+    const { data } = await http.get<PropagationGraphDTO>(
+      `/cases/${caseId}/propagation-graph`,
     )
     return data
   },
