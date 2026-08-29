@@ -11,17 +11,23 @@ try {
 
 const BASE = process.env.E2E_BASE || 'http://127.0.0.1:5173';
 const routes = [
-  { path: '/', name: 'dashboard', expectH1: '让每条结论' },
-  { path: '/approvals', name: 'approval-inbox', expectH1: '审批箱' },
-  { path: '/reviews', name: 'review-workbench', expectH1: '分层人工调查' },
-  { path: '/resilience', name: 'resilience-console', expectH1: '事故处置台' },
-  { path: '/memories', name: 'memory-governance', expectH1: '记忆安全' },
-  { path: '/observability', name: 'observability', expectH1: '生产可观测性' },
-  { path: '/goals', name: 'goal-planning', expectH1: '显式目标' },
-  { path: '/subscriptions', name: 'subscriptions', expectH1: '调查结果订阅' },
+  // Optimization V2 (C11): 新 IA 冒烟 —— Workspace / Investigations / Signals /
+  // Reports / Administration 子页 + 旧路径兼容重定向。
+  { path: '/', name: 'workspace-home', expectH1: '工作台' },
+  { path: '/investigations', name: 'investigations', expectH1: '调查' },
+  { path: '/signals', name: 'signals', expectH1: '信号' },
+  { path: '/reports', name: 'reports', expectH1: '报告' },
+  { path: '/admin/approvals', name: 'admin-approvals', expectH1: '管理' },
+  { path: '/admin/reviews', name: 'admin-reviews', expectH1: '管理' },
+  { path: '/admin/notifications', name: 'admin-notifications', expectH1: '管理' },
+  { path: '/admin/memories', name: 'admin-memories', expectH1: '管理' },
+  { path: '/admin/security', name: 'admin-security', expectH1: '管理' },
+  { path: '/admin/observability', name: 'admin-observability', expectH1: '管理' },
+  { path: '/admin/resilience', name: 'admin-resilience', expectH1: '管理' },
   { path: '/narratives', name: 'narrative-timeline', expectH1: '叙事生命周期' },
-  { path: '/semantics', name: 'semantic-annotations', expectH1: '中文复杂语义' },
-  { path: '/security', name: 'security-events', expectH1: '安全治理' },
+  { path: '/semantics', name: 'legacy-semantics-redirect', expectH1: '调查' },
+  { path: '/goals', name: 'legacy-goals-redirect', expectH1: '调查' },
+  { path: '/subscriptions', name: 'legacy-subscriptions-redirect', expectH1: '管理' },
 ];
 
 (async () => {
