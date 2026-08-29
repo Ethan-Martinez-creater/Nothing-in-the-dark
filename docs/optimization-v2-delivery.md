@@ -101,3 +101,31 @@
 - 采集链路：crawl handler 在 coverage/persistence 前应用 exclusions（不修改 MediaCrawler DSL、不绕过 SocialCrawlerPort、approval/sandbox 顺序不变）；输出新增 `collection_filter_stats`（before/after/excluded）审计；无 active definition 时旧路径不变。
 - 保存与运行双层防线：`create_manual()/revise()` 保存时拒绝未知 filter key；crawl handler 防御性再校验。
 - 测试（`tests/test_collection_tool_integration.py` 扩展）：exclusion 真实过滤 + 审计统计、无 active 无 stats、运行时未知 filter fail closed、保存时未知 filter 拒绝（generated_by 允许）。
+
+## C7 — Propagation Network Workspace（commit：feat: implement investigation propagation network workspace）
+
+- 后端：`GET /cases/{id}/propagation-graph`（nodes 按 post 去重聚合：主 role 取最高分 + roles 列表 + score；label/excerpt/platform/published_at 来自 SourcePostRecord join，posts 查询限定 case scope）；`ApplicationRepository.list_propagation_graph()` 一次装配 nodes + edges + 涉及 posts；未新建任何图数据表。
+- 前端：新组件 `PropagationGraph.vue`（ECharts graph series：confirmed 实线绿 / 驳回红 / 推断虚线，透明度映射 confidence，角色颜色 source/burst/hub/bridge，节点尺寸映射 score）+ `PropagationDetailPanel.vue`（edge：relation/confidence/算法版本/特征分数/evidence IDs/人工确认 + 复用既有 confirmation API + Evidence 导航；node：roles/score/平台/摘录，candidate 明确标注"算法候选 · 非已证实结论"）。
+- `InvestigationNetworkView.vue`：Propagation 模式替换 `VisualSidebar`/`PlatformComparisonCard`；selection → Copilot context（selected_type=propagation_node/propagation_edge）；确认后刷新图。
+- 测试：后端 `tests/test_propagation_graph.py`（2）；前端 PropagationGraph 7、PropagationDetailPanel 5、InvestigationNetworkView 5（含"不渲染 PlatformComparisonCard"、selection context、确认 API + 刷新、loading/empty/error）。
+
+## C8 — Evidence / Timeline / Live Data 工作区深化（3 个 commit，见下方）
+
+### C8.1 Evidence Workspace（feat: deepen investigation evidence workspace）
+
+- 抽内容组件 `EvidenceClaimList.vue`（claim 卡 + stance 分组证据 + 人工确认/驳回）与 `EvidenceDetailPanel.vue`（claim 全文/三 stance 分组/review；evidence 来源 metadata + provenance downstream findings）。
+- `InvestigationEvidenceView.vue` 重写为真正工作区：左 filter（all/pending/verified/rejected）+ claim 列表 + 未分组证据计数；右详情面板。selection → Copilot context（workspace=evidence, selected_type=claim/evidence, selected_id）。
+- 新增前端 API `getEvidenceProvenance()`（复用既有 provenance endpoint，不复制后端逻辑）；`EvidenceSidebar.vue` 保留（唯一剩余引用为 legacy CaseWorkspaceView，C11 处理）。
+- 测试：EvidenceClaimList 4、EvidenceDetailPanel 4、InvestigationEvidenceView 6（filter/selection context/error/empty），旧 Sidebar 测试 8 个不受影响。
+
+### C8.2 Timeline Workspace（feat: integrate investigation timeline context）
+
+- 新组件 `TimelineWorkspaceContent.vue`：Volume Timeline（posts:stats 按天柱状图）/ Platform Timeline（按天×平台堆叠线）/ Narrative Timeline（复用既有 NarrativeTimelineView，新旧 route 临时复用）；时间范围选择进入 Copilot context（workspace=timeline, time_range）并过滤图表；无 Shell 的旧路由静默降级。
+- 后端轻量只读聚合：`GET /cases/{id}/posts:stats`（`SocialRepository.list_post_time_rows()` Python 侧按天/平台聚合，双方言安全，无新持久化表）。
+- 测试：TimelineWorkspaceContent 5（数据映射/tab 切换/time_range context/error/narrative）。
+
+### C8.3 Live Data Posts（feat: add paginated live data posts）
+
+- 后端：`GET /cases/{id}/posts`（platform/q/from/to 过滤 + limit/offset 分页 + has_more；响应仅暴露稳定字段，raw_payload/embedding/content_hash 不外泄）+ `GET /cases/{id}/posts:stats`。
+- 前端：新 `PostsList.vue`（filters + 加载更多 + 打开原文 + selection）；`InvestigationLiveDataView.vue` 三 tab（Posts | Media | Platform Comparison），selection → Copilot context（workspace=live_data, selected_type=social_post, selected_id）。
+- 测试：后端 `tests/test_posts.py` 2（分页/过滤/case 隔离/404/stats 聚合/字段白名单）；前端 PostsList 6 + LiveDataView 3（Posts 默认 tab/selection context/tab 切换）。
