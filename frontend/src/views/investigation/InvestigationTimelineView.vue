@@ -1,11 +1,15 @@
 <script setup lang="ts">
-// Optimization V2 (M5.5)：Timeline 工作区。
-// 过渡期复用 NarrativeTimelineView 全量内容（M8 按 Part VIII 矩阵
-// 删除旧全局路由入口）；时间范围选中后进入 Copilot context（time_range）。
-import { onMounted } from 'vue'
+// Optimization V2 (M5.5 + C8.2)：Timeline 工作区。
+// Volume / Platform / Narrative 三种 timeline；时间范围选择进入
+// Copilot context（workspace=timeline, time_range）。
+import { computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 
-import NarrativeTimelineView from '@/views/NarrativeTimelineView.vue'
+import TimelineWorkspaceContent from '@/components/timeline/TimelineWorkspaceContent.vue'
 import { useInvestigationContext } from '@/composables/useInvestigationContext'
+
+const route = useRoute()
+const caseId = computed(() => String(route.params.caseId ?? ''))
 
 const { setUiContext } = useInvestigationContext()
 
@@ -16,7 +20,7 @@ onMounted(() => {
 
 <template>
   <div class="itl">
-    <NarrativeTimelineView />
+    <TimelineWorkspaceContent :case-id="caseId" :set-time-range="true" />
   </div>
 </template>
 
