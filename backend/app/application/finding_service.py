@@ -1,8 +1,11 @@
 """M4: Finding service — deterministic artifact materializer + status machine.
 
 Agent 不直接产生 verified Finding：Expert Artifact 由本服务确定性物化为
-``candidate``；``verified``/``rejected`` 只能由 Review 决策产生（ReviewService
-是事实来源）。重复 sync 通过 source link 幂等键跳过，绝不重置人工状态。
+``candidate``；``verified``/``rejected`` 只能由 Review 决策事务产生
+（ApplicationRepository.decide_review_item 同事务同步，ReviewService 是
+事实来源）；普通 Finding API 尝试设置终审态返回
+``finding_review_required``。重复 sync 通过 source link 幂等键跳过，
+绝不重置人工状态。
 """
 
 from __future__ import annotations
@@ -19,11 +22,10 @@ SUPPORTED_ARTIFACT_KINDS = {"opinion_analysis", "fact_check"}
 
 VALID_KINDS = {"opinion", "verification", "propagation", "narrative", "integrity", "manual"}
 
-# Part IV 状态机：verified/rejected 只能由 Review 决策产生
+# 普通 Finding API 允许的状态迁移；verified/rejected 只能由 Review 决策
+# 事务（ApplicationRepository.decide_review_item）产生，不在本表内。
 ALLOWED_TRANSITIONS = {
     ("candidate", "under_review"),
-    ("under_review", "verified"),
-    ("under_review", "rejected"),
     ("under_review", "candidate"),
     ("verified", "under_review"),
     ("rejected", "under_review"),
@@ -32,6 +34,9 @@ ALLOWED_TRANSITIONS = {
     ("verified", "superseded"),
     ("rejected", "superseded"),
 }
+
+# 目标状态为终审态时专用错误码：必须经 Review，不复用模糊的 invalid_transition。
+REVIEW_ONLY_STATUSES = {"verified", "rejected"}
 
 REVIEW_STATUS_TO_FINDING = {
     "unreviewed": "candidate",
@@ -254,6 +259,11 @@ class FindingService:
     async def update_status(
         self, case_id: str, finding_id: str, status: str
     ) -> FindingRecord:
+        if status in REVIEW_ONLY_STATUSES:
+            raise ApplicationError(
+                f"finding status '{status}' can only be set by a review decision",
+                code="finding_review_required",
+            )
         record = await self.get_for_case(case_id, finding_id)
         transition = (record.status, status)
         if transition not in ALLOWED_TRANSITIONS:

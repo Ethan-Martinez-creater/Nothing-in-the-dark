@@ -113,18 +113,54 @@ async def test_fact_check_artifact_maps_verdict_and_contradicts(tmp_path: Path) 
     assert finding.status == "candidate"
 
 
-async def test_status_machine_rejects_candidate_to_verified(tmp_path: Path) -> None:
+async def _seed_review_item(
+    repository: ApplicationRepository,
+    database: Database,
+    case_id: str,
+    finding: FindingRecord,
+) -> ReviewItemRecord:
+    """创建 finding Review item 并置为 under_review（claim 等效前置）。"""
+    item = await repository.create_review_item(
+        ReviewItemRecord(
+            case_id=case_id,
+            object_type="finding",
+            object_id=finding.id,
+            summary=finding.statement,
+        )
+    )
+    item.status = "under_review"
+    async with database.session_factory() as session:
+        session.add(item)
+        await session.commit()
+        await session.refresh(item)
+    return item
+
+
+async def test_status_machine_blocks_review_only_statuses(tmp_path: Path) -> None:
+    """普通 Finding API 无法产生 verified/rejected（C1：Review 唯一裁决）。"""
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f3.db'}")
     repository, service, case_id = await _seed(database)
     finding = await service.create_manual(case_id, statement="手工结论")
 
+    # candidate -> verified 直接失败
     with pytest.raises(ApplicationError) as exc:
         await service.update_status(case_id, finding.id, "verified")
-    assert exc.value.code == "finding_invalid_transition"
+    assert exc.value.code == "finding_review_required"
 
+    # candidate -> under_review -> verified 仍失败
     await service.update_status(case_id, finding.id, "under_review")
-    updated = await service.update_status(case_id, finding.id, "verified")
-    assert updated.status == "verified"
+    with pytest.raises(ApplicationError) as exc:
+        await service.update_status(case_id, finding.id, "verified")
+    assert exc.value.code == "finding_review_required"
+
+    # candidate -> under_review -> rejected 同样失败
+    with pytest.raises(ApplicationError) as exc:
+        await service.update_status(case_id, finding.id, "rejected")
+    assert exc.value.code == "finding_review_required"
+
+    # 合法迁移不受影响：under_review -> candidate 回退
+    reverted = await service.update_status(case_id, finding.id, "candidate")
+    assert reverted.status == "candidate"
 
 
 async def test_cross_case_finding_access_denied(tmp_path: Path) -> None:
@@ -146,20 +182,7 @@ async def test_review_accepted_syncs_finding_verified_atomically(tmp_path: Path)
     finding = await service.create_manual(case_id, statement="待审核结论")
     await service.update_status(case_id, finding.id, "under_review")
 
-    item = await repository.create_review_item(
-        ReviewItemRecord(
-            case_id=case_id,
-            object_type="finding",
-            object_id=finding.id,
-            summary=finding.statement,
-        )
-    )
-    # 将 item 置为 in_review（ReviewService.claim 的等效前置）
-    item.status = "under_review"
-    async with database.session_factory() as session:
-        session.add(item)
-        await session.commit()
-        await session.refresh(item)
+    item = await _seed_review_item(repository, database, case_id, finding)
 
     decision = ReviewDecisionRecord(
         item_id=item.id,
@@ -179,6 +202,93 @@ async def test_review_accepted_syncs_finding_verified_atomically(tmp_path: Path)
     # 同一决策事务内：Review accepted → Finding verified
     updated = await service.get_for_case(case_id, finding.id)
     assert updated.status == "verified"
+
+
+async def test_review_rejected_syncs_finding_rejected(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f8.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="存疑结论")
+    await service.update_status(case_id, finding.id, "under_review")
+
+    item = await _seed_review_item(repository, database, case_id, finding)
+    decision = ReviewDecisionRecord(
+        item_id=item.id,
+        object_version=item.current_version,
+        decision="rejected",
+        reason="证据不足且与来源矛盾",
+        actor="tester",
+    )
+    result = await repository.decide_review_item(
+        item_id=item.id,
+        expected_status="under_review",
+        expected_version=item.current_version,
+        target_status="rejected",
+        decision=decision,
+    )
+    assert result is not None
+    updated = await service.get_for_case(case_id, finding.id)
+    assert updated.status == "rejected"
+
+
+async def test_review_conflict_keeps_finding_status(tmp_path: Path) -> None:
+    """Review 决策冲突（乐观锁不匹配）时整个事务回滚，Finding 状态不变。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f9.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="冲突场景结论")
+    await service.update_status(case_id, finding.id, "under_review")
+
+    item = await _seed_review_item(repository, database, case_id, finding)
+    stale_version = item.current_version + 1  # 过期版本，必然冲突
+    decision = ReviewDecisionRecord(
+        item_id=item.id,
+        object_version=stale_version,
+        decision="approved",
+        reason="过期请求",
+        actor="tester",
+    )
+    result = await repository.decide_review_item(
+        item_id=item.id,
+        expected_status="under_review",
+        expected_version=stale_version,
+        target_status="accepted",
+        decision=decision,
+    )
+    assert result is None
+    updated = await service.get_for_case(case_id, finding.id)
+    assert updated.status == "under_review"
+
+
+async def test_verified_finding_reopens_via_under_review_only(tmp_path: Path) -> None:
+    """已 verified Finding 可重新进入 under_review，但再次 verified 仍需 Review。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f10.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="复核场景结论")
+    await service.update_status(case_id, finding.id, "under_review")
+    item = await _seed_review_item(repository, database, case_id, finding)
+    result = await repository.decide_review_item(
+        item_id=item.id,
+        expected_status="under_review",
+        expected_version=item.current_version,
+        target_status="accepted",
+        decision=ReviewDecisionRecord(
+            item_id=item.id,
+            object_version=item.current_version,
+            decision="approved",
+            reason="首审通过",
+            actor="tester",
+        ),
+    )
+    assert result is not None
+    assert (await service.get_for_case(case_id, finding.id)).status == "verified"
+
+    # 重新提交复审：verified -> under_review 合法
+    reopened = await service.update_status(case_id, finding.id, "under_review")
+    assert reopened.status == "under_review"
+
+    # 再次 verified 仍被普通 API 拒绝
+    with pytest.raises(ApplicationError) as exc:
+        await service.update_status(case_id, finding.id, "verified")
+    assert exc.value.code == "finding_review_required"
 
 
 async def test_delete_case_removes_finding_tables(tmp_path: Path) -> None:
@@ -268,6 +378,19 @@ def test_findings_api_and_provenance(tmp_path: Path) -> None:
         synced = client.post(f"/api/v1/cases/{case_id}/findings:sync")
         assert synced.status_code == 200
         assert synced.json()["created"] == 0
+
+        # C1：Schema 收窄 —— 普通 API 无法请求终审态（422），under_review 合法
+        review_only = client.post(
+            f"/api/v1/cases/{case_id}/findings/{body['id']}/status",
+            json={"status": "verified"},
+        )
+        assert review_only.status_code == 422
+        allowed = client.post(
+            f"/api/v1/cases/{case_id}/findings/{body['id']}/status",
+            json={"status": "under_review"},
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["status"] == "under_review"
 
 
 

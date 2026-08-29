@@ -54,3 +54,11 @@
 - 清理对象：`backend/.pytest-*-tmp/` 下 21 个 pytest basetemp 目录、93 个被误跟踪的运行时产物（测试 SQLite `.db`、MediaCrawler 运行 JSONL、MediaCrawler stub `main.py`）。
 - 处理方式：`git rm --cached`（仅解除 Git 跟踪，磁盘文件保留，由 `.gitignore` 的 `.pytest-*-tmp/` 规则持续忽略）；不触碰任何静态 fixture。
 - 验收：`git ls-files` 中不再出现 `.pytest-*-tmp/`；`git status` 仅含本次清理与文档记录。
+
+## C1 — 封死 Finding 绕过 Human Review 的状态路径（commit：fix: enforce review-only finding verification）
+
+- `finding_service.py`：`ALLOWED_TRANSITIONS` 移除 `under_review→verified/rejected`；普通 `update_status()` 对终审态返回专用错误码 `finding_review_required`（不复用模糊的 `finding_invalid_transition`）；合法迁移保留 candidate⇄under_review、verified/rejected→under_review（重新提交复审）、全部→superseded。
+- Review 唯一裁决路径不动：`decide_review_item()` 同事务同步 ReviewItem/ReviewDecision/Finding 保持原样。
+- `schemas/findings.py`：`UpdateFindingStatusRequest.status` 收窄为 `Literal["candidate","under_review","superseded"]`，Service 保留最终防线。
+- 测试（`tests/test_findings.py`）：candidate→verified 拒绝、under_review→verified/rejected 拒绝（finding_review_required）、Review approved→verified、Review rejected→rejected、Review 冲突（乐观锁失败）Finding 状态不变、verified→under_review 重开后再 verified 仍需 Review、API 层 verified 请求 422 + under_review 200。旧 `under_review→verified` 通路测试已改写。
+- 专项测试：`pytest tests/test_findings.py`（10 passed）；受影响回归：`pytest tests/test_findings.py tests/test_claim_review.py tests/test_legacy_compatibility.py`（15 passed, 0 failed）。

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,9 @@ class CreateFindingRequest(BaseModel):
 
 
 class UpdateFindingStatusRequest(BaseModel):
-    status: str = Field(max_length=32)
+    """普通 API 可设置的目标状态；verified/rejected 仅经 Review 决策产生。"""
+
+    status: Literal["candidate", "under_review", "superseded"]
 
 
 class AddFindingEvidenceRequest(BaseModel):
