@@ -30,6 +30,53 @@ _REPORT_STATUS_TRANSITIONS = {
 }
 
 
+def normalize_citation_refs(link: Any, index: int = 0) -> list[tuple[str, str, str]] | None:
+    """把单个 citation link 归一化为 (type, id, path) 引用列表。
+
+    支持：字符串、evidence(_id)(_ids)、finding(_id)(_ids)、
+    artifact(_id)(_ids)、generic ref/id。generic 无类型时按
+    Evidence → Finding → Artifact 顺序在当前 case 内解析。
+    无法提取任何引用时返回 None（unknown shape）。
+
+    模块级函数：Provenance（C5）复用同一 parser，不维护第二份。
+    """
+    base = f"citation_links[{index}]"
+    if isinstance(link, str):
+        text = link.strip()
+        return [("generic", text, base)] if text else None
+    if not isinstance(link, dict):
+        return None
+
+    refs: list[tuple[str, str, str]] = []
+
+    def _collect(ref_type: str, value: Any, path: str) -> None:
+        if isinstance(value, str) and value.strip():
+            refs.append((ref_type, value.strip(), path))
+
+    for key in ("evidence_id", "evidence"):
+        _collect("evidence", link.get(key), f"{base}.{key}")
+    evidence_ids = link.get("evidence_ids")
+    if isinstance(evidence_ids, list):
+        for j, value in enumerate(evidence_ids):
+            _collect("evidence", value, f"{base}.evidence_ids[{j}]")
+    for key in ("finding_id", "finding"):
+        _collect("finding", link.get(key), f"{base}.{key}")
+    finding_ids = link.get("finding_ids")
+    if isinstance(finding_ids, list):
+        for j, value in enumerate(finding_ids):
+            _collect("finding", value, f"{base}.finding_ids[{j}]")
+    for key in ("artifact_id", "artifact"):
+        _collect("artifact", link.get(key), f"{base}.{key}")
+    artifact_ids = link.get("artifact_ids")
+    if isinstance(artifact_ids, list):
+        for j, value in enumerate(artifact_ids):
+            _collect("artifact", value, f"{base}.artifact_ids[{j}]")
+    for key in ("ref", "id"):
+        _collect("generic", link.get(key), f"{base}.{key}")
+
+    return refs or None
+
+
 class ReportDocumentService:
     def __init__(self, database: Database) -> None:
         self._database = database
@@ -195,7 +242,7 @@ class ReportDocumentService:
         """逐条解析 citation 引用（C3）：每个引用必须真实存在且属于当前 case。"""
         problems: list[dict[str, str]] = []
         for index, link in enumerate(citation_links):
-            refs = self._normalize_citation_refs(link, index)
+            refs = normalize_citation_refs(link, index)
             if refs is None:
                 # unknown shape：没有任何可解析引用，fail closed
                 problems.append(
@@ -210,52 +257,6 @@ class ReportDocumentService:
                 if problem is not None:
                     problems.append({"field": path, "issue": problem})
         return problems
-
-    def _normalize_citation_refs(
-        self, link: Any, index: int
-    ) -> list[tuple[str, str, str]] | None:
-        """把单个 citation link 归一化为 (type, id, path) 引用列表。
-
-        支持：字符串、evidence(_id)(_ids)、finding(_id)(_ids)、
-        artifact(_id)(_ids)、generic ref/id。generic 无类型时按
-        Evidence → Finding → Artifact 顺序在当前 case 内解析。
-        无法提取任何引用时返回 None（unknown shape）。
-        """
-        base = f"citation_links[{index}]"
-        if isinstance(link, str):
-            text = link.strip()
-            return [("generic", text, base)] if text else None
-        if not isinstance(link, dict):
-            return None
-
-        refs: list[tuple[str, str, str]] = []
-
-        def _collect(ref_type: str, value: Any, path: str) -> None:
-            if isinstance(value, str) and value.strip():
-                refs.append((ref_type, value.strip(), path))
-
-        for key in ("evidence_id", "evidence"):
-            _collect("evidence", link.get(key), f"{base}.{key}")
-        evidence_ids = link.get("evidence_ids")
-        if isinstance(evidence_ids, list):
-            for j, value in enumerate(evidence_ids):
-                _collect("evidence", value, f"{base}.evidence_ids[{j}]")
-        for key in ("finding_id", "finding"):
-            _collect("finding", link.get(key), f"{base}.{key}")
-        finding_ids = link.get("finding_ids")
-        if isinstance(finding_ids, list):
-            for j, value in enumerate(finding_ids):
-                _collect("finding", value, f"{base}.finding_ids[{j}]")
-        for key in ("artifact_id", "artifact"):
-            _collect("artifact", link.get(key), f"{base}.{key}")
-        artifact_ids = link.get("artifact_ids")
-        if isinstance(artifact_ids, list):
-            for j, value in enumerate(artifact_ids):
-                _collect("artifact", value, f"{base}.artifact_ids[{j}]")
-        for key in ("ref", "id"):
-            _collect("generic", link.get(key), f"{base}.{key}")
-
-        return refs or None
 
     async def _citation_ref_problem(
         self, case_id: str, ref_type: str, ref_id: str

@@ -86,3 +86,18 @@
 - `SignalService.change_status()` 只做 action mapping（acknowledge/resolve/suppress），合法性由同一 validator 决定；monitors 路由删除本地 `_VALID_TRANSITIONS` 副本。
 - 测试：resolved→acknowledge 拒绝、suppressed→resolve 拒绝、resolved→suppress 合法、Signal API 与 Monitor API 跨端操作后非法转换错误码一致（400 `alert_status_transition_invalid`）；既有 Monitor 状态机测试保持通过。
 - 专项测试：`pytest tests/test_signals.py tests/test_monitoring.py::test_api_alert_status_machine`（6 passed）。
+
+## C5 — Provenance 修正与双向链路补齐（commit：fix: complete case-scoped provenance relationships）
+
+- `_resolve_artifact()` 直接读取 `ArtifactRecord` 并校验 case_id（真实 Artifact 无 Finding 也 200；不再靠 FindingSourceLink 间接判断存在）。
+- `_resolve_finding()`：evidence upstream 逐条校验存在性；坏 link（不存在/跨 case，含 C2 前历史脏数据）不输出伪造 Evidence node，改以 `dangling_evidence_ref` warning 输出；downstream 新增 `report_document`（复用 citation normalizer 判定引用关系，cited_by）。
+- 新增 `report_document` root：upstream=citations（Evidence/Finding/Artifact，generic 引用解析实际类型；解析失败 dangling_citation_ref warning）；downstream=同 family 后续 revision（supersedes 链，superseded_by）。
+- C3 citation normalizer 提升为模块级 `normalize_citation_refs()`，Provenance 复用同一 parser；`ProvenanceResponse.warnings` 类型为 `list[dict]`。
+- 测试（新文件 `tests/test_provenance.py`）：无 Finding 的真实 Artifact 可查、Artifact→Finding、Evidence→Finding、Finding upstream 兼容脏 link + Report downstream、ReportDocument refs + revision 链、跨 case root 统一 404（finding/artifact/report_document）、API 层 report_document root 冒烟。
+
+## C6 — Collection exclusions/filters 真正生效（commit：fix: apply active collection exclusions and supported filters）
+
+- 新增 `app/services/collection_filters.py`：`apply_collection_exclusions()` 在 normalized post 文本字段（title/content/description/summary/text）做 case-insensitive substring 排除，comment 跟随父记录；`validate_collection_filters()` 白名单校验（唯一合法 key `generated_by` 内部标记；未知 key → `collection_filter_unsupported`）。
+- 采集链路：crawl handler 在 coverage/persistence 前应用 exclusions（不修改 MediaCrawler DSL、不绕过 SocialCrawlerPort、approval/sandbox 顺序不变）；输出新增 `collection_filter_stats`（before/after/excluded）审计；无 active definition 时旧路径不变。
+- 保存与运行双层防线：`create_manual()/revise()` 保存时拒绝未知 filter key；crawl handler 防御性再校验。
+- 测试（`tests/test_collection_tool_integration.py` 扩展）：exclusion 真实过滤 + 审计统计、无 active 无 stats、运行时未知 filter fail closed、保存时未知 filter 拒绝（generated_by 允许）。

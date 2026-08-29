@@ -18,7 +18,7 @@ class ProvenanceResponse(BaseModel):
     root: ProvenanceRef
     upstream: list[ProvenanceRef] = Field(default_factory=list)
     downstream: list[ProvenanceRef] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    warnings: list[dict[str, str]] = Field(default_factory=list)
 
 
 def ref_dict(
