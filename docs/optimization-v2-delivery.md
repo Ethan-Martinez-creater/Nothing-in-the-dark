@@ -142,3 +142,65 @@
 - 新增 `services/chat/buildChatItems.ts`：迁入旧 CaseWorkspaceView 已验证的完整算法（expert assistant turn 归属、coordinator final answer 向后匹配且不消费专家 turn、orphan artifacts、无 turn run 兜底）+ `makeRunItem` + `preserveRunLiveState`（重建时保留 approvals/trace/traceLoading/liveEvents/liveToolCalls/liveModelCalls）。
 - CopilotDrawer 删除简化版 `buildItems`/`findAssistantAfter`，改用共享 helper；`loadHistory()` 重建时保留 live 状态（修复终态重拉导致审批卡闪烁的问题）；CaseWorkspaceView 的 refreshChatItems 改用共享 `preserveRunLiveState`（行为不变）。
 - 测试：buildChatItems 6（coordinator+expert、多 assistant turns、expert turn 不被 coordinator 消费、orphan artifact、无 turn run、refresh 保留 approvals/trace）；CaseWorkspaceView 34 个既有测试全部保持。
+
+## C11 — Legacy 删除与最终 Closure（commits：chore: remove retired legacy workspace paths / test: update browser e2e scenarios to investigation ia / fix: add sqlite busy timeout）
+
+### Legacy 删除（删除条件全部满足后执行）
+
+- 删除 7 个退役文件：`CaseWorkspaceView.vue`（+其 34 项测试文件）、`EvidenceSidebar.vue`（+测试）、`VisualSidebar.vue`、`SubscriptionsView.vue`、`SemanticAnnotationsView.vue`、`GoalPlanningView.vue`。删除前验证：router 无生产引用、Copilot 历史已共享（C10）、Semantics/Goals 已迁入（C9）、Propagation/Live Data 已由新组件接管（C7/C8）。
+- 保留：`NarrativeTimelineView.vue`（Timeline workspace 的 Narrative tab 仍复用，/narratives 兼容路由保留）。
+
+### 浏览器级 E2E（frontend e2e-smoke.cjs / e2e-interact.cjs 扩展，未新建第三套框架）
+
+- `e2e-smoke.cjs`：15/15 passed —— 新 IA 全路由（Home/Investigations/Signals/Reports/Admin 7 子页/Narrative）+ 3 个 legacy 重定向路由（/semantics /goals /subscriptions）。
+- `e2e-interact.cjs`：41 checks 全过（1 项 SKIPPED 见下）。Scenario A–F 全部覆盖：
+  - **A Investigation Shell**：创建调查 → overview/evidence/network/live-data/findings/report 六 tab 真实渲染（h1=调查标题）；
+  - **B Finding Review**：candidate → under_review → 普通 API verified 被 422 拒 → Review item 创建/claim/approve → Finding 自动 verified（闭环）；
+  - **C Report Publish Gate**：GET /reports 可用 + 不存在 artifact import 被 4xx 拒（publish gate 阻断语义已由 C3 单测覆盖正反两路）；
+  - **D Propagation Graph**：GET /propagation-graph 200（nodes/edges 结构）；
+  - **E Live Data**：GET /posts 分页结构（posts/has_more）+ /posts:stats；
+  - **F Signals**：GET /signals 200。
+  - Kill Switch fail-closed（409）通过；成功路径 SKIPPED（环境无 approved policy_exception 审批前置数据，审批由 Harness 运行时产生，无法自包含造数；该路径由 test_resilience 单测覆盖）。
+- E2E 环境真实启动 backend（uvicorn :8000）+ frontend（vite :5173），全程无 console/pageerror。
+
+### 完整后端回归（评审 17.2 硬性要求）
+
+- **执行方式**：本机环境下单进程后台任务不可靠（多次被会话中断终止）且 4-worker 全量曾出现 xdist 并发死锁（test_api.py 的 SSE 测试在并行下 2h 无进展、单跑 49s 通过）。最终按 92 个测试文件均衡分为 16 个批次（14 个并行分片 + test_api.py/test_reports.py 串行——两者含 SSE 重交互测试，串行规避 xdist 死锁），**批次合集与全量测试文件集合 1:1 对应（脚本校验 0 遗漏）**。
+- **最终结果：833 passed / 0 failed / 0 skipped**（baseline 778 + 本轮 Closure 新增 55）。
+- 过程中发现并修复 1 个 flake 根因：SQLite 默认 busy timeout 为 0，并发写偶发 `database is locked`（`test_propagation_expert_artifact_backfills_edge_ids` 修复前 5 次中 2 次失败）→ `engine.py` 增加 `connect_args={"timeout": 30}`（仅 SQLite；PG 不受影响），修复后 5/5 稳定通过，并在最终批次结果中 0 失败。
+
+### 前端四项质量门（评审 17.3）
+
+- `npm run typecheck` ✓（0 error）｜ `npm run lint` ✓（0 error）｜ `npm run test` ✓（135 passed / 23 files）｜ `npm run build` ✓。
+
+---
+
+# Optimization V2 CLOSED
+
+- [x] Finding verified/rejected 只能来自 Review（C1）
+- [x] Finding 不存在/跨 Case Evidence 被拒绝（C2）
+- [x] Report 真实 citation schema 全量校验（C3）
+- [x] Signal / Monitor 共用状态机（C4）
+- [x] Provenance 无伪造 Evidence node（C5）
+- [x] Collection UI 已激活字段真实影响 crawl（C6）
+- [x] Network/Propagation 是真实 graph workspace（C7）
+- [x] Evidence 是真正 workspace（C8.1）
+- [x] Timeline 有 time-range context（C8.2）
+- [x] Live Data 有分页 Posts（C8.3）
+- [x] Semantics/Goals 完成迁移（C9）
+- [x] Subscriptions 完成新 IA 分流（C9）
+- [x] Copilot 使用共享完整历史重建（C10）
+- [x] legacy 满足条件后删除/redirect（C11）
+- [x] tracked test temp artifacts 清理（C0）
+- [x] full backend pytest 0 failed（833 passed / 0 failed / 0 skipped）
+- [x] frontend typecheck 通过
+- [x] frontend lint 通过
+- [x] frontend test 通过
+- [x] frontend build 通过
+- [x] browser E2E Scenario A–F 通过
+
+## 真正剩余限制（如实记录）
+
+1. E2E Kill Switch 成功路径依赖 Harness 运行时产生的 policy_exception 审批数据，CI 环境无法自包含造数（fail-closed 路径已在 E2E 验证，成功路径由 test_resilience 单测覆盖）。
+2. `/narratives` 旧路由与 NarrativeTimelineView 保留（Timeline workspace 的 Narrative tab 仍复用该组件；待后续拆出内容组件后可移除全局路由）。
+3. `vendor/mediacrawler-local.patch` 等本地补丁资产按原样保留，未纳入本轮 Closure 范围。
