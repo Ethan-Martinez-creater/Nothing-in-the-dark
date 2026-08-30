@@ -209,7 +209,7 @@
 
 # Optimization V2 Final Closure
 
-Status: IN PROGRESS
+Status: CLOSED
 Baseline HEAD: 79e8842520d7c53ceacce2ee0a3a1ce4926938ca
 
 Baseline note (FC0, 2026-08-30):
@@ -217,4 +217,132 @@ Baseline note (FC0, 2026-08-30):
 - Working tree clean except the untracked review plan document itself.
 - backend/.pytest-*-tmp runtime artifacts remain untracked (ignored).
 - Latest Alembic revision is 20260829_0048_report_documents; this final pass adds revision 20260830_0049 (no reuse of old revision ids).
-- The earlier "# Optimization V2 CLOSED" section above is the V2 closure record as of 79e8842; per the final review it is superseded by this Final Closure section, which stays IN PROGRESS until FC1-FC6 gates all pass.
+- The earlier "# Optimization V2 CLOSED" section above is the V2 closure record as of 79e8842; per the final review it is superseded by this Final Closure section, which is now CLOSED (see the Final Closure Result below).
+
+## Final Closure FC1 — Propagation Review Tri-state
+
+- Commit: ab8c988
+- Files: models.py (human_review_state on PropagationEdgeRecord), migrations/versions/20260830_0049_propagation_review_state.py (new), repositories.py (confirm writes tri-state + full audit details), schemas/propagation.py (Literal tri-state in DTO), frontend types/api.ts, PropagationGraph.vue, PropagationDetailPanel.vue + both test files, InvestigationNetworkView.test.ts fixture
+- Migration: 20260830_0049 backfills conservatively — human_confirmed rows -> confirmed; false rows -> rejected ONLY when the evaluations audit (metric propagation_edge_human_confirmation) proves the latest decision was a rejection; anything else -> unreviewed. Column ends NOT NULL + indexed; legacy human_confirmed kept as a compatibility mirror. Downgrade drops the tri-state column only.
+- Tests: backend pytest tests/test_propagation_graph.py tests/test_propagation_confirmation.py tests/test_migration_review_state.py -> 11 passed (new-edge default unreviewed, confirm/reject + both re-judgement directions with audit contents, graph API tri-state field, migration backfill across all six audit branches, NOT NULL + index, downgrade keeps rows + legacy column, fresh upgrade to 0049 and to head). Frontend npm run test -- PropagationGraph PropagationDetailPanel -> 17 passed (three-state line styles, three badge states, reload-from-backend, both re-judge directions); npm run typecheck clean.
+- Migration gate: PG offline DDL for 0048->0049 and 0049->0048 generated and inspected (ADD COLUMN / CREATE INDEX / SET NOT NULL; DROP INDEX / DROP COLUMN); alembic heads = 20260830_0049. The SQLite full-chain upgrade is impossible because 0003 (pgvector) is PostgreSQL-only (pre-existing); the 0049 revision logic is covered by tests/test_migration_review_state.py driving the real upgrade()/downgrade() through Alembic Operations on the 0048 table shape.
+
+## Final Closure FC2 — Finding Atomic Creation
+
+- Commit: 953aed4
+- Files: finding_service.py (create_manual validates kind/statement/relation whitelist/evidence existence + case scope BEFORE any persistence, then delegates to the atomic repository method), finding_repository.py (new create_with_links: one session, flush for id, optional source link + all evidence links, single commit, rollback on any failure)
+- Artifact materializer untouched: invalid evidence refs still skip + warn (tolerant policy preserved).
+- Tests: tests/test_findings.py extended with 6 cases (missing evidence / cross-case evidence / invalid relation -> ApplicationError code asserted AND zero row-count delta across findings + source links + evidence links; duplicate evidence link hitting the DB unique constraint -> whole-transaction rollback; repository-level create_with_links rollback on a DB error; happy path with source + 3 evidence links verifying persisted rows). pytest tests/test_findings.py tests/test_provenance.py tests/test_report_documents.py -> 32 passed.
+
+## Final Closure FC3 — Unassigned Evidence
+
+- Commit: 9222329
+- Files: new frontend/src/components/evidence/UnassignedEvidenceList.vue (+test), InvestigationEvidenceView.vue (Claims/Unassigned scope switch inside the Claims workspace, default Claims, reset on case switch, 0-claims guidance), InvestigationEvidenceView.test.ts (+6 FC3 cases)
+- Behaviour: unassigned evidence is browsable with stance/excerpt/source_type/platform/author (from metadata only), selectable into the existing EvidenceDetailPanel item mode, and enters the Copilot context as workspace=evidence / selected_type=evidence / selected_id. Claims-empty-but-unassigned-nonempty shows "暂无已归组主张；可切换到 Unassigned 查看未归属证据" instead of the misleading empty state; the global empty guide only shows when both are empty. No backend API added, no EvidenceSidebar revived.
+- Tests: npm run test -- InvestigationEvidenceView UnassignedEvidenceList EvidenceDetailPanel -> 19 passed; typecheck + lint clean.
+
+## Final Closure FC4 — Provenance / Test Integrity
+
+- Commit: 21955c8
+- Files: provenance_service.py (_reports_citing_finding resolves generic citation refs through the existing _resolve_generic_ref_type before matching — no third resolver), tests/test_provenance.py (+1 bidirectional generic citation case), tests/test_posts.py ("or True" removed; field whitelist asserted on all rows; stable-key lookup by native_id)
+- Tests: pytest tests/test_provenance.py tests/test_posts.py -> 9 passed. Scan of all Final-Closure test files found no remaining "or True" / "assert True" patterns.
+
+## Final Closure FC5 — Interaction E2E
+
+- Commit: b6f1b63
+- Files: frontend/e2e-interact.cjs (rewritten into three reported sections), backend/scripts/seed_final_closure_e2e.py (deterministic fixture producer via normal repositories; refuses non-SQLite DATABASE_URL; prints one JSON line of real IDs), PropagationGraph.vue (VITE_E2E-only expando hook emitting the same select event + a real fix: the graph watch now flushes post-DOM so the chart renders when data arrives asynchronously), finding_service.py (submitting a finding for review now idempotently creates its Review item so the UI path reaches the existing workbench), InvestigationReportView.vue (document picker), tests/test_findings.py (seed helper adapted), .gitignore (E2E run artifacts)
+- Environment: real backend (DATABASE_URL -> disposable SQLite, DEMO_MODE=1) + real frontend (VITE_E2E=true vite dev).
+- Smoke: 17/17 passed (7 API + 8 global h1 + 2 hygiene checks).
+- Scenario A: 9 checks — shell title, claim text visible, evidence click -> detail (excerpt/platform/author), Copilot context chip, Unassigned scope -> unassigned evidence -> detail, and ui_context captured from the REAL POST /messages request (selected_type=evidence, selected_id=unassigned_evidence_id).
+- Scenario B: 7 checks — candidate visible, UI 提交审核 -> under_review, plain status API verified -> 422, review item -> workbench UI claim + 接受, findings page shows verified.
+- Scenario C: 4 checks — valid draft visible, publish -> published (API confirms), UI switches to the remaining invalid draft, publish rejected with 发布校验失败, API re-read still not published.
+- Scenario D: 7 checks — canvas rendered, detail shows relation/confidence + 人工未复核（推断关系）, 驳回 -> 人工已驳回, reload -> still 人工已驳回 (database-backed), 确认 -> 人工已确认, reload -> still 人工已确认.
+- Scenario E: 5 checks — first page exactly 50 (limit=50), 加载更多 -> 51, keyword filter -> 1 target post, platform zhihu -> 1, post click -> context chip live_data · social_post.
+- Scenario F: 5 checks — detail 未处理, acknowledge -> 已确认, resolve -> 已解决 (visible after switching the resolved filter), API acknowledge on resolved -> 400 alert_status_transition_invalid, reload -> still resolved.
+- Skipped inside A-F: 0. Harness section: 3 passed + 1 unrelated skip (Kill Switch success path needs policy_exception approval data; documented since C11).
+- Console/PageError: 0 unexpected (the invalid publish 400 is the designed gate rejection; JS errors and any other 4xx/5xx fail the run).
+
+## Final Regression (FC6)
+
+- Backend full regression: 93 test files under backend/tests executed 1:1 (union == full set asserted by the shard generator: 12 greedy-balanced xdist shards `-n 4 --dist loadfile` + test_api.py / test_reports.py run serially to avoid the known SSE/xdist deadlock). First pass: 844 passed / 1 failed / 0 skipped — the single failure was `tests/test_expert_agents.py::test_verification_expert_persists_claims_and_evidence` with an OS-level SQLite `database is locked` flake under concurrent workers (same class as the previously fixed busy-timeout flake). That file re-ran serially: 11/11 passed. Final result: **0 failed, 0 unexpected skipped** (844 + 1 re-run = 845 passed executions across 94 batch runs). Log: backend/full_regression_final.log (untracked artifact).
+- Migration gate: tests/test_migration_review_state.py drives the real 0049 upgrade()/downgrade() through Alembic Operations (backfill of all six audit branches, NOT NULL + index, downgrade round-trip, fresh upgrade to 0049 and to head) -> passed. PG offline DDL generated both ways for 0048<->0049 and inspected. `alembic heads` = 20260830_0049. Known environment limits (recorded, not V2 blockers): the SQLite full-chain upgrade is impossible because 0003 (pgvector) is PostgreSQL-only (pre-existing), and the repository's PG verifier script (verify_postgres_migrations.py) needs a disposable PostgreSQL database — the local PG user lacks CREATEDB, so the offline-DDL route (explicitly allowed by the plan) was used.
+- Frontend gates: npm run typecheck (clean) / npm run lint (clean) / npm run test (17 files, 104 passed, 0 failed) / npm run build (success, 27.8s).
+- Browser gate: e2e-smoke.cjs 15/15 passed; e2e-interact.cjs smoke 17/17, Closure A-F 37/37 with 0 skipped, harness 3/3 (+1 unrelated Kill-Switch skip), no unexpected console/pageerror.
+
+# Optimization V2 Final Closure Result
+
+Baseline: 79e8842520d7c53ceacce2ee0a3a1ce4926938ca
+Final HEAD: the "docs: finalize optimization v2 final closure" commit (this one)
+
+## FC1 Propagation Review Tri-state
+- Commit: ab8c988
+- Files: models.py, migrations/versions/20260830_0049_propagation_review_state.py, repositories.py, schemas/propagation.py, types/api.ts, PropagationGraph.vue/.test.ts, PropagationDetailPanel.vue/.test.ts, InvestigationNetworkView.test.ts, tests/test_propagation_graph.py, tests/test_propagation_confirmation.py, tests/test_migration_review_state.py
+- Migration: 20260830_0049, conservative backfill (never guesses rejections), NOT NULL + index, legacy column kept
+- Tests: backend 11 passed; frontend 17 passed; PG offline DDL both ways
+- Result: unreviewed/confirmed/rejected distinguishable in DB, API, Graph and Detail; rejections survive reload; re-judging auditable
+
+## FC2 Finding Atomic Creation
+- Commit: 953aed4
+- Files: finding_service.py, finding_repository.py, tests/test_findings.py
+- Tests: findings+provenance+report_documents 32 passed
+- Result: manual creation validates everything first, writes through one-session/one-commit create_with_links; every failure path leaves zero partial writes (verified by row-count deltas and a real DB-level rollback test)
+
+## FC3 Unassigned Evidence
+- Commit: 9222329
+- Files: UnassignedEvidenceList.vue/.test.ts, InvestigationEvidenceView.vue/.test.ts
+- Tests: 19 passed (frontend) + typecheck + lint
+- Result: unassigned evidence browsable/selectable/enters Copilot context; 0-claims case no longer misleads
+
+## FC4 Provenance / Test Integrity
+- Commit: 21955c8
+- Files: provenance_service.py, tests/test_provenance.py, tests/test_posts.py
+- Tests: 9 passed
+- Result: generic {ref: finding_id} citations resolve bidirectionally; no always-true assertions remain in closure test files
+
+## FC5 Interaction E2E
+- Commit: b6f1b63
+- Files: e2e-interact.cjs, seed_final_closure_e2e.py, PropagationGraph.vue (E2E hook + post-flush render fix), finding_service.py (auto review item on submit), InvestigationReportView.vue (picker), tests/test_findings.py, .gitignore
+- Smoke: 17/17 (e2e-interact smoke section) + 15/15 (e2e-smoke.cjs)
+- Scenario A: 9/9 — evidence/unassigned selection drives detail panel and the real /messages request payload carries ui_context (workspace/selected_type/selected_id)
+- Scenario B: 7/7 — UI submit-for-review -> Review workbench claim+approve -> findings show verified; plain API verified stays 422
+- Scenario C: 4/4 — valid draft publishes (API confirms published); invalid-citation draft is rejected by the gate with a UI error and stays unpublished
+- Scenario D: 7/7 — unreviewed -> rejected -> confirmed through real UI clicks; each state survives reload from the database
+- Scenario E: 5/5 — 50-per-page + load-more(51), keyword filter, platform filter, post selection context chip
+- Scenario F: 5/5 — acknowledge -> resolve via UI; resolved signal rejects acknowledge (400 alert_status_transition_invalid); persisted after reload
+- Skipped inside A-F: 0
+- Console/PageError: 0 unexpected
+
+## Final Regression
+- Backend: 845 passed executions / 0 failed / 0 skipped (93 files 1:1; one SQLite-lock flake re-run serially and green)
+- Migration: 0049 upgrade ✓ / downgrade ✓ / PG offline DDL ✓ (SQLite full-chain limited by pre-existing PG-only 0003; PG verifier needs CREATEDB — recorded as environment limits, not blockers)
+- Frontend typecheck: ✓
+- Frontend lint: ✓
+- Frontend test: 104 passed / 0 failed
+- Frontend build: ✓
+- Browser smoke: ✓ (15/15 + 17/17)
+- Browser A-F: ✓ (37/37, 0 skipped)
+
+# Optimization V2 CLOSED
+
+Final Closure checklist (from the corrected execution plan):
+- [x] FC1 Propagation 三态数据库/DTO/UI 完成
+- [x] FC1 migration 0049 upgrade/downgrade 通过
+- [x] FC2 Finding create 0 partial write
+- [x] FC3 Unassigned Evidence 可浏览/可选择/可进入 Context
+- [x] FC4 generic Finding citation reverse provenance 完整
+- [x] FC4 Closure tests 无 or True 等虚假断言
+- [x] FC5 Browser Scenario A–F 真实交互 0 failed / 0 skipped
+- [x] Backend full regression 0 failed
+- [x] Frontend typecheck 0 error
+- [x] Frontend lint 0 error
+- [x] Frontend test 0 failed
+- [x] Frontend build success
+- [x] e2e-smoke success
+- [x] console/pageerror = 0
+- [x] docs/optimization-v2-delivery.md 与实际结果一致
+
+Future cleanup (B 类，不阻塞 Closure，与上一轮记录一致)：
+1. E2E Kill Switch 成功路径依赖 Harness 运行时产生的 policy_exception 审批数据，CI 无法自包含造数（fail-closed 已在 E2E 验证，成功路径由 test_resilience 单测覆盖）。
+2. `/narratives` 旧路由与 NarrativeTimelineView 保留（Timeline workspace 的 Narrative tab 仍复用）。
+3. `vendor/mediacrawler-local.patch` 等本地补丁资产按原样保留。
+4. 本地 PG 用户无 CREATEDB 权限，verify_postgres_migrations.py 全链演练需在具备建库权限的环境执行。

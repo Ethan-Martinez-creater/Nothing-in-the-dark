@@ -54,6 +54,8 @@ backend/backend_server_e2e.log
 backend/backend_server_final.log
 frontend/vite-e2e.log
 frontend/e2e-final-result.json
+backend/full_regression_final.log
+backend/.shards/
 backend/full_regression.log
 frontend/vite.log
 
