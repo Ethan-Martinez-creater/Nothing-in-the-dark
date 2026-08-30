@@ -204,3 +204,17 @@
 1. E2E Kill Switch 成功路径依赖 Harness 运行时产生的 policy_exception 审批数据，CI 环境无法自包含造数（fail-closed 路径已在 E2E 验证，成功路径由 test_resilience 单测覆盖）。
 2. `/narratives` 旧路由与 NarrativeTimelineView 保留（Timeline workspace 的 Narrative tab 仍复用该组件；待后续拆出内容组件后可移除全局路由）。
 3. `vendor/mediacrawler-local.patch` 等本地补丁资产按原样保留，未纳入本轮 Closure 范围。
+
+---
+
+# Optimization V2 Final Closure
+
+Status: IN PROGRESS
+Baseline HEAD: 79e8842520d7c53ceacce2ee0a3a1ce4926938ca
+
+Baseline note (FC0, 2026-08-30):
+- HEAD = 79e8842 on main, matching the review baseline in optimization-v2-final-closure-execution-plan-corrected.md.
+- Working tree clean except the untracked review plan document itself.
+- backend/.pytest-*-tmp runtime artifacts remain untracked (ignored).
+- Latest Alembic revision is 20260829_0048_report_documents; this final pass adds revision 20260830_0049 (no reuse of old revision ids).
+- The earlier "# Optimization V2 CLOSED" section above is the V2 closure record as of 79e8842; per the final review it is superseded by this Final Closure section, which stays IN PROGRESS until FC1-FC6 gates all pass.
