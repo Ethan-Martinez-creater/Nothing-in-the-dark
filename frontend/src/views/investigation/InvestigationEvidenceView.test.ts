@@ -21,6 +21,15 @@ vi.mock('@/components/semantics/SemanticAnnotationsPanel.vue', () => ({
   },
 }))
 
+vi.mock('@/components/evidence/UnassignedEvidenceList.vue', () => ({
+  default: {
+    name: 'UnassignedEvidenceList',
+    template: `<ul data-stub="unassigned"><li class="uev__item" v-for="item in items" :key="item.id" @click="$emit('select', item)">{{ item.excerpt }}</li></ul>`,
+    props: ['items'],
+    emits: ['select'],
+  },
+}))
+
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { caseId: 'case-1' } }),
 }))
@@ -165,5 +174,90 @@ describe('InvestigationEvidenceView', () => {
     const wrapper = mount(InvestigationEvidenceView)
     await flushPromises()
     expect(wrapper.text()).toContain('尚无证据')
+  })
+
+  it('shows the unassigned scope switch with counts (FC3)', async () => {
+    const wrapper = mount(InvestigationEvidenceView)
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).toContain('Claims (2)')
+    expect(text).toContain('Unassigned (1)')
+    // 默认 scope 是 Claims，未分组列表不渲染
+    expect(wrapper.find('[data-stub="unassigned"]').exists()).toBe(false)
+  })
+
+  it('switches to unassigned scope and shows unassigned excerpts (FC3)', async () => {
+    const wrapper = mount(InvestigationEvidenceView)
+    await flushPromises()
+    const unassignedButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('Unassigned'))
+    await unassignedButton!.trigger('click')
+    const stub = wrapper.find('[data-stub="unassigned"]')
+    expect(stub.exists()).toBe(true)
+    expect(stub.text()).toContain('未分组证据')
+  })
+
+  it('sends unassigned evidence selection into copilot context (FC3)', async () => {
+    const wrapper = mount(InvestigationEvidenceView)
+    await flushPromises()
+    const unassignedButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('Unassigned'))
+    await unassignedButton!.trigger('click')
+    await wrapper.find('.uev__item').trigger('click')
+    expect(setUiContext).toHaveBeenCalledWith({
+      workspace: 'evidence',
+      selected_type: 'evidence',
+      selected_id: 'ev-u1',
+    })
+    // DetailPanel 收到 item（claim 为 null），沿用现有 item 模式
+    const detail = wrapper.findComponent({ name: 'EvidenceDetailPanel' })
+    expect(detail.props('item')).toMatchObject({ id: 'ev-u1' })
+    expect(detail.props('claim')).toBeNull()
+  })
+
+  it('guides to unassigned when claims are empty but unassigned exist (FC3)', async () => {
+    apiMock.getEvidenceSummary.mockResolvedValue({
+      case_id: 'case-1',
+      claims: [],
+      unassigned: [
+        {
+          id: 'ev-u1',
+          case_id: 'case-1',
+          claim_id: null,
+          source_type: 'social_post',
+          source_id: 'p-9',
+          stance: 'context',
+          excerpt: '未分组证据',
+          relevance: 0.4,
+          metadata_json: {},
+          created_at: '2026-08-01T00:00:00+00:00',
+        },
+      ],
+    })
+    const wrapper = mount(InvestigationEvidenceView)
+    await flushPromises()
+    const text = wrapper.text()
+    // 不再误导为"尚无证据"：提示可切到 Unassigned，且数据可见
+    expect(text).toContain('暂无已归组主张')
+    expect(text).not.toContain('尚无证据')
+    const unassignedButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('Unassigned'))
+    await unassignedButton!.trigger('click')
+    expect(wrapper.find('[data-stub="unassigned"]').text()).toContain('未分组证据')
+  })
+
+  it('keeps semantics tab unaffected by the scope switch (FC3)', async () => {
+    const wrapper = mount(InvestigationEvidenceView)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('Unassigned'))!
+      .trigger('click')
+    const tabs = wrapper.findAll('.iev__tab')
+    await tabs[1]!.trigger('click')
+    expect(wrapper.find('[data-stub="semantics"]').exists()).toBe(true)
   })
 })

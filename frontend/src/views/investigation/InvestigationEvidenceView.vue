@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// Optimization V2 (M4.8 + C8.1 + C9.1)：Evidence 全尺寸工作区。
-// 子 tab：Claims（左 claim 列表 + 右详情）/ Semantics（语义标注面板）。
-// selection 进入 Copilot context（workspace=evidence）。
+// Optimization V2 (M4.8 + C8.1 + C9.1 + FC3)：Evidence 全尺寸工作区。
+// 子 tab：Claims（左 claim/unassigned 列表 + 右详情）/ Semantics（语义面板）。
+// Claims 工作区内有 scope switch（Claims | Unassigned），未归属证据可浏览、
+// 可选择、可进入 Copilot context（workspace=evidence, selected_type=evidence）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import EvidenceClaimList from '@/components/evidence/EvidenceClaimList.vue'
 import EvidenceDetailPanel from '@/components/evidence/EvidenceDetailPanel.vue'
+import UnassignedEvidenceList from '@/components/evidence/UnassignedEvidenceList.vue'
 import SemanticAnnotationsPanel from '@/components/semantics/SemanticAnnotationsPanel.vue'
 import { api } from '@/services/api'
 import type { ClaimEvidence, EvidenceItem, EvidenceSummary } from '@/types/api'
@@ -22,6 +24,10 @@ const error = ref<string | null>(null)
 // C9.1: workspace 子 tab —— Claims 为证据主工作流，Semantics 为 M5.7 迁入
 type EvidenceTab = 'claims' | 'semantics'
 const workspaceTab = ref<EvidenceTab>('claims')
+
+// FC3: Claims 工作区左栏 scope —— 默认 Claims；case 切换时重置。
+type EvidenceScope = 'claims' | 'unassigned'
+const evidenceScope = ref<EvidenceScope>('claims')
 
 type ClaimFilter = 'all' | 'pending' | 'verified' | 'rejected'
 const filter = ref<ClaimFilter>('all')
@@ -78,9 +84,21 @@ function onSelectEvidence(payload: { claim: ClaimEvidence; item: EvidenceItem })
   })
 }
 
+// FC3: 未归属证据选择 —— 不伪造 Claim，直接进入现有 DetailPanel 的 item 模式
+function onSelectUnassigned(item: EvidenceItem) {
+  selectedClaim.value = null
+  selectedItem.value = item
+  setUiContext({
+    workspace: 'evidence',
+    selected_type: 'evidence',
+    selected_id: item.id,
+  })
+}
+
 watch(caseId, () => {
   selectedClaim.value = null
   selectedItem.value = null
+  evidenceScope.value = 'claims'
   void load()
 })
 
@@ -117,6 +135,7 @@ onMounted(load)
             <button
               v-for="(label, key) in filterLabels"
               :key="key"
+              v-show="evidenceScope === 'claims'"
               type="button"
               class="iev__filter"
               :class="{ 'iev__filter--active': filter === key }"
@@ -126,12 +145,41 @@ onMounted(load)
             </button>
             <span class="iev__meta">主张 {{ claimCount }} · 未分组证据 {{ unassignedCount }}</span>
           </div>
-          <EvidenceClaimList
-            :claims="filteredClaims"
-            :case-id="caseId"
-            @select-claim="onSelectClaim"
-            @select-evidence="onSelectEvidence"
-            @reviewed="load"
+          <div class="iev__scope">
+            <button
+              type="button"
+              class="iev__scope-btn"
+              :class="{ 'iev__scope-btn--active': evidenceScope === 'claims' }"
+              @click="evidenceScope = 'claims'"
+            >
+              Claims ({{ claimCount }})
+            </button>
+            <button
+              type="button"
+              class="iev__scope-btn"
+              :class="{ 'iev__scope-btn--active': evidenceScope === 'unassigned' }"
+              @click="evidenceScope = 'unassigned'"
+            >
+              Unassigned ({{ unassignedCount }})
+            </button>
+          </div>
+          <template v-if="evidenceScope === 'claims'">
+            <p v-if="!claimCount && unassignedCount" class="iev__scope-hint">
+              暂无已归组主张；可切换到 Unassigned 查看未归属证据。
+            </p>
+            <EvidenceClaimList
+              v-else
+              :claims="filteredClaims"
+              :case-id="caseId"
+              @select-claim="onSelectClaim"
+              @select-evidence="onSelectEvidence"
+              @reviewed="load"
+            />
+          </template>
+          <UnassignedEvidenceList
+            v-else
+            :items="summary?.unassigned ?? []"
+            @select="onSelectUnassigned"
           />
         </div>
         <div class="iev__detail">
@@ -229,6 +277,33 @@ onMounted(load)
 .iev__meta {
   margin-left: auto;
   font-size: 11px;
+  color: var(--text-soft);
+}
+
+.iev__scope {
+  display: flex;
+  gap: 6px;
+}
+
+.iev__scope-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.iev__scope-btn--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.iev__scope-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
   color: var(--text-soft);
 }
 
