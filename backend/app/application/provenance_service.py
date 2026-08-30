@@ -326,16 +326,26 @@ class ProvenanceService:
             content = report.content_json if isinstance(report.content_json, dict) else {}
             for index, link in enumerate(content.get("citation_links") or []):
                 refs = normalize_citation_refs(link, index)
-                if refs and any(t == "finding" and i == finding_id for t, i, _p in refs):
-                    downstream.append(
-                        {
-                            "type": "report_document",
-                            "id": str(report.id),
-                            "relation": "cited_by",
-                            "label": report.title,
-                        }
-                    )
-                    break
+                if not refs:
+                    continue
+                # FC4: generic 引用（如 {"ref": finding_id}）也要解析出实际
+                # 类型后再比对，复用 _resolve_generic_ref_type，不建第三份解析。
+                for ref_type, ref_id, _p in refs:
+                    actual_type = ref_type
+                    if ref_type == "generic":
+                        actual_type = await self._resolve_generic_ref_type(
+                            session, case_id, ref_id
+                        )
+                    if actual_type == "finding" and ref_id == finding_id:
+                        downstream.append(
+                            {
+                                "type": "report_document",
+                                "id": str(report.id),
+                                "relation": "cited_by",
+                                "label": report.title,
+                            }
+                        )
+                        break
         return downstream
 
     async def _resolve_generic_ref_type(

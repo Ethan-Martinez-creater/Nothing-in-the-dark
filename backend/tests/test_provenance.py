@@ -160,6 +160,59 @@ async def test_finding_upstream_dangling_warning_and_report_downstream(
     ]
 
 
+async def test_generic_finding_citation_is_bidirectional(tmp_path: Path) -> None:
+    """FC4: {"ref": finding_id} generic citation 双向一致。
+
+    Report provenance 把 generic ref 解析为 finding（upstream），
+    Finding provenance 的 downstream 通过 generic 解析命中同一报告。
+    """
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pv6.db'}")
+    await database.create_schema()
+    repository = ApplicationRepository(database)
+    service = ProvenanceService(database)
+    case = await repository.create_case(
+        CreateCaseRequest(topic="通用引用", platforms=["weibo"])
+    )
+    async with database.session_factory() as session:
+        session.add(
+            FindingRecord(
+                id="f-gen", case_id=case.id, kind="opinion",
+                title="通用引用结论", statement="多平台转发节奏一致",
+                status="candidate",
+            )
+        )
+        session.add(
+            ArtifactRecord(
+                id="art-gen", case_id=case.id, run_id=None,
+                kind="opinion_analysis", title="报告来源", data={},
+            )
+        )
+        session.add(
+            ReportDocumentRecord(
+                id="r-gen", family_id="fam-gen", case_id=case.id,
+                source_artifact_id="art-gen", status="draft",
+                title="通用引用报告",
+                content_json={
+                    "citation_links": [{"conclusion": "c1", "ref": "f-gen"}]
+                },
+                lock_version=1,
+            )
+        )
+        await session.commit()
+
+    # Report → upstream：generic ref 解析为 finding
+    report_view = await service.one_hop(case.id, "report_document", "r-gen")
+    assert ("finding", "f-gen") in {
+        (u["type"], u["id"]) for u in report_view["upstream"]
+    }
+
+    # Finding → downstream：generic citation 命中同一 report document
+    finding_view = await service.one_hop(case.id, "finding", "f-gen")
+    assert ("report_document", "r-gen", "cited_by") in [
+        (d["type"], d["id"], d["relation"]) for d in finding_view["downstream"]
+    ]
+
+
 async def test_report_document_refs_and_revision_chain(tmp_path: Path) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pv4.db'}")
     service, case_id, _ = await _seed_provenance_graph(database)

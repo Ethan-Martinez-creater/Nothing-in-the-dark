@@ -110,16 +110,21 @@ def test_posts_pagination_filters_and_scope(tmp_path: Path) -> None:
         ).json()
         assert len(ranged["posts"]) == 1
 
-        # 响应仅暴露稳定字段
-        first = body["posts"][0]
-        assert "raw_payload" not in first
-        assert "embedding" not in first
-        assert "content_hash" not in first
-        assert first["source_url"] == "https://weibo.com/w1" or True
-
         # 跨 case 隔离：帖子只属于当前 case
         all_posts = client.get(f"/api/v1/cases/{case_id}/posts").json()["posts"]
         assert all(post["content"] != "其他案例内容" for post in all_posts)
+
+        # 响应仅暴露稳定字段（用稳定键定位目标 post，不依赖排序）
+        assert all(
+            "raw_payload" not in post
+            and "embedding" not in post
+            and "content_hash" not in post
+            for post in all_posts
+        )
+        weibo_post = next(
+            post for post in all_posts if post["native_id"] == "w1"
+        )
+        assert weibo_post["source_url"] == "https://weibo.com/w1"
 
         # 未知 case → 404
         missing = client.get("/api/v1/cases/no-such/posts")
