@@ -26,6 +26,9 @@ SUPPORTED_ARTIFACT_KINDS = {"opinion_analysis", "fact_check"}
 
 VALID_KINDS = {"opinion", "verification", "propagation", "narrative", "integrity", "manual"}
 
+# Finding ↔ Evidence 关联允许的 relation（手动创建与追加共用同一集合）
+VALID_EVIDENCE_RELATIONS = {"supports", "contradicts", "context"}
+
 # 普通 Finding API 允许的状态迁移；verified/rejected 只能由 Review 决策
 # 事务（ApplicationRepository.decide_review_item）产生，不在本表内。
 ALLOWED_TRANSITIONS = {
@@ -274,6 +277,15 @@ class FindingService:
                 "finding statement must not be empty",
                 code="finding_invalid_transition",
             )
+        # FC2: 全部纯校验在任何持久化之前完成 —— 失败时不留任何部分写入。
+        for evidence_ref, relation in evidence_links or []:
+            if relation not in VALID_EVIDENCE_RELATIONS:
+                raise ApplicationError(
+                    f"invalid evidence relation '{relation}'",
+                    code="finding_evidence_invalid",
+                )
+            await self._validate_evidence_ref(case_id, evidence_ref)
+
         record = FindingRecord(
             case_id=case_id,
             kind=kind,
@@ -283,15 +295,15 @@ class FindingService:
             confidence=_clean_confidence(confidence),
             attributes_json={},
         )
-        record = await self._findings.create(record)
-        if source_type and source_id:
-            await self._findings.create_source_link(
-                record.id, source_type, source_id, source_path
-            )
-        for evidence_ref, relation in evidence_links or []:
-            await self._validate_evidence_ref(case_id, evidence_ref)
-            await self._findings.add_evidence_link(record.id, evidence_ref, relation)
-        return record
+        return await self._findings.create_with_links(
+            record,
+            source_link=(
+                (source_type, source_id, source_path)
+                if source_type and source_id
+                else None
+            ),
+            evidence_links=list(evidence_links or []),
+        )
 
     # ---------------- 查询与状态机 ----------------
 
@@ -341,7 +353,7 @@ class FindingService:
     async def add_evidence_link(
         self, case_id: str, finding_id: str, evidence_ref: str, relation: str
     ) -> FindingRecord:
-        if relation not in {"supports", "contradicts", "context"}:
+        if relation not in VALID_EVIDENCE_RELATIONS:
             raise ApplicationError(
                 f"invalid evidence relation '{relation}'",
                 code="finding_evidence_invalid",

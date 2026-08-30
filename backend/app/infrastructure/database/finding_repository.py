@@ -34,6 +34,44 @@ class FindingRepository:
             raise
         return record
 
+    async def create_with_links(
+        self,
+        record: FindingRecord,
+        *,
+        source_link: tuple[str, str, str] | None = None,
+        evidence_links: list[tuple[str, str]] | None = None,
+    ) -> FindingRecord:
+        """FC2: atomic manual-create path.
+
+        Finding + optional source link + evidence links are written in ONE
+        session with a single commit; any failure rolls everything back so a
+        rejected request can never leave a partial Finding behind.
+        """
+        async with self._database.session_factory() as session:
+            session.add(record)
+            await session.flush()  # obtain the finding id, no commit yet
+            if source_link is not None:
+                source_type, source_id, source_path = source_link
+                session.add(
+                    FindingSourceLinkRecord(
+                        finding_id=record.id,
+                        source_type=source_type,
+                        source_id=source_id,
+                        source_path=source_path,
+                    )
+                )
+            for evidence_ref, relation in evidence_links or []:
+                session.add(
+                    FindingEvidenceLinkRecord(
+                        finding_id=record.id,
+                        evidence_ref=evidence_ref,
+                        relation=relation,
+                    )
+                )
+            await session.commit()
+            await session.refresh(record)
+        return record
+
     async def get(self, finding_id: str) -> FindingRecord | None:
         async with self._database.session_factory() as session:
             return await session.get(FindingRecord, finding_id)

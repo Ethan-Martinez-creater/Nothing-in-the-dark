@@ -55,6 +55,185 @@ async def _seed_evidence(database: Database, case_id: str, *evidence_ids: str) -
         await session.commit()
 
 
+async def _count_rows(database: Database) -> tuple[int, int, int]:
+    """FC2 残留断言用：findings / source links / evidence links 总数。"""
+    from sqlalchemy import func, select
+
+    from app.infrastructure.database.models import FindingSourceLinkRecord
+
+    async with database.session_factory() as session:
+        findings = (await session.scalar(select(func.count()).select_from(FindingRecord))) or 0
+        sources = (
+            await session.scalar(
+                select(func.count()).select_from(FindingSourceLinkRecord)
+            )
+        ) or 0
+        links = (
+            await session.scalar(
+                select(func.count()).select_from(FindingEvidenceLinkRecord)
+            )
+        ) or 0
+    return findings, sources, links
+
+
+async def test_create_manual_missing_evidence_leaves_no_partial_write(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fc2a.db'}")
+    repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-real")
+    before = await _count_rows(database)
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await service.create_manual(
+            case_id,
+            statement="不存在证据的结论",
+            source_type="social_post",
+            source_id="post-1",
+            evidence_links=[("ev-real", "supports"), ("ev-missing", "supports")],
+        )
+
+    assert excinfo.value.code == "finding_evidence_not_found"
+    # 0 partial write：finding / source link / evidence link 均未落库
+    assert await _count_rows(database) == before
+
+
+async def test_create_manual_cross_case_evidence_leaves_no_partial_write(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fc2b.db'}")
+    repository, service, case_id = await _seed(database)
+    other = await repository.create_case(
+        CreateCaseRequest(topic="其他案例", platforms=["weibo"])
+    )
+    await _seed_evidence(database, other.id, "ev-other")
+    await _seed_evidence(database, case_id, "ev-real")
+    before = await _count_rows(database)
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await service.create_manual(
+            case_id,
+            statement="跨 case 证据的结论",
+            evidence_links=[("ev-real", "supports"), ("ev-other", "context")],
+        )
+
+    assert excinfo.value.code == "finding_evidence_scope_mismatch"
+    assert await _count_rows(database) == before
+
+
+async def test_create_manual_invalid_relation_leaves_no_partial_write(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fc2c.db'}")
+    repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-real")
+    before = await _count_rows(database)
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await service.create_manual(
+            case_id,
+            statement="非法 relation 的结论",
+            evidence_links=[("ev-real", "refutes")],
+        )
+
+    assert excinfo.value.code == "finding_evidence_invalid"
+    assert await _count_rows(database) == before
+
+
+async def test_create_manual_duplicate_link_rolls_back_whole_transaction(
+    tmp_path: Path,
+) -> None:
+    """前置校验全部通过后，第二条 link 在数据库层撞唯一键：整个事务回滚。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fc2d.db'}")
+    repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-real")
+    before = await _count_rows(database)
+
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        await service.create_manual(
+            case_id,
+            statement="重复 evidence link 的结论",
+            evidence_links=[("ev-real", "supports"), ("ev-real", "supports")],
+        )
+
+    assert await _count_rows(database) == before
+
+
+async def test_repository_create_with_links_rolls_back_on_db_error(
+    tmp_path: Path,
+) -> None:
+    """repository atomic helper 自身：DB 异常时 Finding/links 全部回滚。"""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.infrastructure.database.models import FindingRecord
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fc2e.db'}")
+    repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-real")
+    before = await _count_rows(database)
+
+    record = FindingRecord(
+        case_id=case_id,
+        kind="manual",
+        title="repo 级回滚",
+        statement="repo 级回滚结论",
+        status="candidate",
+        attributes_json={},
+    )
+    with pytest.raises(IntegrityError):
+        await service._findings.create_with_links(
+            record,
+            source_link=("social_post", "post-9", ""),
+            evidence_links=[("ev-real", "supports"), ("ev-real", "supports")],
+        )
+
+    assert await _count_rows(database) == before
+
+
+async def test_create_manual_with_source_and_links_succeeds(tmp_path: Path) -> None:
+    """正常创建：Finding + source + 多 Evidence links 一次成功，数据完整。"""
+    from app.infrastructure.database.models import FindingSourceLinkRecord
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fc2f.db'}")
+    repository, service, case_id = await _seed(database)
+    await _seed_evidence(database, case_id, "ev-1", "ev-2", "ev-3")
+
+    record = await service.create_manual(
+        case_id,
+        kind="manual",
+        title="手动结论",
+        statement="结论语句",
+        confidence=0.7,
+        source_type="social_post",
+        source_id="post-x",
+        source_path="timeline",
+        evidence_links=[
+            ("ev-1", "supports"),
+            ("ev-2", "contradicts"),
+            ("ev-3", "context"),
+        ],
+    )
+
+    findings, sources, links = await _count_rows(database)
+    assert findings == 1
+    assert sources == 1
+    assert links == 3
+    stored = await service.get_for_case(case_id, record.id)
+    assert stored.status == "candidate"
+    assert stored.confidence == 0.7
+    source_links = await service._findings.list_source_links(record.id)
+    assert len(source_links) == 1
+    assert source_links[0].source_id == "post-x"
+    evidence_links = await service._findings.list_evidence_links(record.id)
+    assert {(link.evidence_ref, link.relation) for link in evidence_links} == {
+        ("ev-1", "supports"),
+        ("ev-2", "contradicts"),
+        ("ev-3", "context"),
+    }
+
+
 async def test_opinion_artifact_materializes_findings(tmp_path: Path) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'f1.db'}")
     repository, service, case_id = await _seed(database)
