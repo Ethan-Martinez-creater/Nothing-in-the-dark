@@ -264,7 +264,7 @@ Baseline note (FC0, 2026-08-30):
 
 ## Final Regression (FC6)
 
-- Backend full regression: 93 test files under backend/tests executed 1:1 (union == full set asserted by the shard generator: 12 greedy-balanced xdist shards `-n 4 --dist loadfile` + test_api.py / test_reports.py run serially to avoid the known SSE/xdist deadlock). First pass: 844 passed / 1 failed / 0 skipped — the single failure was `tests/test_expert_agents.py::test_verification_expert_persists_claims_and_evidence` with an OS-level SQLite `database is locked` flake under concurrent workers (same class as the previously fixed busy-timeout flake). That file re-ran serially: 11/11 passed. Final result: **0 failed, 0 unexpected skipped** (844 + 1 re-run = 845 passed executions across 94 batch runs). Log: backend/full_regression_final.log (untracked artifact).
+- Backend full regression (FC6, baseline 79e8842): 93 test files under backend/tests executed 1:1 (union == full set asserted by the shard generator: 12 greedy-balanced xdist shards `-n 4 --dist loadfile` + test_api.py / test_reports.py run serially to avoid the known SSE/xdist deadlock). Full regression contains 845 unique tests. First pass: 844 passed / 1 failed / 0 skipped — the single failing test was `tests/test_expert_agents.py::test_verification_expert_persists_claims_and_evidence`, caused by an OS-level SQLite `database is locked` flake under concurrent xdist workers (same class as the previously fixed busy-timeout flake). Its containing file (11 tests) was re-run serially: 11 passed / 0 failed. Final unique-test status: 845 / 845 green. If raw executions including the re-run are counted: 856 total executions = 855 passed executions + 1 first-pass failed execution (across 94 batch runs). Log: backend/full_regression_final.log (untracked artifact).
 - Migration gate: tests/test_migration_review_state.py drives the real 0049 upgrade()/downgrade() through Alembic Operations (backfill of all six audit branches, NOT NULL + index, downgrade round-trip, fresh upgrade to 0049 and to head) -> passed. PG offline DDL generated both ways for 0048<->0049 and inspected. `alembic heads` = 20260830_0049. Known environment limits (recorded, not V2 blockers): the SQLite full-chain upgrade is impossible because 0003 (pgvector) is PostgreSQL-only (pre-existing), and the repository's PG verifier script (verify_postgres_migrations.py) needs a disposable PostgreSQL database — the local PG user lacks CREATEDB, so the offline-DDL route (explicitly allowed by the plan) was used.
 - Frontend gates: npm run typecheck (clean) / npm run lint (clean) / npm run test (17 files, 104 passed, 0 failed) / npm run build (success, 27.8s).
 - Browser gate: e2e-smoke.cjs 15/15 passed; e2e-interact.cjs smoke 17/17, Closure A-F 37/37 with 0 skipped, harness 3/3 (+1 unrelated Kill-Switch skip), no unexpected console/pageerror.
@@ -313,7 +313,7 @@ Final HEAD: the "docs: finalize optimization v2 final closure" commit (this one)
 - Console/PageError: 0 unexpected
 
 ## Final Regression
-- Backend: 845 passed executions / 0 failed / 0 skipped (93 files 1:1; one SQLite-lock flake re-run serially and green)
+- Backend: 845 unique tests, all green at Final Closure (see the FC6 regression note above: 844 first-pass passed + 1 SQLite-lock flake re-run serially; 845/845 final)
 - Migration: 0049 upgrade ✓ / downgrade ✓ / PG offline DDL ✓ (SQLite full-chain limited by pre-existing PG-only 0003; PG verifier needs CREATEDB — recorded as environment limits, not blockers)
 - Frontend typecheck: ✓
 - Frontend lint: ✓
@@ -346,3 +346,89 @@ Future cleanup (B 类，不阻塞 Closure，与上一轮记录一致)：
 2. `/narratives` 旧路由与 NarrativeTimelineView 保留（Timeline workspace 的 Narrative tab 仍复用）。
 3. `vendor/mediacrawler-local.patch` 等本地补丁资产按原样保留。
 4. 本地 PG 用户无 CREATEDB 权限，verify_postgres_migrations.py 全链演练需在具备建库权限的环境执行。
+
+# Optimization V2 Post-Closure Correctness Patch
+
+Status: CLOSED (result below)
+Baseline HEAD: e4bd0796464b24e65fb2d9c3bf48b4e11152a051
+Reason: Finding under_review 与 ReviewItem 创建/重新激活不是同一事务。
+
+Final reviewer found one post-closure transaction consistency blocker.
+The final CLOSED status is superseded until PC1–PC5 pass.
+
+# Optimization V2 Post-Closure Correctness Patch Result
+
+Status: CLOSED
+
+The final reviewer blocker was resolved:
+Finding submission to review now atomically updates the Finding and
+creates/reopens its unique ReviewItem in one database transaction.
+
+Browser Scenario B no longer creates a ReviewItem through an auxiliary API.
+The complete Finding → Review Workbench → approval → verified path is now
+validated through the production UI flow.
+
+## PC1 — Finding → Review 原子提交事务
+- `ApplicationRepository.submit_finding_for_review()`: 单 session 内锁定
+  Finding → 读取唯一 ReviewItem → 按状态行为表创建/复用/重新激活 →
+  Finding.status=under_review → 一次 commit；唯一约束作为并发兜底，
+  IntegrityError 时回滚重读并以幂等成功返回；activity log 与主状态同事务。
+- `FindingService.update_status()`: under_review 在普通 transition 校验之前
+  分支进入原子方法；`_reviews`/`ReviewService` 依赖删除。
+- 状态行为表（PC1.3）全部实现：candidate 首次创建 unreviewed；重复提交幂等；
+  历史 under_review+no item 修复；verified/rejected 复审复用同一 item 并激活
+  为 in_review；superseded 拒绝（finding_invalid_transition）。
+
+## PC2B — Review Workbench 重开原子同步
+- `ApplicationRepository.reopen_review_item_atomic()`: 单事务内 ReviewItem →
+  in_review，且 object_type=finding 时同步 Finding → under_review；非 Finding
+  item 行为保持不变。`ReviewService.reopen()` 改接该原子方法，状态机校验保留
+  review domain validator 单一权威实现。
+- `OBJECT_LABELS` 补 `finding: '调查结论'`（Review Workbench 卡片不再显示英文）。
+
+## PC3 — Browser Scenario B 去 masking
+- `e2e-interact.cjs` Scenario B 重写为 B1–B14：UI 提交审核（B3 等待真实
+  data-status badge，不再被筛选下拉框的“审核中”文本误匹配）→ 只读 queue 断言
+  exactly one ReviewItem（B5/B6）→ Workbench claim+approve（B7/B8）→ Finding
+  verified（B9）→ Workbench 重开（B10/B11）→ Finding under_review（B12）→
+  再次 approve（B13）→ Finding 再次 verified（B14）。
+- 全程不调用 `POST /reviews/items`；ReviewItem 只由 Finding 提交生产路径
+  （submit_finding_for_review）创建/重开。
+
+## PC4 — 专项测试与最终回归
+- Backend 专项测试（test_findings.py 新增 13 个）：首次提交原子成功、重复提交
+  幂等、ReviewItem 写入失败整体回滚（0 partial write）、历史不一致自动修复、
+  verified/rejected 复审复用 item、superseded 拒绝、并发提交单 item、
+  Workbench 重开 accepted/rejected Finding 原子同步、重开失败 0 partial write、
+  非 Finding item 重开回归、under_review→candidate 保留 item。
+- 专项回归：test_findings.py 30/30、test_review.py 12/12、
+  test_claim_review.py + test_provenance.py + test_report_documents.py +
+  test_legacy_compatibility.py 21/21，全部 green。
+- Frontend gates：typecheck ✓ / lint ✓ / test 148 passed 0 failed / build ✓。
+- Browser gate：e2e-smoke.cjs 15/15；e2e-interact.cjs smoke 17/17、
+  Closure A-F 44/44 with 0 skipped（Scenario B 现为 B1–B14 共 14 项）、
+  harness 3 passed + 1 unrelated skip（Kill Switch 成功路径）、
+  0 unexpected console/pageerror。
+- Backend full regression（本补丁后，93 files 1:1, 13 batches）：
+  **858 unique tests, 858 passed / 0 failed / 0 skipped**。
+  注意：测试集合在 FC6 的 845 unique tests 基础上新增 13 个（本次专项测试），
+  本次回归从收集的 858 tests 起 1:1 执行，无任何失败，无需重跑。
+
+# Optimization V2 CLOSED（Post-Closure 最终）
+
+Post-Closure 验收矩阵（来自 corrected execution plan）：
+- [x] Finding under_review 与 ReviewItem 创建在同一事务
+- [x] 事务失败不存在 partial write
+- [x] verified/rejected re-review 重用既有 ReviewItem
+- [x] historical under_review/no ReviewItem 可恢复
+- [x] Review Workbench reopen Finding 原子同步 ReviewItem + Finding
+- [x] Review Workbench reopen 失败不存在 partial write
+- [x] Browser Scenario B 不再手动创建 ReviewItem
+- [x] Browser Review 完整 UI 闭环通过（B1–B14）
+- [x] Backend Review/Finding 回归通过
+- [x] Backend full regression 858/858 green
+- [x] Frontend 4 gates 全通过
+- [x] Browser A-F 44/44 通过（0 skipped, 0 unexpected console/pageerror）
+- [x] delivery 文档测试数字表述已纠正（FC6 计数与本次 858 数字分开记录）
+
+Final reviewer blocker resolved; Optimization V2 is formally CLOSED.
