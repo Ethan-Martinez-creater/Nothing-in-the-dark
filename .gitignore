@@ -47,13 +47,11 @@ artifacts/*
 backend/test-results/
 backend/.test_env/
 backend/.pytest-*.log
-backend/.test_env/
-backend/.pytest-*.log
-/coifesp-align-*/
-/coifesp-hitl-*/
-/coifesp-job-*/
-/coifesp-monitor-*/
+/coifesp-*/
 **/tmp????????/
+backend/backend_server.log
+backend/full_regression.log
+frontend/vite.log
 
 # One-off batch scratch files
 /.tmp_batch*.txt
