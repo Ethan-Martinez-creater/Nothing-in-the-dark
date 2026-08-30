@@ -32,6 +32,7 @@ const OBJECT_LABELS: Record<string, string> = {
   risk_assessment: '风险评估',
   hypothesis: '假设',
   report_conclusion: '报告结论',
+  finding: '调查结论',
 }
 const STATUS_LABELS: Record<string, string> = {
   unreviewed: '未审核',

@@ -201,7 +201,11 @@ function runSeed() {
     checkC('A7: ui_context.selected_id=unassigned_evidence_id', !!uc && uc.selected_id === fx.unassigned_evidence_id, 'expected ' + fx.unassigned_evidence_id);
   } catch (e) { checkC('Scenario A Evidence/Context', false, String(e).slice(0, 200)); }
 
-  // ---------- Scenario B: Finding Review 真闭环 ----------
+  // ---------- Scenario B: Finding Review 真闭环（PC3：无人工补建 ReviewItem）--
+  // 生产路径：Findings 提交审核（原子创建/复用唯一 ReviewItem）→ Workbench
+  // claim+approve → Finding verified；再从 Workbench 重开（原子同步
+  // ReviewItem=in_review + Finding=under_review）→ 再次 approve → verified。
+  // E2E 全程不调用 POST /reviews/items。
   try {
     await page.goto(BASE_UI + '/investigations/' + cid + '/findings', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector('.ifind__card', { timeout: 15000 });
@@ -209,35 +213,49 @@ function runSeed() {
 
     await page.click('.ifind__card');
     await page.waitForSelector('.ifind__detail-actions', { timeout: 8000 });
-    checkC('B2: 详情显示候选状态', (await textOf()).includes('候选'), '');
+    // 注意：页面上状态筛选下拉框本身包含“候选/审核中”等词，waitForFunction
+    // 匹配 body 文本会被下拉框干扰。这里改为等待 detail 状态 badge 的真实值。
+    checkC('B2: 详情显示候选状态', await page.evaluate(() => {
+      const badge = document.querySelector('.ifind__detail .ifind__status');
+      return !!badge && badge.getAttribute('data-status') === 'candidate';
+    }), '');
     await page.click('.ifind__btn--primary'); // 提交审核
-    await page.waitForFunction(() => document.body.innerText.includes('审核中'), null, { timeout: 10000 });
+    // 等待原子提交事务真实完成：detail badge 变为 under_review
+    await page.waitForFunction(() => {
+      const badge = document.querySelector('.ifind__detail .ifind__status');
+      return !!badge && badge.getAttribute('data-status') === 'under_review';
+    }, null, { timeout: 10000 });
     checkC('B3: UI 提交审核 → under_review', true, '');
 
     // API negative：普通 status API 不可伪造终审
     const direct = await api.post(BASE_API + '/cases/' + cid + '/findings/' + fx.finding_id + '/status', { data: { status: 'verified' } });
     checkC('B4: 普通 API verified 被拒(422)', direct.status() === 422, 'status ' + direct.status());
 
-    // 创建 Review item，走 Review 工作台 UI 闭环
-    const item = await api.post(BASE_API + '/cases/' + cid + '/reviews/items', {
-      data: { object_type: 'finding', object_id: fx.finding_id, summary: 'E2E 结论：首发与转发账号存在协同传播行为。' },
-    });
-    checkC('B5: 创建 Review item', item.ok(), 'status ' + item.status());
+    // B5/B6: Review Workbench 自动包含 Finding item —— 仅读 queue API 断言
+    // exactly one ReviewItem，绝不通过 API 创建/修复。
+    const queue = await api.get(BASE_API + '/cases/' + cid + '/reviews/queue', { params: { object_type: 'finding' } });
+    const queueBody = queue.ok() ? await queue.json() : null;
+    const findingItems = (queueBody && Array.isArray(queueBody.items) ? queueBody.items : []).filter((it) => it.object_id === fx.finding_id);
+    checkC('B5: Workbench 自动包含 Finding item', findingItems.length >= 1, 'items=' + findingItems.length);
+    checkC('B6: Finding 恰好一个 ReviewItem', findingItems.length === 1, 'items=' + findingItems.length);
 
     await page.goto(BASE_UI + '/admin/reviews', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector('.toolbar .filter-select', { timeout: 15000 });
     await page.selectOption('.toolbar .filter-select >> nth=0', { label: fx.case_title });
     await page.waitForSelector('.review-card', { timeout: 15000 });
+    checkC('B7: Workbench 卡片摘要对应 Finding', (await textOf()).includes('E2E 结论：首发与转发账号存在协同传播行为'), '');
+
+    // UI claim（unreviewed → in_review）
     await page.click('.review-card .card-main');
     await page.waitForSelector('.decide-box', { timeout: 8000 });
     const claimBtn = page.locator('button:has-text("领取")');
     if (await claimBtn.count()) {
       await claimBtn.first().click();
-      await page.waitForFunction(() => document.body.innerText.includes('审核中'), null, { timeout: 8000 });
+      await page.waitForFunction(() => !!document.querySelector('.review-card .badge.status.in_review'), null, { timeout: 8000 });
     }
     await page.click('.decide-box button:has-text("接受")');
-    await page.waitForFunction(() => document.body.innerText.includes('已接受'), null, { timeout: 10000 });
-    checkC('B6: Review 工作台 claim+approve 完成', true, '');
+    await page.waitForFunction(() => !!document.querySelector('.review-card .badge.status.accepted'), null, { timeout: 10000 });
+    checkC('B8: Review 工作台 claim+approve 完成', true, '');
 
     await page.goto(BASE_UI + '/investigations/' + cid + '/findings', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector('.ifind__card', { timeout: 15000 });
@@ -245,7 +263,46 @@ function runSeed() {
       const card = [...document.querySelectorAll('.ifind__card')].find((el) => el.textContent.includes('E2E 结论'));
       return card ? card.querySelector('.ifind__status')?.getAttribute('data-status') : null;
     });
-    checkC('B7: Finding 显示 verified', statusAttr === 'verified', 'status=' + statusAttr);
+    checkC('B9: Finding 显示 verified', statusAttr === 'verified', 'status=' + statusAttr);
+
+    // ---- Workbench 重开闭环（PC2B：ReviewItem + Finding 原子同步）----
+    await page.goto(BASE_UI + '/admin/reviews', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.toolbar .filter-select', { timeout: 15000 });
+    await page.selectOption('.toolbar .filter-select >> nth=0', { label: fx.case_title });
+    await page.waitForSelector('.review-card .badge.status.accepted', { timeout: 15000 });
+    checkC('B10: 回到 Workbench 且 card 仍 accepted', true, '');
+    await page.click('.review-card .card-main');
+    await page.waitForSelector('button:has-text("重开")', { timeout: 8000 });
+    await page.click('button:has-text("重开")');
+    await page.waitForFunction(() => !!document.querySelector('.review-card .badge.status.in_review'), null, { timeout: 10000 });
+    checkC('B11: ReviewItem 显示 in_review', true, '');
+
+    await page.goto(BASE_UI + '/investigations/' + cid + '/findings', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.ifind__card', { timeout: 15000 });
+    const reopenedAttr = await page.evaluate(() => {
+      const card = [...document.querySelectorAll('.ifind__card')].find((el) => el.textContent.includes('E2E 结论'));
+      return card ? card.querySelector('.ifind__status')?.getAttribute('data-status') : null;
+    });
+    checkC('B12: Finding 显示 under_review（重开后同步）', reopenedAttr === 'under_review', 'status=' + reopenedAttr);
+
+    // 回 Workbench 再次 approve 同一 ReviewItem
+    await page.goto(BASE_UI + '/admin/reviews', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.toolbar .filter-select', { timeout: 15000 });
+    await page.selectOption('.toolbar .filter-select >> nth=0', { label: fx.case_title });
+    await page.waitForSelector('.review-card .badge.status.in_review', { timeout: 15000 });
+    await page.click('.review-card .card-main');
+    await page.waitForSelector('.decide-box', { timeout: 8000 });
+    await page.click('.decide-box button:has-text("接受")');
+    await page.waitForFunction(() => !!document.querySelector('.review-card .badge.status.accepted'), null, { timeout: 10000 });
+    checkC('B13: 再次 approve 同一 ReviewItem', true, '');
+
+    await page.goto(BASE_UI + '/investigations/' + cid + '/findings', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.ifind__card', { timeout: 15000 });
+    const finalAttr = await page.evaluate(() => {
+      const card = [...document.querySelectorAll('.ifind__card')].find((el) => el.textContent.includes('E2E 结论'));
+      return card ? card.querySelector('.ifind__status')?.getAttribute('data-status') : null;
+    });
+    checkC('B14: Finding 再次显示 verified', finalAttr === 'verified', 'status=' + finalAttr);
   } catch (e) { checkC('Scenario B Finding Review', false, String(e).slice(0, 200)); }
 
   // ---------- Scenario C: Report Publish Gate 正反两路 ----------

@@ -7,6 +7,7 @@ API 层：findings 路由 + provenance 一跳 + 跨 case 拒绝。
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -655,6 +656,403 @@ async def test_findings_api_and_provenance(tmp_path: Path) -> None:
         )
         assert allowed.status_code == 200
         assert allowed.json()["status"] == "under_review"
+
+
+# ================= Post-Closure Correctness Patch 专项测试 =================
+# PC1: Finding → Review 原子提交；PC2B: Workbench 重开原子；PC4: 回归。
+
+
+async def _count_finding_review_items(
+    database: Database, case_id: str, finding_id: str
+) -> int:
+    from sqlalchemy import func, select
+
+    async with database.session_factory() as session:
+        count = (
+            await session.scalar(
+                select(func.count())
+                .select_from(ReviewItemRecord)
+                .where(
+                    ReviewItemRecord.case_id == case_id,
+                    ReviewItemRecord.object_type == "finding",
+                    ReviewItemRecord.object_id == finding_id,
+                )
+            )
+        ) or 0
+    return int(count)
+
+
+async def _approve_finding_through_review(
+    database: Database,
+    repository: ApplicationRepository,
+    service: FindingService,
+    case_id: str,
+    finding: FindingRecord,
+) -> tuple[ReviewItemRecord, FindingRecord]:
+    """真实流程：candidate → submit → approve → Finding verified / item accepted。"""
+    await service.update_status(case_id, finding.id, "under_review")
+    item = await _seed_review_item(repository, database, case_id, finding)
+    decision = ReviewDecisionRecord(
+        item_id=item.id,
+        object_version=item.current_version,
+        decision="approved",
+        reason="核实无误",
+        actor="tester",
+    )
+    result = await repository.decide_review_item(
+        item_id=item.id,
+        expected_status="under_review",
+        expected_version=item.current_version,
+        target_status="accepted",
+        decision=decision,
+    )
+    assert result is not None
+    item, _decision = result
+    updated = await service.get_for_case(case_id, finding.id)
+    return item, updated
+
+
+async def test_pc41_first_submit_creates_review_item_atomically(
+    tmp_path: Path,
+) -> None:
+    """PC4.1: candidate 首次提交 → 同一事务内 under_review + unreviewed item。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc41.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="首次提交的结论")
+
+    updated = await service.update_status(case_id, finding.id, "under_review")
+
+    assert updated.status == "under_review"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+    items = await repository.list_review_items(
+        case_id, object_type="finding", limit=100
+    )
+    item = next(i for i in items if i.object_id == finding.id)
+    assert item.status == "unreviewed"
+    assert item.summary == "首次提交的结论"
+
+
+async def test_pc42_duplicate_submit_is_idempotent(tmp_path: Path) -> None:
+    """PC4.2: 重复调用原子方法两次 → 1 个 item，无 IntegrityError。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc42.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="幂等提交的结论")
+
+    first_finding, first_item = await repository.submit_finding_for_review(
+        case_id=case_id, finding_id=finding.id, summary=finding.statement
+    )
+    second_finding, second_item = await repository.submit_finding_for_review(
+        case_id=case_id, finding_id=finding.id, summary=finding.statement
+    )
+
+    assert first_finding.status == "under_review"
+    assert second_finding.status == "under_review"
+    assert first_item.id == second_item.id
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+
+
+async def test_pc43_review_write_failure_rolls_back_whole_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PC4.3: ReviewItem 写入失败 → Finding 也不得改变（0 partial write）。
+
+    通过让 commit 抛 SQLAlchemyError 模拟数据库写入失败，随后必须能从
+    数据库证明 Finding 仍为 candidate 且无 ReviewItem。
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc43.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="事务回滚结论")
+
+    real_commit = AsyncSession.commit
+
+    async def failing_commit(self: AsyncSession) -> None:
+        raise SQLAlchemyError("simulated review write failure")
+
+    monkeypatch.setattr(AsyncSession, "commit", failing_commit)
+    with pytest.raises(SQLAlchemyError):
+        await service.update_status(case_id, finding.id, "under_review")
+    monkeypatch.setattr(AsyncSession, "commit", real_commit)
+
+    stored = await service.get_for_case(case_id, finding.id)
+    assert stored.status == "candidate"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 0
+
+
+async def test_pc44_historical_under_review_without_item_is_repaired(
+    tmp_path: Path,
+) -> None:
+    """PC4.4: 历史脏状态（Finding=under_review、无 ReviewItem）可被修复。"""
+    from sqlalchemy import update as sa_update
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc44.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="历史脏状态结论")
+
+    # 构造补丁前的脏状态：Finding 已 under_review，但 ReviewItem 不存在
+    async with database.session_factory() as session:
+        await session.execute(
+            sa_update(FindingRecord)
+            .where(FindingRecord.id == finding.id)
+            .values(status="under_review")
+        )
+        await session.commit()
+
+    updated, item = await repository.submit_finding_for_review(
+        case_id=case_id, finding_id=finding.id, summary=finding.statement
+    )
+
+    assert updated.status == "under_review"
+    assert item.status == "unreviewed"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+
+
+async def test_pc45_verified_finding_resubmit_reuses_review_item(
+    tmp_path: Path,
+) -> None:
+    """PC4.5: verified Finding 重新复审 → 复用同一 item 并激活为 in_review。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc45.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="复核结论")
+    approved_item, _ = await _approve_finding_through_review(
+        database, repository, service, case_id, finding
+    )
+    assert (await service.get_for_case(case_id, finding.id)).status == "verified"
+    assert approved_item.status == "accepted"
+
+    reopened = await service.update_status(case_id, finding.id, "under_review")
+
+    assert reopened.status == "under_review"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+    items = await repository.list_review_items(
+        case_id, object_type="finding", limit=100
+    )
+    item = next(i for i in items if i.object_id == finding.id)
+    assert item.id == approved_item.id
+    assert item.status == "in_review"
+
+
+async def test_pc46_rejected_finding_resubmit_reuses_review_item(
+    tmp_path: Path,
+) -> None:
+    """PC4.6: rejected Finding 重新复审 → 复用同一 item 并激活为 in_review。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc46.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="被否决后的复核")
+    await service.update_status(case_id, finding.id, "under_review")
+    item = await _seed_review_item(repository, database, case_id, finding)
+    result = await repository.decide_review_item(
+        item_id=item.id,
+        expected_status="under_review",
+        expected_version=item.current_version,
+        target_status="rejected",
+        decision=ReviewDecisionRecord(
+            item_id=item.id,
+            object_version=item.current_version,
+            decision="rejected",
+            reason="证据不足",
+            actor="tester",
+        ),
+    )
+    assert result is not None
+    assert (await service.get_for_case(case_id, finding.id)).status == "rejected"
+
+    reopened = await service.update_status(case_id, finding.id, "under_review")
+
+    assert reopened.status == "under_review"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+    items = await repository.list_review_items(
+        case_id, object_type="finding", limit=100
+    )
+    current = next(i for i in items if i.object_id == finding.id)
+    assert current.id == item.id
+    assert current.status == "in_review"
+
+
+async def test_pc47_superseded_finding_cannot_resubmit(tmp_path: Path) -> None:
+    """PC4.7: superseded Finding 拒绝重新提交，且不创建/激活 ReviewItem。"""
+    from sqlalchemy import update as sa_update
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc47.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="已取代结论")
+    async with database.session_factory() as session:
+        await session.execute(
+            sa_update(FindingRecord)
+            .where(FindingRecord.id == finding.id)
+            .values(status="superseded")
+        )
+        await session.commit()
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await service.update_status(case_id, finding.id, "under_review")
+    assert excinfo.value.code == "finding_invalid_transition"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 0
+
+
+async def test_pc48_concurrent_submit_keeps_single_review_item(
+    tmp_path: Path,
+) -> None:
+    """PC4.8: 并发提交两个事务 → 唯一约束兜底，最终只有 1 个 item。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc48.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="并发提交结论")
+
+    results = await asyncio.gather(
+        repository.submit_finding_for_review(
+            case_id=case_id, finding_id=finding.id, summary=finding.statement
+        ),
+        repository.submit_finding_for_review(
+            case_id=case_id, finding_id=finding.id, summary=finding.statement
+        ),
+        return_exceptions=True,
+    )
+    errors = [r for r in results if isinstance(r, Exception)]
+    assert errors == [], f"并发提交出现异常: {errors}"
+
+    assert (await service.get_for_case(case_id, finding.id)).status == "under_review"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+
+
+async def test_pc2b_workbench_reopen_accepted_finding_syncs_both(
+    tmp_path: Path,
+) -> None:
+    """PC2B Test A: Review Workbench 重开 accepted Finding → item=in_review
+    且 Finding=under_review（同一逻辑操作，同一 item）。"""
+    from app.application.review_service import ReviewService
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc2b-a.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="工作台重开结论")
+    approved_item, _ = await _approve_finding_through_review(
+        database, repository, service, case_id, finding
+    )
+    assert approved_item.status == "accepted"
+    assert (await service.get_for_case(case_id, finding.id)).status == "verified"
+
+    review_service = ReviewService(repository)
+    reopened = await review_service.reopen(approved_item.id, case_id=case_id)
+
+    assert reopened.id == approved_item.id
+    assert reopened.status == "in_review"
+    assert (await service.get_for_case(case_id, finding.id)).status == "under_review"
+
+
+async def test_pc2b_workbench_reopen_rejected_finding_syncs_both(
+    tmp_path: Path,
+) -> None:
+    """PC2B Test B: 重开 rejected Finding → 同样原子同步到 under_review。"""
+    from app.application.review_service import ReviewService
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc2b-b.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="工作台重开否决结论")
+    await service.update_status(case_id, finding.id, "under_review")
+    item = await _seed_review_item(repository, database, case_id, finding)
+    result = await repository.decide_review_item(
+        item_id=item.id,
+        expected_status="under_review",
+        expected_version=item.current_version,
+        target_status="rejected",
+        decision=ReviewDecisionRecord(
+            item_id=item.id,
+            object_version=item.current_version,
+            decision="rejected",
+            reason="证据不足",
+            actor="tester",
+        ),
+    )
+    assert result is not None
+    assert (await service.get_for_case(case_id, finding.id)).status == "rejected"
+
+    review_service = ReviewService(repository)
+    reopened = await review_service.reopen(item.id, case_id=case_id)
+
+    assert reopened.id == item.id
+    assert reopened.status == "in_review"
+    assert (await service.get_for_case(case_id, finding.id)).status == "under_review"
+
+
+async def test_pc2b_reopen_transaction_failure_no_partial_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PC2B Test C: 重开事务 commit 失败 → ReviewItem 与 Finding 都保持不变。"""
+    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.application.review_service import ReviewService
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc2b-c.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="重开回滚结论")
+    approved_item, _ = await _approve_finding_through_review(
+        database, repository, service, case_id, finding
+    )
+    assert approved_item.status == "accepted"
+    assert (await service.get_for_case(case_id, finding.id)).status == "verified"
+
+    real_commit = AsyncSession.commit
+
+    async def failing_commit(self: AsyncSession) -> None:
+        raise SQLAlchemyError("simulated reopen write failure")
+
+    monkeypatch.setattr(AsyncSession, "commit", failing_commit)
+    with pytest.raises(SQLAlchemyError):
+        await ReviewService(repository).reopen(approved_item.id, case_id=case_id)
+    monkeypatch.setattr(AsyncSession, "commit", real_commit)
+
+    stored_item = await repository.get_review_item(approved_item.id)
+    assert stored_item.status == "accepted"
+    assert (await service.get_for_case(case_id, finding.id)).status == "verified"
+
+
+async def test_pc2b_reopen_claim_item_keeps_original_behavior(
+    tmp_path: Path,
+) -> None:
+    """PC2B Test D: 非 Finding ReviewItem 重开保持原行为（不访问 Finding）。"""
+    from app.application.review_service import ReviewService
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc2b-d.db'}")
+    repository, service, case_id = await _seed(database)
+    claim_item = await repository.create_review_item(
+        ReviewItemRecord(
+            case_id=case_id,
+            object_type="claim",
+            object_id="claim-xyz",
+            summary="主张待复核",
+            status="accepted",
+        )
+    )
+    assert claim_item.status == "accepted"
+
+    reopened = await ReviewService(repository).reopen(claim_item.id, case_id=case_id)
+
+    assert reopened.id == claim_item.id
+    assert reopened.status == "in_review"
+
+
+async def test_pc22_under_review_to_candidate_keeps_review_item(
+    tmp_path: Path,
+) -> None:
+    """PC2.2: under_review → candidate 保留既有 ReviewItem（本轮不扩展撤回语义）。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'pc22.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="撤回审核结论")
+    await service.update_status(case_id, finding.id, "under_review")
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+
+    reverted = await service.update_status(case_id, finding.id, "candidate")
+
+    assert reverted.status == "candidate"
+    # 既有 ReviewItem 保持存在（unreviewed），不应被删除或覆盖
+    assert await _count_finding_review_items(database, case_id, finding.id) == 1
+    items = await repository.list_review_items(
+        case_id, object_type="finding", limit=100
+    )
+    item = next(i for i in items if i.object_id == finding.id)
+    assert item.status == "unreviewed"
 
 
 

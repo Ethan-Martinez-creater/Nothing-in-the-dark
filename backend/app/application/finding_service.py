@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import Any
 
 from app.application.repositories import ApplicationRepository
-from app.application.review_service import ReviewService
 from app.core.errors import ApplicationError
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.finding_repository import FindingRepository
@@ -67,9 +66,6 @@ class FindingService:
         self._database = database
         self._repository = repository
         self._findings = FindingRepository(database)
-        # FC5 Scenario B: 提交审核的 Finding 幂等进入 Review 队列，用户走
-        # Review Workbench 既有 claim/decide 闭环完成终审（不新增第二套）。
-        self._reviews = ReviewService(repository)
 
     # ---------------- materializer ----------------
 
@@ -342,6 +338,15 @@ class FindingService:
                 code="finding_review_required",
             )
         record = await self.get_for_case(case_id, finding_id)
+        # PC1: under_review 必须在普通 transition 校验之前分支 —— 重复提交
+        # 幂等与历史 under_review+no ReviewItem 修复都需先进入原子方法。
+        if status == "under_review":
+            finding, _review_item = await self._repository.submit_finding_for_review(
+                case_id=case_id,
+                finding_id=finding_id,
+                summary=record.statement,
+            )
+            return finding
         transition = (record.status, status)
         if transition not in ALLOWED_TRANSITIONS:
             raise ApplicationError(
@@ -350,14 +355,6 @@ class FindingService:
             )
         updated = await self._findings.update_status(finding_id, status)
         assert updated is not None
-        if status == "under_review":
-            await self._reviews.submit_item(
-                case_id=case_id,
-                object_type="finding",
-                object_id=finding_id,
-                summary=updated.statement,
-                actor="finding_submit_review",
-            )
         return updated
 
     # ---------------- evidence links ----------------

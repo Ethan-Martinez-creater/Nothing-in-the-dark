@@ -184,12 +184,14 @@ class ReviewService:
     async def reopen(
         self, item_id: str, actor: str = "local_operator", *, case_id: str | None = None
     ) -> ReviewItemRecord:
-        item = await self._repository.get_review_item(item_id)
-        if case_id is not None and item.case_id != case_id:
-            raise ApplicationError("review item not found", code="review_item_not_found")
-        review_domain.validate_transition(item.status, "in_review")
-        updated = await self._repository.update_review_item_status(item_id, "in_review")
-        await self._log(item.case_id, "review_reopened", f"审核项 {item_id} 重新打开", actor=actor)
+        # PC2B: 原子重开（ReviewItem + Finding 同一事务）。状态机校验在
+        # repository 原子方法内保留唯一权威实现；case 校验也移入其中。
+        updated = await self._repository.reopen_review_item_atomic(
+            item_id=item_id, case_id=case_id
+        )
+        await self._log(
+            updated.case_id, "review_reopened", f"审核项 {item_id} 重新打开", actor=actor
+        )
         return updated
 
     async def add_comment(

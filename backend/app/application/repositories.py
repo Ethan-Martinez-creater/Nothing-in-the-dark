@@ -2861,6 +2861,193 @@ class ApplicationRepository:
             await session.refresh(decision)
             return item, decision
 
+    async def submit_finding_for_review(
+        self,
+        *,
+        case_id: str,
+        finding_id: str,
+        summary: str,
+        actor: str = "finding_submit_review",
+    ) -> tuple[FindingRecord, ReviewItemRecord]:
+        """Finding → Review 唯一原子提交入口（Post-Closure PC1）。
+
+        一个数据库事务内完成：锁定 Finding → 读取唯一 ReviewItem → 按
+        PC1.3 状态行为表创建/复用/重新激活 → Finding.status=under_review →
+        单次 commit。重复提交幂等；verified/rejected 复审复用既有 item；
+        superseded 拒绝重新提交审核。
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        from app.services import review as review_domain
+
+        async with self._database.session_factory() as session:
+            finding = await session.scalar(
+                select(FindingRecord)
+                .where(FindingRecord.id == finding_id)
+                .with_for_update()
+            )
+            if finding is None:
+                raise ApplicationError(
+                    f"finding '{finding_id}' does not exist",
+                    code="finding_not_found",
+                )
+            if finding.case_id != case_id:
+                raise ApplicationError(
+                    "finding belongs to another case",
+                    code="finding_scope_mismatch",
+                )
+            if finding.status == "superseded":
+                raise ApplicationError(
+                    "invalid finding transition superseded -> under_review",
+                    code="finding_invalid_transition",
+                )
+
+            review_item = await session.scalar(
+                select(ReviewItemRecord).where(
+                    ReviewItemRecord.case_id == case_id,
+                    ReviewItemRecord.object_type == "finding",
+                    ReviewItemRecord.object_id == finding_id,
+                )
+            )
+
+            state_changed = False
+            if review_item is None:
+                if finding.status in ("verified", "rejected"):
+                    # 历史修复：已裁决 Finding 缺 ReviewItem → 直接 in_review
+                    item_status = "in_review"
+                else:
+                    item_status = "unreviewed"
+                review_item = ReviewItemRecord(
+                    case_id=case_id,
+                    object_type="finding",
+                    object_id=finding_id,
+                    summary=summary,
+                    priority=0,
+                    risk_level="low",
+                    queue="default",
+                    status=item_status,
+                )
+                session.add(review_item)
+                state_changed = True
+            elif finding.status == "under_review":
+                if review_item.status in ("accepted", "rejected", "superseded"):
+                    # 历史不一致恢复：Finding 已 under_review 但 item 已裁决
+                    review_domain.validate_transition(
+                        review_item.status, "in_review"
+                    )
+                    review_item.status = "in_review"
+                    state_changed = True
+                # else: unreviewed/in_review/needs_more_evidence → 幂等返回
+            elif finding.status in ("verified", "rejected"):
+                # 复审：统一重新激活到 in_review（复用同一 item）
+                if review_item.status != "in_review":
+                    review_domain.validate_transition(
+                        review_item.status, "in_review"
+                    )
+                    review_item.status = "in_review"
+                    state_changed = True
+            else:  # candidate
+                if review_item.status in (
+                    "needs_more_evidence",
+                    "accepted",
+                    "rejected",
+                    "superseded",
+                ):
+                    review_domain.validate_transition(
+                        review_item.status, "in_review"
+                    )
+                    review_item.status = "in_review"
+                    state_changed = True
+                # else: unreviewed/in_review → 复用
+
+            if finding.status != "under_review":
+                finding.status = "under_review"
+                state_changed = True
+
+            if state_changed:
+                session.add(
+                    CaseActivityLogRecord(
+                        case_id=case_id,
+                        activity_type="review_item_submitted",
+                        summary=f"提交审核项：finding:{finding_id}",
+                        actor=actor,
+                        metadata_json={
+                            "object_type": "finding",
+                            "object_id": finding_id,
+                        },
+                    )
+                )
+
+            try:
+                await session.commit()
+            except IntegrityError:
+                # 并发竞争：唯一约束兜底。rollback 后重读，若终态已满足
+                # （Finding=under_review AND ReviewItem 存在）则幂等成功。
+                await session.rollback()
+                async with self._database.session_factory() as retry:
+                    retry_finding = await retry.scalar(
+                        select(FindingRecord)
+                        .where(FindingRecord.id == finding_id)
+                        .with_for_update()
+                    )
+                    retry_item = await retry.scalar(
+                        select(ReviewItemRecord).where(
+                            ReviewItemRecord.case_id == case_id,
+                            ReviewItemRecord.object_type == "finding",
+                            ReviewItemRecord.object_id == finding_id,
+                        )
+                    )
+                    if (
+                        retry_finding is not None
+                        and retry_finding.status == "under_review"
+                        and retry_item is not None
+                    ):
+                        return retry_finding, retry_item
+                raise
+            await session.refresh(finding)
+            await session.refresh(review_item)
+            return finding, review_item
+
+    async def reopen_review_item_atomic(
+        self,
+        *,
+        item_id: str,
+        case_id: str | None = None,
+    ) -> ReviewItemRecord:
+        """Review Workbench 重开原子方法（PC2B）。
+
+        一个事务内：锁定 ReviewItem → 校验 scope → domain 状态机校验 →
+        若 object_type=finding 同步锁定 Finding 并置 under_review →
+        ReviewItem.status=in_review → 单次 commit。非 Finding item 行为
+        保持原样（只改 ReviewItem 状态，不访问 Finding 表）。
+        """
+        from app.services import review as review_domain
+
+        async with self._database.session_factory() as session:
+            item = await session.scalar(
+                select(ReviewItemRecord)
+                .where(ReviewItemRecord.id == item_id)
+                .with_for_update()
+            )
+            if item is None:
+                raise ResourceNotFoundError("review_item")
+            if case_id is not None and item.case_id != case_id:
+                raise ResourceNotFoundError("review_item")
+            review_domain.validate_transition(item.status, "in_review")
+            if item.object_type == "finding":
+                finding = await session.scalar(
+                    select(FindingRecord)
+                    .where(FindingRecord.id == item.object_id)
+                    .with_for_update()
+                )
+                if finding is not None and finding.case_id == item.case_id:
+                    finding.status = "under_review"
+                    session.add(finding)
+            item.status = "in_review"
+            await session.commit()
+            await session.refresh(item)
+            return item
+
     async def get_review_item_for_object(
         self, case_id: str, object_type: str, object_id: str
     ) -> dict[str, Any] | None:
