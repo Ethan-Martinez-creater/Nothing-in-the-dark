@@ -97,6 +97,8 @@ async def test_propagation_graph_service_aggregation(tmp_path: Path) -> None:
     assert len(edges) == 1
     assert edges[0].relation == "copy_spread"
     assert edges[0].human_confirmed is False
+    # FC1: 新生成的 edge 默认三态 unreviewed
+    assert edges[0].human_review_state == "unreviewed"
     # join post 元数据可用
     assert posts[ids["src"]].platform == "weibo"
     assert posts[ids["src"]].author_name == "账号A"
@@ -136,6 +138,9 @@ def test_propagation_graph_api(tmp_path: Path) -> None:
         assert edge["confidence"] == 0.83
         assert edge["evidence_ids"] == ["ev-1"]
         assert edge["algorithm_version"] == "prop-v2"
+        # FC1: graph API 返回三态字段，旧 bool 继续兼容
+        assert edge["human_review_state"] == "unreviewed"
+        assert edge["human_confirmed"] is False
 
         # 跨 case 隔离：其他 case 图不含主 case 的 edges；node 无 post 元数据
         other_body = client.get(f"/api/v1/cases/{other_id}/propagation-graph").json()

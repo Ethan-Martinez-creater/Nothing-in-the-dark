@@ -12,6 +12,7 @@ import type {
   PropagationGraphDTO,
   PropagationGraphEdgeDTO,
   PropagationGraphNodeDTO,
+  PropagationReviewState,
 } from '@/types/api'
 import type { PropagationSelection } from './PropagationGraph.vue'
 
@@ -39,6 +40,22 @@ const selectedNode = computed<PropagationGraphNodeDTO | null>(() => {
 
 const featureScoreEntries = computed(() => {
   return Object.entries(selectedEdge.value?.feature_scores ?? {})
+})
+
+// FC1: badge 三态 —— unreviewed 人工未复核（推断关系）/
+// confirmed 人工已确认 / rejected 人工已驳回。
+const REVIEW_STATE_BADGES: Record<
+  PropagationReviewState,
+  { label: string; ok: boolean; bad: boolean }
+> = {
+  unreviewed: { label: '人工未复核（推断关系）', ok: false, bad: false },
+  confirmed: { label: '人工已确认', ok: true, bad: false },
+  rejected: { label: '人工已驳回', ok: false, bad: true },
+}
+
+const edgeReviewBadge = computed(() => {
+  const state = selectedEdge.value?.human_review_state ?? 'unreviewed'
+  return REVIEW_STATE_BADGES[state] ?? REVIEW_STATE_BADGES.unreviewed
 })
 
 async function confirmEdge(confirmed: boolean) {
@@ -81,8 +98,11 @@ function roleLabel(role: string) {
     <!-- Edge detail -->
     <template v-else-if="selectedEdge">
       <h3 class="pdet__title">传播边详情</h3>
-      <p class="pdet__badge" :class="{ 'pdet__badge--ok': selectedEdge.human_confirmed }">
-        {{ selectedEdge.human_confirmed ? '人工已确认' : '人工未确认（推断关系）' }}
+      <p
+        class="pdet__badge"
+        :class="{ 'pdet__badge--ok': edgeReviewBadge.ok, 'pdet__badge--rejected': edgeReviewBadge.bad }"
+      >
+        {{ edgeReviewBadge.label }}
       </p>
       <dl class="pdet__fields">
         <div><dt>关系</dt><dd>{{ selectedEdge.relation }}</dd></div>
@@ -188,6 +208,11 @@ function roleLabel(role: string) {
 .pdet__badge--ok {
   background: rgba(47, 158, 110, 0.18);
   color: #63c99a;
+}
+
+.pdet__badge--rejected {
+  background: rgba(192, 87, 79, 0.18);
+  color: #e08e88;
 }
 
 .pdet__fields {

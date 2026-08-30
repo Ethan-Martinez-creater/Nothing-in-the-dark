@@ -596,6 +596,14 @@ class PropagationEdgeRecord(Base):
     evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     algorithm_version: Mapped[str] = mapped_column(String(64))
     human_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # FC1: 显式三态（unreviewed/confirmed/rejected）。human_confirmed 仅作
+    # 兼容字段（confirmed -> True，其余 -> False），展示一律以本列为准。
+    human_review_state: Mapped[str] = mapped_column(
+        String(16),
+        default="unreviewed",
+        server_default="unreviewed",
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     __table_args__ = (

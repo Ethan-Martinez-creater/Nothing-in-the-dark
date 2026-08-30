@@ -1752,6 +1752,10 @@ class ApplicationRepository:
             )
             if record is None:
                 raise ResourceNotFoundError("propagation edge", edge_id)
+            # FC1: explicit tri-state. human_confirmed stays as a compatibility
+            # mirror (confirmed -> True, otherwise False).
+            review_state = "confirmed" if confirmed else "rejected"
+            record.human_review_state = review_state
             record.human_confirmed = confirmed
             await session.commit()
             await session.refresh(record)
@@ -1760,7 +1764,13 @@ class ApplicationRepository:
             run_id=None,
             metric="propagation_edge_human_confirmation",
             score=1.0 if confirmed else 0.0,
-            details={"edge_id": edge_id, "note": note or ""},
+            details={
+                "edge_id": edge_id,
+                "propagation_edge_id": edge_id,
+                "human_review_state": review_state,
+                "confirmed": confirmed,
+                "note": note or "",
+            },
         )
         return record
 

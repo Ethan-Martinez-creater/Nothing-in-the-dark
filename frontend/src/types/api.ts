@@ -137,6 +137,9 @@ export interface PropagationEdge {
   reasons: string[]
 }
 
+/** FC1: propagation edge 人工复核三态。 */
+export type PropagationReviewState = 'unreviewed' | 'confirmed' | 'rejected'
+
 /** Persisted edge with human-confirmation state (GET /cases/{id}/propagation-edges). */
 export interface PropagationEdgeState {
   id: string
@@ -145,6 +148,7 @@ export interface PropagationEdgeState {
   relation: string
   confidence: number
   human_confirmed: boolean
+  human_review_state: PropagationReviewState
 }
 
 /** C7: 传播图节点 DTO（按 post 去重聚合，GET /cases/{id}/propagation-graph）。 */
@@ -174,6 +178,7 @@ export interface PropagationGraphEdgeDTO {
   evidence_ids: string[]
   algorithm_version: string
   human_confirmed: boolean
+  human_review_state: PropagationReviewState
 }
 
 export interface PropagationGraphDTO {

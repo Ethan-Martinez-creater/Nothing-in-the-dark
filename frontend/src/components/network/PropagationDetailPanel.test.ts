@@ -45,6 +45,7 @@ function makeGraph(overrides: Partial<PropagationGraphDTO> = {}): PropagationGra
         evidence_ids: ['ev-1'],
         algorithm_version: 'prop-v2',
         human_confirmed: false,
+        human_review_state: 'unreviewed',
       },
     ],
     ...overrides,
@@ -78,7 +79,61 @@ describe('PropagationDetailPanel', () => {
     expect(text).toContain('prop-v2')
     expect(text).toContain('text_sim')
     expect(text).toContain('ev-1')
-    expect(text).toContain('人工未确认')
+    // FC1: 三态 badge —— unreviewed / confirmed / rejected 各自准确
+    expect(text).toContain('人工未复核（推断关系）')
+  })
+
+  it('shows the confirmed badge for confirmed edges', () => {
+    const graph = makeGraph()
+    graph.edges[0]!.human_review_state = 'confirmed'
+    graph.edges[0]!.human_confirmed = true
+    const wrapper = mount(PropagationDetailPanel, {
+      props: { caseId: 'case-1', graph, selection: edgeSelection },
+    })
+    expect(wrapper.text()).toContain('人工已确认')
+    expect(wrapper.text()).not.toContain('人工未复核')
+  })
+
+  it('shows the rejected badge for rejected edges after a reload', () => {
+    // 刷新后状态仍来自后端数据（human_review_state=rejected），非前端局部记忆
+    const graph = makeGraph()
+    graph.edges[0]!.human_review_state = 'rejected'
+    graph.edges[0]!.human_confirmed = false
+    const wrapper = mount(PropagationDetailPanel, {
+      props: { caseId: 'case-1', graph, selection: edgeSelection },
+    })
+    expect(wrapper.text()).toContain('人工已驳回')
+    expect(wrapper.text()).not.toContain('人工未复核')
+    expect(wrapper.text()).not.toContain('人工已确认')
+  })
+
+  it('allows re-judging a rejected edge to confirmed through the UI', async () => {
+    const graph = makeGraph()
+    graph.edges[0]!.human_review_state = 'rejected'
+    const wrapper = mount(PropagationDetailPanel, {
+      props: { caseId: 'case-1', graph, selection: edgeSelection },
+    })
+    const confirmButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('确认关系成立'))
+    await confirmButton!.trigger('click')
+    await flushPromises()
+    expect(apiMock.confirmPropagationEdge).toHaveBeenCalledWith('case-1', 'edge-1', true, '')
+  })
+
+  it('allows re-judging a confirmed edge to rejected through the UI', async () => {
+    const graph = makeGraph()
+    graph.edges[0]!.human_review_state = 'confirmed'
+    graph.edges[0]!.human_confirmed = true
+    const wrapper = mount(PropagationDetailPanel, {
+      props: { caseId: 'case-1', graph, selection: edgeSelection },
+    })
+    const rejectButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('驳回该关系'))
+    await rejectButton!.trigger('click')
+    await flushPromises()
+    expect(apiMock.confirmPropagationEdge).toHaveBeenCalledWith('case-1', 'edge-1', false, '')
   })
 
   it('confirms an edge through the existing confirmation API and emits refresh', async () => {

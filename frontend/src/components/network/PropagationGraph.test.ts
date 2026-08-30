@@ -66,6 +66,7 @@ function makeGraph(overrides: Partial<PropagationGraphDTO> = {}): PropagationGra
         evidence_ids: ['ev-1'],
         algorithm_version: 'prop-v2',
         human_confirmed: false,
+        human_review_state: 'unreviewed',
       },
     ],
     ...overrides,
@@ -116,24 +117,37 @@ describe('PropagationGraph', () => {
     expect(series.data).toHaveLength(2)
     // 主 role 取最高分 source；尺寸映射 score
     expect(series.data[0]).toMatchObject({ id: 'p1', role: 'source', score: 0.9 })
-    // 未确认边 → 推断虚线
+    // FC1: unreviewed 边 → 灰色推断虚线
     const link = series.links[0]!
     expect(link).toMatchObject({
       id: 'edge-1',
       source: 'p1',
       target: 'p2',
     })
-    expect((link.lineStyle as Record<string, unknown>).type).toBe('dashed')
+    expect(link.lineStyle).toMatchObject({ type: 'dashed', color: '#8f9bb3', width: 1.5 })
   })
 
-  it('renders confirmed edges as solid lines', async () => {
+  it('renders confirmed edges as green solid lines', async () => {
     setOption.mockClear()
     const graph = makeGraph()
+    graph.edges[0]!.human_review_state = 'confirmed'
     graph.edges[0]!.human_confirmed = true
     mount(PropagationGraph, { props: { graph, loading: false, error: '' } })
     const option = firstGraphOption()
     const link = option.series[0]!.links[0]!
-    expect((link.lineStyle as Record<string, unknown>).type).toBe('solid')
+    expect(link.lineStyle).toMatchObject({ type: 'solid', color: '#2f9e6e', width: 3 })
+  })
+
+  it('renders rejected edges visibly distinct from unreviewed ones', async () => {
+    setOption.mockClear()
+    const graph = makeGraph()
+    graph.edges[0]!.human_review_state = 'rejected'
+    graph.edges[0]!.human_confirmed = false
+    mount(PropagationGraph, { props: { graph, loading: false, error: '' } })
+    const option = firstGraphOption()
+    const link = option.series[0]!.links[0]!
+    // 驳回红色实线，与 unreviewed 灰虚线明显区分
+    expect(link.lineStyle).toMatchObject({ type: 'solid', color: '#c0574f' })
   })
 
   it('emits node selection on chart click', async () => {

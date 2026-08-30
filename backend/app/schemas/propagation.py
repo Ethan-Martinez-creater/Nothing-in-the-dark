@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +27,8 @@ class PropagationEdgeResponse(BaseModel):
     evidence_ids: list[str]
     algorithm_version: str
     human_confirmed: bool
+    # FC1: 显式三态（unreviewed/confirmed/rejected）；human_confirmed 仅兼容。
+    human_review_state: Literal["unreviewed", "confirmed", "rejected"]
 
 
 class PropagationGraphNode(BaseModel):

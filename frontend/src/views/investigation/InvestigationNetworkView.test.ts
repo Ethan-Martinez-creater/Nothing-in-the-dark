@@ -59,6 +59,7 @@ function makeGraph(): PropagationGraphDTO {
         evidence_ids: ['ev-1'],
         algorithm_version: 'prop-v2',
         human_confirmed: false,
+        human_review_state: 'unreviewed',
       },
     ],
   }

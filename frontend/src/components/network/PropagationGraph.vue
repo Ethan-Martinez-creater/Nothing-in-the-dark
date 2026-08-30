@@ -104,14 +104,16 @@ function render() {
           confidence: edge.confidence,
           algorithm_version: edge.algorithm_version,
           lineStyle: {
-            // human_confirmed=true 确认实线；false 驳回红；未确认推断虚线
-            type: edge.human_confirmed ? 'solid' : 'dashed',
-            color: edge.human_confirmed
-              ? '#2f9e6e'
-              : edge.human_confirmed === false
-                ? '#c0574f'
-                : '#8f9bb3',
-            width: edge.human_confirmed ? 3 : 1.5,
+            // FC1 三态：unreviewed 灰色虚线（算法推断/未复核）；
+            // confirmed 绿色实线（人工确认）；rejected 红色实线（人工驳回）。
+            type: edge.human_review_state === 'unreviewed' ? 'dashed' : 'solid',
+            color:
+              edge.human_review_state === 'confirmed'
+                ? '#2f9e6e'
+                : edge.human_review_state === 'rejected'
+                  ? '#c0574f'
+                  : '#8f9bb3',
+            width: edge.human_review_state === 'confirmed' ? 3 : 1.5,
             opacity: 0.35 + edge.confidence * 0.55,
           },
         })),
