@@ -131,6 +131,23 @@ function render() {
       emit('select', { type: 'propagation_edge', id: event.data.id })
     }
   })
+
+  // E2E hook (FC5): only exposed when VITE_E2E=true. It replays the exact
+  // same select emit as a real chart click for a given existing node/edge id;
+  // DetailPanel and downstream APIs keep production paths. Production builds
+  // never see this (constant is statically replaced and undefined).
+  if (import.meta.env.VITE_E2E === 'true' && chartElement.value) {
+    const host = chartElement.value as HTMLDivElement & {
+      __e2eSelect?: (type: 'propagation_node' | 'propagation_edge', id: string) => void
+    }
+    host.__e2eSelect = (type, id) => {
+      if (type === 'propagation_node' && data.nodes.some((node) => node.post_id === id)) {
+        emit('select', { type, id })
+      } else if (type === 'propagation_edge' && data.edges.some((edge) => edge.id === id)) {
+        emit('select', { type, id })
+      }
+    }
+  }
 }
 
 function resize() {
@@ -148,7 +165,9 @@ watch(
   (value) => {
     if (value) render()
   },
-  { deep: true, immediate: true },
+  // flush: 'post'：graph 异步到达时 DOM（.pgraph__canvas）必须已挂载，
+  // 否则 render() 因 chartElement 为空直接返回，图与 E2E hook 都不会出现。
+  { deep: true, immediate: true, flush: 'post' },
 )
 
 onBeforeUnmount(() => {

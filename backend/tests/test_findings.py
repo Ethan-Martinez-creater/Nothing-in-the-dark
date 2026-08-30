@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from app.application.finding_service import FindingService
 from app.application.repositories import ApplicationRepository
@@ -330,20 +331,23 @@ async def _seed_review_item(
     case_id: str,
     finding: FindingRecord,
 ) -> ReviewItemRecord:
-    """创建 finding Review item 并置为 under_review（claim 等效前置）。"""
-    item = await repository.create_review_item(
-        ReviewItemRecord(
-            case_id=case_id,
-            object_type="finding",
-            object_id=finding.id,
-            summary=finding.statement,
-        )
+    """返回该 Finding 的 Review item 并置于 under_review（claim 等效前置）。
+
+    FC5 起 ``update_status(under_review)`` 会幂等创建 Review item，这里不再
+    重复插入（(case_id, object_type, object_id) 唯一），只取既有 item 改状态。
+    """
+    items = await repository.list_review_items(
+        case_id, object_type="finding", limit=100
     )
-    item.status = "under_review"
+    item = next(i for i in items if i.object_id == finding.id)
     async with database.session_factory() as session:
-        session.add(item)
+        await session.execute(
+            update(ReviewItemRecord)
+            .where(ReviewItemRecord.id == item.id)
+            .values(status="under_review")
+        )
         await session.commit()
-        await session.refresh(item)
+    item.status = "under_review"
     return item
 
 

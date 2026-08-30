@@ -83,6 +83,14 @@ function startEdit() {
   editing.value = true
 }
 
+function selectDocument(reportId: string) {
+  const doc = documents.value.find((item) => item.id === reportId) ?? null
+  selected.value = doc
+  editing.value = false
+  error.value = null
+  notice.value = null
+}
+
 async function saveEdit() {
   if (!selected.value) return
   error.value = null
@@ -151,6 +159,16 @@ onMounted(load)
     <header class="irep__head">
       <h2 class="irep__title">报告</h2>
       <div class="irep__actions">
+        <select
+          v-if="documents.length > 1"
+          class="irep__picker"
+          :value="selected?.id ?? ''"
+          @change="selectDocument(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="doc in documents" :key="doc.id" :value="doc.id">
+            {{ doc.title }}（{{ statusLabels[doc.status] }}）
+          </option>
+        </select>
         <button
           v-if="!activeReport && latestArtifact"
           type="button"
@@ -287,6 +305,16 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.irep__picker {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  max-width: 320px;
 }
 
 .irep__title {
