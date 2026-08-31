@@ -432,3 +432,122 @@ Post-Closure 验收矩阵（来自 corrected execution plan）：
 - [x] delivery 文档测试数字表述已纠正（FC6 计数与本次 858 数字分开记录）
 
 Final reviewer blocker resolved; Optimization V2 is formally CLOSED.
+
+# Optimization V2 Review API Consistency Patch
+
+Status: IN PROGRESS
+Baseline HEAD: e2f60b8a10138779700a7af741dddd73ea3dcc22
+
+Final review found one remaining public API bypass:
+generic POST /reviews/items could still create Finding ReviewItems without
+using the atomic Finding review submission path, and dangling Finding
+ReviewItems could still be decided/reopened fail-open.
+
+The prior CLOSED declaration is superseded until RC1–RC5 pass.
+
+# Optimization V2 Review API Consistency Patch Result
+
+Status: CLOSED
+
+Baseline:
+e2f60b8a10138779700a7af741dddd73ea3dcc22
+
+## RC1 — Generic Finding Review submit
+- POST /reviews/items with object_type=finding now delegates to
+  ApplicationRepository.submit_finding_for_review().
+- Finding existence and case scope are enforced.
+- Finding status and unique ReviewItem are written in the same transaction.
+- Existing ReviewItem metadata is preserved on idempotent re-submit.
+- ReviewItem summary is canonical (finding.statement), never client input.
+- ApplicationRepository.create_review_item() refuses finding ReviewItems
+  (review_finding_atomic_submit_required); harness submit_review_item tool
+  also routes finding submissions to the atomic path.
+
+## RC2 — Decision fail closed
+- Finding Review decisions require a real same-case Finding target inside
+  the decision transaction.
+- Missing/cross-case targets return review_object_not_found.
+- Finding must be under_review to be decided (review_finding_state_mismatch
+  otherwise); missing status mapping is a defensive invariant failure.
+- No ReviewDecision or ReviewItem state is committed on failure.
+
+## RC3 — Reopen fail closed
+- Finding Review reopen requires a real same-case Finding target inside the
+  reopen transaction (review_object_not_found on invalid targets).
+- ReviewItem/Finding state pairing is validated (accepted↔verified,
+  rejected↔rejected, needs_more_evidence↔under_review); mismatches return
+  review_finding_state_mismatch; superseded Finding cannot be resurrected.
+- Invalid targets leave ReviewItem unchanged.
+
+## Tests
+- Review API targeted tests (test_review.py): 17/17 passed
+  (R1 generic submit routes to atomic; R2 idempotent metadata preserved;
+  R3 nonexistent finding rejected; R4 cross-case rejected;
+  R5 verified re-review reuses item; existing workflow regression green).
+- Finding targeted tests (test_findings.py): 39/39 passed
+  (R6/R7 dangling/cross-case decision fail closed; R8 dangling reopen
+  fail closed; R9 valid reopen regression; RC1.7 create_review_item guard;
+  decision-requires-under_review; reopen state pairing; superseded blocked;
+  all prior PC1–PC4 tests still green).
+- Special regression (claim_review/provenance/report_documents/
+  legacy_compatibility/tool_registry/tool_system): 38/38 passed.
+- Backend full regression: 872 unique tests collected, 872 unique tests
+  green, 0 failed, 0 unexpected skipped (93 files 1:1, 12 greedy-balanced
+  xdist shards `-n 4 --dist loadfile` + test_api/test_reports serial).
+- Frontend typecheck: passed.
+- Frontend lint: passed.
+- Frontend test: 148 passed / 0 failed.
+- Frontend build: passed.
+- Browser smoke: e2e-smoke.cjs 15/15 + e2e-interact.cjs smoke 17/17.
+- Browser Closure A-F: 44/44 (Scenario B B1–B14 full UI loop) / 0 skipped.
+- Unexpected console/pageerror: 0.
+
+Regression evidence is based on the repository-local executed test matrix.
+No GitHub commit status checks were available for this HEAD.
+
+Dangling finding review item audit: not applicable to disposable test databases
+(all fixtures create Finding ReviewItems exclusively through the atomic path).
+
+# Optimization V2 CLOSED（Review API Consistency 最终）
+
+Review API Consistency 验收矩阵（来自 corrected execution plan）：
+- [x] Generic POST /reviews/items + finding 走 submit_finding_for_review
+- [x] Generic submit 不可创建 nonexistent Finding ReviewItem
+- [x] Generic submit 不可创建 cross-case Finding ReviewItem
+- [x] Generic submit candidate → Finding under_review
+- [x] Generic submit verified/rejected 复用同一 ReviewItem 进入 re-review
+- [x] Duplicate generic submit remains idempotent
+- [x] Review priority/risk/queue 首次创建兼容
+- [x] Finding Review summary 来自 finding.statement
+- [x] Existing ReviewItem metadata 不被重复 submit 覆盖
+- [x] ApplicationRepository.create_review_item 不能直接创建 finding ReviewItem
+- [x] 全仓 submit_finding_for_review/create_review_item 调用点已核对
+- [x] Finding Review decision missing target fail closed
+- [x] Finding Review decision cross-case target fail closed
+- [x] Failed decision creates 0 ReviewDecision
+- [x] Failed decision leaves ReviewItem unchanged
+- [x] Failed decision leaves unrelated Finding unchanged
+- [x] Finding Review decision 要求 Finding.status == under_review
+- [x] 历史 candidate + in_review item 不能直接把 Finding 裁决为 verified/rejected
+- [x] Finding Review reopen missing target fail closed
+- [x] Finding Review reopen cross-case target fail closed
+- [x] Failed reopen leaves ReviewItem unchanged
+- [x] Reopen 验证 ReviewItem/Finding 状态配对
+- [x] superseded Finding 无法通过 Workbench reopen 复活
+- [x] Valid accepted/rejected Finding reopen regression still passes
+- [x] Non-Finding Review submit/claim/decide/reopen regression passes
+- [x] Existing Finding UI Scenario B remains green (B1–B14)
+- [x] Backend targeted tests green
+- [x] Backend full regression all unique tests green (872/872)
+- [x] 0 unresolved backend failure
+- [x] 0 unexpected backend skip
+- [x] Frontend typecheck/lint/test/build green
+- [x] Browser smoke green
+- [x] Browser Closure A-F green (44/44)
+- [x] Closure skipped = 0
+- [x] Unexpected console/pageerror = 0
+- [x] optimization-v2-delivery.md updated with actual results
+
+Final reviewer blocker resolved: Finding Review 的所有生产入口（Findings UI、
+generic Review API、harness tool、Workbench reopen、decision）现在统一遵守
+同一套后端不变量。Optimization V2 is formally CLOSED.
