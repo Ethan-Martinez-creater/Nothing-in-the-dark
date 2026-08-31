@@ -2740,6 +2740,17 @@ class ApplicationRepository:
     async def create_review_item(
         self, item: ReviewItemRecord
     ) -> ReviewItemRecord:
+        """通用 ReviewItem 创建（RC1.7：禁止绕过 finding 原子入口）。
+
+        finding 类型必须走 submit_finding_for_review()，避免制造
+        ReviewItem=unreviewed + Finding=candidate 或 dangling target 状态。
+        其它 Review object（claim/evidence/...）不受影响。
+        """
+        if item.object_type == "finding":
+            raise ApplicationError(
+                "finding review item must use the atomic finding review submission path",
+                code="review_finding_atomic_submit_required",
+            )
         async with self._database.session_factory() as session:
             session.add(item)
             await session.commit()
@@ -2820,6 +2831,29 @@ class ApplicationRepository:
             await session.refresh(record)
             return record
 
+    async def _require_finding_review_target(
+        self,
+        session: Any,
+        item: ReviewItemRecord,
+    ) -> FindingRecord:
+        """RC2/RC3 共享：校验 ReviewItem 的 Finding target 真实且同 Case。
+
+        不存在或跨 Case 统一视为「没有合法的 case-scoped review target」，
+        返回 review_object_not_found，避免通过 Review API 泄漏其它 Case
+        是否存在同 ID 对象。
+        """
+        finding = await session.scalar(
+            select(FindingRecord)
+            .where(FindingRecord.id == item.object_id)
+            .with_for_update()
+        )
+        if finding is None or finding.case_id != item.case_id:
+            raise ApplicationError(
+                "review finding target not found",
+                code="review_object_not_found",
+            )
+        return finding
+
     async def decide_review_item(
         self,
         *,
@@ -2833,6 +2867,11 @@ class ApplicationRepository:
 
         M4: 当对象是 finding 时，在同一事务内把 Review 状态映射同步到
         Finding.status（避免 Review 已 accepted 而 Finding 仍是 candidate）。
+
+        RC2: finding decision 必须 fail closed —— ReviewItem 声称 object_type
+        == finding 但 Finding 不存在/跨 Case 时整体失败，不写 ReviewItem/
+        ReviewDecision；Finding 必须处于 under_review 才能被裁决为终审态；
+        target status mapping 缺失也视为 defensive invariant 失败。
         """
 
         from app.domain.enums import REVIEW_STATUS_TO_FINDING_STATUS
@@ -2846,15 +2885,25 @@ class ApplicationRepository:
             ):
                 await session.rollback()
                 return None
+            finding: FindingRecord | None = None
+            if item.object_type == "finding":
+                finding = await self._require_finding_review_target(session, item)
+                if finding.status != "under_review":
+                    raise ApplicationError(
+                        "finding review decision requires finding under_review",
+                        code="review_finding_state_mismatch",
+                    )
             item.status = target_status
             session.add(item)
-            if item.object_type == "finding":
-                finding = await session.get(FindingRecord, item.object_id)
-                if finding is not None and finding.case_id == item.case_id:
-                    finding_status = REVIEW_STATUS_TO_FINDING_STATUS.get(target_status)
-                    if finding_status is not None:
-                        finding.status = finding_status
-                        session.add(finding)
+            if finding is not None:
+                finding_status = REVIEW_STATUS_TO_FINDING_STATUS.get(target_status)
+                if finding_status is None:
+                    raise ApplicationError(
+                        "finding review status mapping missing",
+                        code="review_finding_status_mapping_missing",
+                    )
+                finding.status = finding_status
+                session.add(finding)
             session.add(decision)
             await session.commit()
             await session.refresh(item)
@@ -2866,15 +2915,22 @@ class ApplicationRepository:
         *,
         case_id: str,
         finding_id: str,
-        summary: str,
+        priority: int = 0,
+        risk_level: str = "low",
+        queue: str = "default",
         actor: str = "finding_submit_review",
     ) -> tuple[FindingRecord, ReviewItemRecord]:
-        """Finding → Review 唯一原子提交入口（Post-Closure PC1）。
+        """Finding → Review 唯一原子提交入口（Post-Closure PC1 / RC1）。
 
         一个数据库事务内完成：锁定 Finding → 读取唯一 ReviewItem → 按
         PC1.3 状态行为表创建/复用/重新激活 → Finding.status=under_review →
         单次 commit。重复提交幂等；verified/rejected 复审复用既有 item；
         superseded 拒绝重新提交审核。
+
+        RC1：generic Review API 与 Findings UI 共用此唯一入口。ReviewItem
+        的 summary 一律使用 finding.statement（不信任客户端输入）；priority/
+        risk_level/queue 首次创建时兼容 generic API，重复提交不覆盖既有
+        metadata。
         """
         from sqlalchemy.exc import IntegrityError
 
@@ -2921,10 +2977,10 @@ class ApplicationRepository:
                     case_id=case_id,
                     object_type="finding",
                     object_id=finding_id,
-                    summary=summary,
-                    priority=0,
-                    risk_level="low",
-                    queue="default",
+                    summary=finding.statement,
+                    priority=priority,
+                    risk_level=risk_level,
+                    queue=queue,
                     status=item_status,
                 )
                 session.add(review_item)
@@ -3014,12 +3070,16 @@ class ApplicationRepository:
         item_id: str,
         case_id: str | None = None,
     ) -> ReviewItemRecord:
-        """Review Workbench 重开原子方法（PC2B）。
+        """Review Workbench 重开原子方法（PC2B / RC3）。
 
         一个事务内：锁定 ReviewItem → 校验 scope → domain 状态机校验 →
-        若 object_type=finding 同步锁定 Finding 并置 under_review →
+        若 object_type=finding 必须校验 Finding target 真实且同 Case，并
+        校验 ReviewItem/Finding 状态配对，同步 Finding=under_review →
         ReviewItem.status=in_review → 单次 commit。非 Finding item 行为
         保持原样（只改 ReviewItem 状态，不访问 Finding 表）。
+
+        RC3.2：superseded Finding 无法通过 Workbench reopen 复活；ReviewItem
+        与 Finding 状态不匹配（如 accepted + candidate）一律 fail closed。
         """
         from app.services import review as review_domain
 
@@ -3035,14 +3095,27 @@ class ApplicationRepository:
                 raise ResourceNotFoundError("review_item")
             review_domain.validate_transition(item.status, "in_review")
             if item.object_type == "finding":
-                finding = await session.scalar(
-                    select(FindingRecord)
-                    .where(FindingRecord.id == item.object_id)
-                    .with_for_update()
-                )
-                if finding is not None and finding.case_id == item.case_id:
-                    finding.status = "under_review"
-                    session.add(finding)
+                finding = await self._require_finding_review_target(session, item)
+                # RC3.2 状态配对：ReviewItem 与 Finding 必须同时满足各自状态机
+                expected_finding = {
+                    "accepted": "verified",
+                    "rejected": "rejected",
+                    "needs_more_evidence": "under_review",
+                }
+                if item.status in expected_finding and finding.status != expected_finding[
+                    item.status
+                ]:
+                    raise ApplicationError(
+                        "review finding state mismatch",
+                        code="review_finding_state_mismatch",
+                    )
+                if finding.status == "superseded":
+                    raise ApplicationError(
+                        "superseded finding cannot be reopened",
+                        code="review_finding_state_mismatch",
+                    )
+                finding.status = "under_review"
+                session.add(finding)
             item.status = "in_review"
             await session.commit()
             await session.refresh(item)

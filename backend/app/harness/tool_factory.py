@@ -903,6 +903,22 @@ def build_tool_registry(
         from app.infrastructure.database.models import ReviewItemRecord
 
         try:
+            # RC1: finding 必须走唯一原子提交入口（验证 Finding + case scope +
+            # 状态行为表 + 单事务），不得在 tool 层复制第二套创建逻辑。
+            if request.object_type == "finding":
+                finding, item = await repository.submit_finding_for_review(
+                    case_id=request.case_id,
+                    finding_id=request.object_id,
+                    priority=request.priority,
+                    risk_level=request.risk_level,
+                    actor="agent_review_submit",
+                )
+                return {
+                    "ok": True,
+                    "item_id": item.id,
+                    "status": item.status,
+                    "finding_status": finding.status,
+                }
             existing = await repository.list_review_items(request.case_id, limit=1000)
             for item in existing:
                 if (

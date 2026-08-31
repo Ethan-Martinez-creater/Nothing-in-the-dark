@@ -338,13 +338,13 @@ class FindingService:
                 code="finding_review_required",
             )
         record = await self.get_for_case(case_id, finding_id)
-        # PC1: under_review 必须在普通 transition 校验之前分支 —— 重复提交
-        # 幂等与历史 under_review+no ReviewItem 修复都需先进入原子方法。
+        # PC1/RC1: under_review 必须在普通 transition 校验之前分支 —— 重复
+        # 提交幂等与历史 under_review+no ReviewItem 修复都需先进入原子方法；
+        # summary 由原子方法内部取 finding.statement，不信任客户端输入。
         if status == "under_review":
             finding, _review_item = await self._repository.submit_finding_for_review(
                 case_id=case_id,
                 finding_id=finding_id,
-                summary=record.statement,
             )
             return finding
         transition = (record.status, status)

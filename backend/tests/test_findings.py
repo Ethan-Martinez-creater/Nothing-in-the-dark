@@ -739,10 +739,10 @@ async def test_pc42_duplicate_submit_is_idempotent(tmp_path: Path) -> None:
     finding = await service.create_manual(case_id, statement="幂等提交的结论")
 
     first_finding, first_item = await repository.submit_finding_for_review(
-        case_id=case_id, finding_id=finding.id, summary=finding.statement
+        case_id=case_id, finding_id=finding.id
     )
     second_finding, second_item = await repository.submit_finding_for_review(
-        case_id=case_id, finding_id=finding.id, summary=finding.statement
+        case_id=case_id, finding_id=finding.id
     )
 
     assert first_finding.status == "under_review"
@@ -801,7 +801,7 @@ async def test_pc44_historical_under_review_without_item_is_repaired(
         await session.commit()
 
     updated, item = await repository.submit_finding_for_review(
-        case_id=case_id, finding_id=finding.id, summary=finding.statement
+        case_id=case_id, finding_id=finding.id
     )
 
     assert updated.status == "under_review"
@@ -902,10 +902,10 @@ async def test_pc48_concurrent_submit_keeps_single_review_item(
 
     results = await asyncio.gather(
         repository.submit_finding_for_review(
-            case_id=case_id, finding_id=finding.id, summary=finding.statement
+            case_id=case_id, finding_id=finding.id
         ),
         repository.submit_finding_for_review(
-            case_id=case_id, finding_id=finding.id, summary=finding.statement
+            case_id=case_id, finding_id=finding.id
         ),
         return_exceptions=True,
     )
@@ -1053,6 +1053,269 @@ async def test_pc22_under_review_to_candidate_keeps_review_item(
     )
     item = next(i for i in items if i.object_id == finding.id)
     assert item.status == "unreviewed"
+
+
+# ================= RC: Generic Review API 旁路封口 =================
+# RC1: generic submit 强制走原子入口；RC2/RC3: decision/reopen fail closed。
+
+
+async def _insert_finding_review_item(
+    database: Database,
+    *,
+    case_id: str,
+    object_id: str,
+    status: str,
+    current_version: int = 1,
+) -> ReviewItemRecord:
+    """直接插入 finding ReviewItem（绕过 create_review_item guard，模拟历史脏数据）。"""
+    item = ReviewItemRecord(
+        case_id=case_id,
+        object_type="finding",
+        object_id=object_id,
+        summary="历史脏数据",
+        status=status,
+        current_version=current_version,
+    )
+    async with database.session_factory() as session:
+        session.add(item)
+        await session.commit()
+        await session.refresh(item)
+    return item
+
+
+async def _count_review_decisions(
+    database: Database, item_id: str
+) -> int:
+    from sqlalchemy import func, select
+
+    async with database.session_factory() as session:
+        return int(
+            (
+                await session.scalar(
+                    select(func.count())
+                    .select_from(ReviewDecisionRecord)
+                    .where(ReviewDecisionRecord.item_id == item_id)
+                )
+            )
+            or 0
+        )
+
+
+async def test_rc17_create_review_item_blocks_finding(tmp_path: Path) -> None:
+    """RC1.7: create_review_item 低层防线 —— 直接创建 finding ReviewItem 被拒。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc17.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="guard 结论")
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.create_review_item(
+            ReviewItemRecord(
+                case_id=case_id,
+                object_type="finding",
+                object_id=finding.id,
+                summary="绕过",
+            )
+        )
+    assert excinfo.value.code == "review_finding_atomic_submit_required"
+    assert await _count_finding_review_items(database, case_id, finding.id) == 0
+
+
+async def test_rc17_create_review_item_allows_claim(tmp_path: Path) -> None:
+    """RC1.7: 非 finding Review object 不受 guard 影响。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc17b.db'}")
+    repository, service, case_id = await _seed(database)
+    item = await repository.create_review_item(
+        ReviewItemRecord(
+            case_id=case_id,
+            object_type="claim",
+            object_id="claim-xyz",
+            summary="主张",
+        )
+    )
+    assert item.object_type == "claim"
+    assert item.status == "unreviewed"
+
+
+async def test_rc2_dangling_finding_decision_fail_closed(tmp_path: Path) -> None:
+    """Test R6 + Repository A: dangling Finding target 的 decision 整体失败。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc2a.db'}")
+    repository, service, case_id = await _seed(database)
+    item = await _insert_finding_review_item(
+        database, case_id=case_id, object_id="missing-finding", status="in_review"
+    )
+    before = await _count_review_decisions(database, item.id)
+
+    decision = ReviewDecisionRecord(
+        item_id=item.id,
+        object_version=item.current_version,
+        decision="approved",
+        reason="不应成功",
+        actor="tester",
+    )
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.decide_review_item(
+            item_id=item.id,
+            expected_status="in_review",
+            expected_version=item.current_version,
+            target_status="accepted",
+            decision=decision,
+        )
+    assert excinfo.value.code == "review_object_not_found"
+
+    # 0 partial write：ReviewItem 不变、无新 ReviewDecision
+    stored = await repository.get_review_item(item.id)
+    assert stored.status == "in_review"
+    assert await _count_review_decisions(database, item.id) == before
+
+
+async def test_rc2_cross_case_finding_decision_fail_closed(tmp_path: Path) -> None:
+    """Test R7: ReviewItem 声称 finding 但指向其它 case 的 Finding → fail closed。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc2b.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="跨 case 目标结论")
+    other = await repository.create_case(
+        CreateCaseRequest(topic="另一案例", platforms=["weibo"])
+    )
+    item = await _insert_finding_review_item(
+        database, case_id=other.id, object_id=finding.id, status="in_review"
+    )
+
+    decision = ReviewDecisionRecord(
+        item_id=item.id,
+        object_version=item.current_version,
+        decision="approved",
+        reason="不应成功",
+        actor="tester",
+    )
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.decide_review_item(
+            item_id=item.id,
+            expected_status="in_review",
+            expected_version=item.current_version,
+            target_status="accepted",
+            decision=decision,
+        )
+    assert excinfo.value.code == "review_object_not_found"
+
+    stored = await repository.get_review_item(item.id)
+    assert stored.status == "in_review"
+    # Finding F 状态不变化
+    assert (await service.get_for_case(case_id, finding.id)).status == "candidate"
+    assert await _count_review_decisions(database, item.id) == 0
+
+
+async def test_rc2_decision_requires_finding_under_review(tmp_path: Path) -> None:
+    """历史 candidate + in_review item 不能直接被裁决为 verified/rejected。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc2c.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="candidate 脏数据结论")
+    item = await _insert_finding_review_item(
+        database, case_id=case_id, object_id=finding.id, status="in_review"
+    )
+
+    decision = ReviewDecisionRecord(
+        item_id=item.id,
+        object_version=item.current_version,
+        decision="approved",
+        reason="脏数据裁决",
+        actor="tester",
+    )
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.decide_review_item(
+            item_id=item.id,
+            expected_status="in_review",
+            expected_version=item.current_version,
+            target_status="accepted",
+            decision=decision,
+        )
+    assert excinfo.value.code == "review_finding_state_mismatch"
+
+    stored = await repository.get_review_item(item.id)
+    assert stored.status == "in_review"
+    assert (await service.get_for_case(case_id, finding.id)).status == "candidate"
+    assert await _count_review_decisions(database, item.id) == 0
+
+
+async def test_rc3_dangling_finding_reopen_fail_closed(tmp_path: Path) -> None:
+    """Test R8 + Repository B: dangling Finding target 的 reopen 整体失败。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc3a.db'}")
+    repository, service, case_id = await _seed(database)
+    item = await _insert_finding_review_item(
+        database, case_id=case_id, object_id="missing-finding", status="accepted"
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.reopen_review_item_atomic(item_id=item.id, case_id=case_id)
+    assert excinfo.value.code == "review_object_not_found"
+
+    stored = await repository.get_review_item(item.id)
+    assert stored.status == "accepted"
+
+
+async def test_rc3_reopen_state_pairing_mismatch_fail_closed(tmp_path: Path) -> None:
+    """ReviewItem=accepted 但 Finding=candidate → reopen fail closed（状态不配对）。"""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc3b.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="配对脏数据结论")
+    item = await _insert_finding_review_item(
+        database, case_id=case_id, object_id=finding.id, status="accepted"
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.reopen_review_item_atomic(item_id=item.id, case_id=case_id)
+    assert excinfo.value.code == "review_finding_state_mismatch"
+
+    stored = await repository.get_review_item(item.id)
+    assert stored.status == "accepted"
+    assert (await service.get_for_case(case_id, finding.id)).status == "candidate"
+
+
+async def test_rc3_superseded_finding_cannot_be_reopened(tmp_path: Path) -> None:
+    """superseded Finding 无法通过 Workbench reopen 复活。"""
+    from sqlalchemy import update as sa_update
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc3c.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="superseded 结论")
+    async with database.session_factory() as session:
+        await session.execute(
+            sa_update(FindingRecord)
+            .where(FindingRecord.id == finding.id)
+            .values(status="superseded")
+        )
+        await session.commit()
+    item = await _insert_finding_review_item(
+        database, case_id=case_id, object_id=finding.id, status="accepted"
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        await repository.reopen_review_item_atomic(item_id=item.id, case_id=case_id)
+    assert excinfo.value.code == "review_finding_state_mismatch"
+
+    stored = await repository.get_review_item(item.id)
+    assert stored.status == "accepted"
+    assert (await service.get_for_case(case_id, finding.id)).status == "superseded"
+
+
+async def test_rc3_valid_accepted_reopen_still_passes(tmp_path: Path) -> None:
+    """Test R9: 合法 accepted/verified 配对 reopen 回归仍然通过。"""
+    from app.application.review_service import ReviewService
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'rc3d.db'}")
+    repository, service, case_id = await _seed(database)
+    finding = await service.create_manual(case_id, statement="合法重开结论")
+    approved_item, _ = await _approve_finding_through_review(
+        database, repository, service, case_id, finding
+    )
+    assert approved_item.status == "accepted"
+
+    reopened = await ReviewService(repository).reopen(
+        approved_item.id, case_id=case_id
+    )
+
+    assert reopened.id == approved_item.id
+    assert reopened.status == "in_review"
+    assert (await service.get_for_case(case_id, finding.id)).status == "under_review"
 
 
 

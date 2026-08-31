@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import shutil
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -210,3 +211,188 @@ def test_api_review_case_isolation_and_version_conflict() -> None:
         )
         assert stale.status_code == 400
         assert stale.json()["code"] == "review_version_conflict"
+
+
+# ================= RC1: Generic Review submit 对 finding 强制走原子入口 =========
+
+
+def _client_with_finding() -> Iterator[tuple[TestClient, str, str]]:
+    """创建 demo app + case + candidate finding（context manager）。
+
+    用法：with _client_with_finding() as (client, case_id, finding_id):
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx() -> Iterator[tuple[TestClient, str, str]]:
+        settings = Settings(
+            database_url=f"sqlite+aiosqlite:///{_tmp_db()}",
+            demo_mode=True,
+        )
+        app = create_app(settings)
+        with TestClient(app) as client:
+            case = client.post(
+                "/api/v1/cases",
+                json={"topic": "RC1 案例", "platforms": ["weibo"]},
+            )
+            case_id = case.json()["id"]
+            finding = client.post(
+                f"/api/v1/cases/{case_id}/findings",
+                json={"statement": "RC1 结论：候选内容待审核"},
+            )
+            finding_id = finding.json()["id"]
+            yield client, case_id, finding_id
+
+    return _ctx()  # type: ignore[return-value]
+
+
+def test_rc1_generic_submit_routes_finding_to_atomic_path() -> None:
+    """Test R1: generic POST /reviews/items(object_type=finding) → 原子入口。
+
+    断言 Finding=under_review、exactly one ReviewItem、status=unreviewed、
+    priority/risk_level/queue 兼容、summary 采用 finding.statement 而非客户端输入。
+    """
+    with _client_with_finding() as (client, case_id, finding_id):
+        resp = client.post(
+            f"/api/v1/cases/{case_id}/reviews/items",
+            json={
+                "object_type": "finding",
+                "object_id": finding_id,
+                "summary": "客户端伪造的摘要",
+                "priority": 7,
+                "risk_level": "high",
+                "queue": "priority",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["object_type"] == "finding"
+        assert body["object_id"] == finding_id
+        assert body["status"] == "unreviewed"
+        assert body["priority"] == 7
+        assert body["risk_level"] == "high"
+        assert body["queue"] == "priority"
+        # canonical summary 来自 finding.statement，客户端伪造文本被忽略
+        assert body["summary"] == "RC1 结论：候选内容待审核"
+        assert body["summary"] != "客户端伪造的摘要"
+
+        finding = client.get(f"/api/v1/cases/{case_id}/findings/{finding_id}")
+        assert finding.status_code == 200
+        assert finding.json()["finding"]["status"] == "under_review"
+
+        queue = client.get(
+            f"/api/v1/cases/{case_id}/reviews/queue?object_type=finding"
+        )
+        assert queue.json()["total"] == 1
+
+
+def test_rc1_generic_submit_idempotent_preserves_metadata() -> None:
+    """Test R2: 重复 generic submit 幂等，且不覆盖既有 priority/risk/queue/summary。"""
+    with _client_with_finding() as (client, case_id, finding_id):
+        first = client.post(
+            f"/api/v1/cases/{case_id}/reviews/items",
+            json={
+                "object_type": "finding",
+                "object_id": finding_id,
+                "priority": 7,
+                "risk_level": "high",
+                "queue": "priority",
+            },
+        )
+        assert first.status_code == 201
+        item_id = first.json()["id"]
+
+        second = client.post(
+            f"/api/v1/cases/{case_id}/reviews/items",
+            json={
+                "object_type": "finding",
+                "object_id": finding_id,
+                "summary": "other",
+                "priority": 1,
+                "risk_level": "low",
+                "queue": "other",
+            },
+        )
+        assert second.status_code == 201
+        assert second.json()["id"] == item_id
+        # metadata 保持首次值
+        assert second.json()["priority"] == 7
+        assert second.json()["risk_level"] == "high"
+        assert second.json()["queue"] == "priority"
+        assert second.json()["summary"] == "RC1 结论：候选内容待审核"
+
+        queue = client.get(
+            f"/api/v1/cases/{case_id}/reviews/queue?object_type=finding"
+        )
+        assert queue.json()["total"] == 1
+        finding = client.get(f"/api/v1/cases/{case_id}/findings/{finding_id}")
+        assert finding.json()["finding"]["status"] == "under_review"
+
+
+def test_rc1_generic_submit_nonexistent_finding_rejected() -> None:
+    """Test R3: generic submit + nonexistent finding → finding_not_found，无 ReviewItem。"""
+    with _client_with_finding() as (client, case_id, _finding_id):
+        resp = client.post(
+            f"/api/v1/cases/{case_id}/reviews/items",
+            json={"object_type": "finding", "object_id": "finding-does-not-exist"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "finding_not_found"
+        queue = client.get(
+            f"/api/v1/cases/{case_id}/reviews/queue?object_type=finding"
+        )
+        assert queue.json()["total"] == 0
+
+
+def test_rc1_generic_submit_cross_case_finding_rejected() -> None:
+    """Test R4: generic submit + cross-case finding → finding_scope_mismatch。"""
+    with _client_with_finding() as (client, case_id, finding_id):
+        other = client.post(
+            "/api/v1/cases",
+            json={"topic": "另一案例", "platforms": ["weibo"]},
+        )
+        other_id = other.json()["id"]
+        resp = client.post(
+            f"/api/v1/cases/{other_id}/reviews/items",
+            json={"object_type": "finding", "object_id": finding_id},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "finding_scope_mismatch"
+        # other case 无 ReviewItem，原 case Finding 状态不变
+        queue = client.get(f"/api/v1/cases/{other_id}/reviews/queue?object_type=finding")
+        assert queue.json()["total"] == 0
+        finding = client.get(f"/api/v1/cases/{case_id}/findings/{finding_id}")
+        assert finding.json()["finding"]["status"] == "candidate"
+
+
+def test_rc1_generic_submit_verified_finding_reruns_review() -> None:
+    """Test R5: verified Finding 经 generic submit 进入复审（复用同一 item）。"""
+    with _client_with_finding() as (client, case_id, finding_id):
+        # 构造真实流程：candidate → submit → claim → approve → verified/accepted
+        sub = client.post(
+            f"/api/v1/cases/{case_id}/reviews/items",
+            json={"object_type": "finding", "object_id": finding_id},
+        )
+        item_id = sub.json()["id"]
+        claimed = client.post(f"/api/v1/cases/{case_id}/reviews/{item_id}:claim")
+        assert claimed.json()["status"] == "in_review"
+        decided = client.post(
+            f"/api/v1/cases/{case_id}/reviews/{item_id}/decisions",
+            json={"decision": "approved", "reason": "通过"},
+        )
+        assert decided.json()["status"] == "accepted"
+        finding = client.get(f"/api/v1/cases/{case_id}/findings/{finding_id}")
+        assert finding.json()["finding"]["status"] == "verified"
+
+        # generic submit 复审
+        reopened = client.post(
+            f"/api/v1/cases/{case_id}/reviews/items",
+            json={"object_type": "finding", "object_id": finding_id},
+        )
+        assert reopened.status_code == 201
+        assert reopened.json()["id"] == item_id  # 复用同一 item
+        assert reopened.json()["status"] == "in_review"
+        finding = client.get(f"/api/v1/cases/{case_id}/findings/{finding_id}")
+        assert finding.json()["finding"]["status"] == "under_review"
+        queue = client.get(f"/api/v1/cases/{case_id}/reviews/queue?object_type=finding")
+        assert queue.json()["total"] == 1

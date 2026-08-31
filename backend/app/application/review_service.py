@@ -41,6 +41,18 @@ class ReviewService:
                 f"unknown review object type {object_type!r}",
                 code="review_object_type_unknown",
             )
+        # RC1: finding 必须走唯一原子提交入口（validate Finding + case scope +
+        # 状态行为表 + 单事务）。此处只做 early branch，不得复制矩阵。
+        if object_type == "finding":
+            _finding, item = await self._repository.submit_finding_for_review(
+                case_id=case_id,
+                finding_id=object_id,
+                priority=priority,
+                risk_level=risk_level,
+                queue=queue,
+                actor=actor,
+            )
+            return item
         existing = await self._repository.list_review_items(
             case_id, limit=1000
         )
