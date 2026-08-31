@@ -225,6 +225,45 @@ class ApplicationRepository:
             await session.refresh(record)
             return record
 
+    async def update_case(
+        self,
+        case_id: str,
+        *,
+        title: str | None = None,
+        topic: str | None = None,
+        description: str | None = None,
+        platforms: list[str] | None = None,
+        time_start: str | None = None,
+        time_end: str | None = None,
+    ) -> CaseRecord:
+        """PATCH 部分更新调查元数据；None 字段保持原值。
+
+        platforms 由 UpdateCaseRequest validator 校验过；time_start/time_end
+        只更新显式提供的端点（None 不覆盖已存在的另一端）。
+        """
+        async with self._database.session_factory() as session:
+            record = await session.get(CaseRecord, case_id)
+            if record is None:
+                raise ResourceNotFoundError("case", case_id)
+            if title is not None:
+                record.title = title
+            if topic is not None:
+                record.topic = topic
+            if description is not None:
+                record.description = description
+            if platforms is not None:
+                record.platforms = list(platforms)
+            if time_start is not None or time_end is not None:
+                tr = dict(record.time_range or {})
+                if time_start is not None:
+                    tr["start"] = time_start
+                if time_end is not None:
+                    tr["end"] = time_end
+                record.time_range = tr
+            await session.commit()
+            await session.refresh(record)
+            return record
+
     async def delete_case(self, case_id: str) -> None:
         """Delete a case with explicit cascade cleanup.
 

@@ -5,6 +5,7 @@ __pycache__/
 .pytest-tmp/
 # pytest basetemp 变体（M8 回归等自定义 --basetemp 目录）
 .pytest-*-tmp/
+backend/.pytest-tmp-fix/
 .ruff_cache/
 .mypy_cache/
 .coverage

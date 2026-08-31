@@ -17,6 +17,7 @@ from app.harness.approval_policy import (
     high_cost_tool,
 )
 from app.harness.hooks import HookBus, HookEvent
+from app.harness.progress import reset_progress_sink, set_progress_sink
 from app.harness.tools import ToolRegistry
 from app.infrastructure.llm import LLMGateway, LLMMessage, LLMResponse, ModelRoute, ToolCall
 
@@ -663,6 +664,22 @@ class AgentRuntime:
         def on_retry(entry: dict[str, object]) -> None:
             retry_history.append(entry)
 
+        async def _tool_progress(event: dict[str, Any]) -> None:
+            # 长耗时工具（如逐平台采集）的细粒度进度直接进事件流，
+            # 前端可实时展示，避免用户长时间无反馈等待。
+            await self._event_sink(
+                {
+                    "event_type": "tool_progress",
+                    "agent": definition.name,
+                    "run_id": context.run_id,
+                    "turn_id": context.turn_id,
+                    "tool_call_id": call.id,
+                    "tool": call.name,
+                    **event,
+                }
+            )
+
+        progress_token = set_progress_sink(_tool_progress)
         try:
             invocation = await self._tools.invoke_with_meta(
                 call.name,
@@ -685,6 +702,8 @@ class AgentRuntime:
                 "ok": False,
                 "error": {"code": exc.code, "message": str(exc)},
             }
+        finally:
+            reset_progress_sink(progress_token)
         duration_ms = int(
             (time.perf_counter() - started_at) * 1000
         )

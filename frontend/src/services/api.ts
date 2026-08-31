@@ -136,6 +136,20 @@ export const api = {
     const { data } = await http.patch<CaseRecord>(`/cases/${caseId}`, { title })
     return data
   },
+  async updateCase(
+    caseId: string,
+    payload: {
+      title?: string
+      topic?: string
+      description?: string
+      platforms?: string[]
+      time_start?: string
+      time_end?: string
+    },
+  ): Promise<CaseRecord> {
+    const { data } = await http.patch<CaseRecord>(`/cases/${caseId}`, payload)
+    return data
+  },
   async deleteCase(caseId: string): Promise<void> {
     await http.delete(`/cases/${caseId}`)
   },

@@ -50,6 +50,31 @@ class RenameCaseRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class UpdateCaseRequest(BaseModel):
+    """PATCH 部分更新调查元数据：None 表示不修改对应字段。"""
+
+    title: str | None = Field(default=None, max_length=200)
+    topic: str | None = Field(default=None, min_length=2, max_length=500)
+    description: str | None = Field(default=None, max_length=3000)
+    platforms: list[str] | None = None
+    time_start: str | None = None
+    time_end: str | None = None
+
+    @field_validator("platforms")
+    @classmethod
+    def validate_platforms(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        supported = {"weibo", "bilibili", "tieba", "zhihu", "douyin"}
+        normalized = list(dict.fromkeys(item.strip().lower() for item in value))
+        if not normalized:
+            raise ValueError("At least one platform is required")
+        unsupported = set(normalized) - supported
+        if unsupported:
+            raise ValueError(f"Unsupported platforms: {', '.join(sorted(unsupported))}")
+        return normalized
+
+
 class TurnResponse(BaseModel):
     id: str
     case_id: str

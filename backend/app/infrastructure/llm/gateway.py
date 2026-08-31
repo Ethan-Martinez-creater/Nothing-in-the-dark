@@ -146,13 +146,18 @@ class OpenAICompatibleGateway(LLMGateway):
             for attempt in range(1, self._retry_policy.max_attempts + 1):
                 try:
                     client: Any = self._client
-                    response = await client.chat.completions.create(
-                        model=model,
-                        messages=payload_messages,
-                        tools=tools or None,
-                        tool_choice="auto" if tools else None,
-                        temperature=temperature,
-                    )
+                    request_kwargs: dict[str, Any] = {
+                        "model": model,
+                        "messages": payload_messages,
+                        "temperature": temperature,
+                    }
+                    # 只有 tools 非空时才携带 tools/tool_choice：接口对
+                    # "tools 缺失但 tool_choice=null" 的组合会返回 400
+                    # （tools 类型错误）。无工具调用保持纯 chat 请求体。
+                    if tools:
+                        request_kwargs["tools"] = tools
+                        request_kwargs["tool_choice"] = "auto"
+                    response = await client.chat.completions.create(**request_kwargs)
                     converted = self._convert_response(response)
                     if telemetry is not None and span is not None:
                         telemetry.metrics.increment(

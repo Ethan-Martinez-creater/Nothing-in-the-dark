@@ -99,6 +99,18 @@ _SANDBOX_ENV_PREFIXES = (
     "NUMBER_OF_PROCESSORS",
     "PROCESSOR_ARCHITECTURE",
     "PROCESSOR_IDENTIFIER",
+    # Windows 用户身份变量：getpass.getuser() 在 USERNAME/USER/LOGNAME/
+    # LNAME 全部缺失时会 fallback 到 import pwd（POSIX 模块），导致
+    # MediaCrawler 在 Windows 子进程内启动即失败。
+    "USERNAME",
+    "USER",
+    "LOGNAME",
+    "LNAME",
+    "COMPUTERNAME",
+    # Playwright 需要 APPDATA/LOCALAPPDATA 定位 ms-playwright 浏览器安装；
+    # 缺失时 channel="chrome" 与 bundled chromium 都会报 "not found"。
+    "APPDATA",
+    "LOCALAPPDATA",
 )
 
 

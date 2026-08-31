@@ -33,7 +33,14 @@ async function load() {
   error.value = null
   try {
     const [activeDefinition, list] = await Promise.all([
-      collectionApi.getActive(props.caseId),
+      collectionApi.getActive(props.caseId).catch((err) => {
+        // 无 active 定义时后端返回 collection_not_found（404），这是正常
+        // 的“尚未创建采集定义”状态，不应误报为加载失败。
+        const code = (err as { response?: { data?: { code?: string } } }).response
+          ?.data?.code
+        if (code === 'collection_not_found') return null
+        throw err
+      }),
       collectionApi.list(props.caseId),
     ])
     active.value = activeDefinition

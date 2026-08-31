@@ -9,8 +9,8 @@ from app.schemas.cases import (
     CaseResponse,
     CreateCaseRequest,
     CreateTurnRequest,
-    RenameCaseRequest,
     TurnResponse,
+    UpdateCaseRequest,
 )
 from app.schemas.domain import (
     AccountResponse,
@@ -35,12 +35,15 @@ async def create_case(
 
 
 @router.patch("/{case_id}", response_model=CaseResponse)
-async def rename_case(
+async def update_case(
     case_id: str,
-    request: RenameCaseRequest,
+    request: UpdateCaseRequest,
     container: ApplicationContainer = Depends(get_container),
 ) -> CaseResponse:
-    record = await container.repository.rename_case(case_id, request.title)
+    record = await container.repository.update_case(
+        case_id,
+        **request.model_dump(exclude_unset=True),
+    )
     return CaseResponse.model_validate(record)
 
 

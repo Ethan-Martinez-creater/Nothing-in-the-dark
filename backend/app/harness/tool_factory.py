@@ -13,6 +13,7 @@ from app.application.platform_profile import PlatformProfileService
 from app.application.ports.crawler import CrawlRequest, SocialCrawlerPort
 from app.application.repositories import ApplicationRepository
 from app.core.errors import ApplicationError
+from app.harness.progress import emit_progress
 from app.harness.agents import ExpertKind, build_definition_for
 from app.harness.search_optimizer import (
     generate_platform_keywords,
@@ -497,31 +498,138 @@ def build_tool_registry(
             keywords = await generate_platform_keywords(
                 llm, request.topic, request.platforms
             )
+        # 每平台最多执行前 2 组关键词：组数直接决定串行采集的总等待时长
+        # （实测 5 平台共 17 组导致整体超时、用户长时间无数据返回）。
+        # 每组内部仍按平台上限抓取，2 组足以覆盖主叙事与扩展角度；
+        # 截断只影响执行，不修改 Collection Definition 的已确认定义。
+        keywords = {
+            platform: list(groups)[:2]
+            for platform, groups in (keywords or {}).items()
+        }
 
         # M15 强制沙箱：采集（外部副作用段）必须通过受限子进程执行；
         # 未装配沙箱执行器时 fail closed（绝不降级裸跑）。
-        async def collect_platform(platform: str) -> list[dict[str, Any]]:
-            async with _platform_semaphore(platform):
-                external = await registry.run_external_tool(
-                    "collect_social_posts",
-                    {
-                        "topic": request.topic,
-                        "platforms": [platform],
-                        "time_range": dict(request.time_range),
-                        "limit_per_platform": request.limit_per_platform,
-                        "per_day_limit": request.per_day_limit,
-                        "comment_limit": request.comment_limit,
-                        "keywords": {
-                            platform: keywords.get(platform, [request.topic])
-                        },
-                    },
-                )
-                return list(external.get("posts") or [])
 
-        platform_results = await asyncio.gather(
-            *(collect_platform(platform) for platform in request.platforms)
-        )
-        raw_posts = [post for result in platform_results for post in result]
+        # 串行逐"关键词组"采集：每组一次沙箱调用（组内 = 一次完整浏览器
+        # 流程），一次只跑一组，避免多浏览器并发把 CPU 打满。选择组级
+        # 粒度而非平台级，是为了让进度事件约每 1-2 分钟就能到达前端
+        # （平台级会让用户在单个平台的多组关键词间等待数分钟无反馈）。
+        # 单组失败就地重试一次（连续两次失败才放弃本轮），失败组进入
+        # 队尾，首轮全部结束后再补采一次；仍失败则记录细则，成功组照常
+        # 入库——不让单组故障丢弃其他组已采集的数据。
+        platform_status: list[dict[str, Any]] = []
+        raw_posts: list[dict[str, Any]] = []
+        deferred: list[tuple[str, str]] = []
+        # 平台内已成功组计数，用于平台级完成事件的汇总。
+        platform_counts: dict[str, int] = {p: 0 for p in request.platforms}
+
+        async def _run_item(
+            platform: str,
+            keyword: str,
+            phase: str,
+        ) -> bool:
+            attempts = 2 if phase == "main" else 1
+            last_error = ""
+            for attempt in range(1, attempts + 1):
+                await emit_progress(
+                    {
+                        "stage": "item_start",
+                        "platform": platform,
+                        "keyword": keyword,
+                        "phase": phase,
+                        "attempt": attempt,
+                    }
+                )
+                try:
+                    async with _platform_semaphore(platform):
+                        external = await registry.run_external_tool(
+                            "collect_social_posts",
+                            {
+                                "topic": request.topic,
+                                "platforms": [platform],
+                                "time_range": dict(request.time_range),
+                                "limit_per_platform": (
+                                    request.limit_per_platform
+                                ),
+                                "per_day_limit": request.per_day_limit,
+                                "comment_limit": request.comment_limit,
+                                "keywords": {platform: [keyword]},
+                            },
+                        )
+                    posts_for_item = list(external.get("posts") or [])
+                except Exception as exc:  # noqa: BLE001
+                    last_error = str(exc).strip()[:400] or type(exc).__name__
+                    await emit_progress(
+                        {
+                            "stage": "item_attempt_failed",
+                            "platform": platform,
+                            "keyword": keyword,
+                            "phase": phase,
+                            "attempt": attempt,
+                            "error": last_error,
+                        }
+                    )
+                    continue
+                platform_counts[platform] = (
+                    platform_counts.get(platform, 0) + len(posts_for_item)
+                )
+                raw_posts.extend(posts_for_item)
+                await emit_progress(
+                    {
+                        "stage": "item_done",
+                        "platform": platform,
+                        "keyword": keyword,
+                        "count": len(posts_for_item),
+                        "phase": phase,
+                    }
+                )
+                return True
+            platform_status.append(
+                {
+                    "platform": platform,
+                    "keyword": keyword,
+                    "status": "failed",
+                    "error": last_error,
+                    "phase": phase,
+                }
+            )
+            return False
+
+        queue = [
+            (platform, keyword)
+            for platform in request.platforms
+            for keyword in (
+                keywords.get(platform)
+                or [request.topic]
+            )
+        ]
+        for platform, keyword in queue:
+            if await _run_item(platform, keyword, "main"):
+                continue
+            deferred.append((platform, keyword))
+        # 首轮失败的组在队尾补采一次（仍失败则如实报告失败细则）。
+        for platform, keyword in deferred:
+            await _run_item(platform, keyword, "retry")
+        # 平台级汇总：该平台全部关键词组处理完毕后发一条完成事件。
+        for platform in request.platforms:
+            await emit_progress(
+                {
+                    "stage": "platform_done",
+                    "platform": platform,
+                    "count": platform_counts.get(platform, 0),
+                }
+            )
+        if not raw_posts:
+            failed_detail = "; ".join(
+                f"{item['platform']}/{item['keyword']}: {item['error']}"
+                for item in platform_status
+                if item["status"] == "failed"
+            ) or "all configured platforms returned no content"
+            raise ApplicationError(
+                "Social crawl returned no content for any platform. "
+                f"{failed_detail}",
+                code="crawl_no_content",
+            )
         # C6：active definition 的 exclusions 在 coverage/persistence 前过滤；
         # comment 跟随父记录。无 active definition 时保持旧路径。
         raw_posts, collection_filter_stats = apply_collection_exclusions(
@@ -647,6 +755,7 @@ def build_tool_registry(
             "comment_count": comment_count,
             "persistence": persisted,
             "coverage": coverage.stats.to_dict(),
+            "platform_status": platform_status,
         }
         # M3: 采集定义审计引用（使用 Active Definition 时附带 id/version）。
         if collection_ref is not None:
@@ -1072,7 +1181,10 @@ def build_tool_registry(
             permissions=("crawl_platform", "write_database"),
             side_effect="external_read",
             idempotent=False,
-            timeout_seconds=600,
+            # 串行逐平台采集（每平台失败重试 + 队尾补采）：总时长按关键词
+            # 组数线性增长（每组内部单命令上限仍由 MEDIACRAWLER_TIMEOUT_
+            # SECONDS 控制），工具级总超时需容纳整轮串行执行。
+            timeout_seconds=3600,
             requires_approval=True,
             execution_mode="sequential",
             max_concurrency=1,
@@ -1098,13 +1210,7 @@ def build_tool_registry(
                     "douyincdn.com",
                 ],
             },
-            secrets=(
-                "MEDIACRAWLER_WEIBO_COOKIES",
-                "MEDIACRAWLER_BILIBILI_COOKIES",
-                "MEDIACRAWLER_TIEBA_COOKIES",
-                "MEDIACRAWLER_ZHIHU_COOKIES",
-                "MEDIACRAWLER_DOUYIN_COOKIES",
-            ),
+            secrets=(),  # 平台 cookie 经 crawler 配置注入，非策略级必需（qrcode 登录无需预置 cookie）
             resources={"timeout_seconds": 600},
             risk_level="high",
         )

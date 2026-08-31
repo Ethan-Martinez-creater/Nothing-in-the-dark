@@ -92,6 +92,7 @@ const timelineEventTypes = new Set([
   'expert_artifact_created',
   'agent_error',
   'summary_failed',
+  'tool_progress',
 ])
 
 // 成果折叠：默认收起为摘要行，展开才渲染 ArtifactCard（长对话更易定位，
@@ -289,8 +290,45 @@ function eventLabel(event: RunEvent): string {
     }
     case 'summary_failed':
       return '对话摘要生成失败（不影响回答）'
+    case 'tool_progress':
+      return progressLabel(payload)
     default:
       return event.event_type
+  }
+}
+
+const platformLabels: Record<string, string> = {
+  weibo: '微博',
+  douyin: '抖音',
+  bilibili: 'B站',
+  zhihu: '知乎',
+  tieba: '贴吧',
+}
+
+function platformLabel(platform: unknown): string {
+  return platformLabels[String(platform || '')] || String(platform || '')
+}
+
+// 串行采集的逐平台直播进度（tool_progress 事件）。
+function progressLabel(payload: Record<string, unknown>): string {
+  const platform = platformLabel(payload.platform)
+  const attempt = Number(payload.attempt || 0)
+  const suffix = attempt > 1 ? `（第 ${attempt} 次尝试）` : ''
+  switch (String(payload.stage || '')) {
+    case 'platform_start':
+      return payload.phase === 'retry'
+        ? `补采 ${platform}${suffix}…`
+        : `正在采集 ${platform}${suffix}…`
+    case 'platform_attempt_failed':
+      return `${platform} 本次尝试失败`
+    case 'platform_done': {
+      const count = Number(payload.count || 0)
+      return payload.count === 0
+        ? `${platform} 未采到内容`
+        : `${platform} 采集完成 · ${count} 条`
+    }
+    default:
+      return '采集进度更新'
   }
 }
 
@@ -302,6 +340,7 @@ const eventIcons: Record<string, typeof Layers> = {
   expert_artifact_created: PackageOpen,
   agent_error: XCircle,
   summary_failed: TriangleAlert,
+  tool_progress: Wrench,
 }
 
 function eventIcon(event: RunEvent) {

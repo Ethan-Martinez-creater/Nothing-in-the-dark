@@ -458,6 +458,14 @@ class RestrictedProcessExecutor:
         "PYTHONUTF8",
         "APPDATA",
         "LOCALAPPDATA",
+        # Windows 用户身份变量：getpass.getuser() 在 USERNAME/USER/LOGNAME/
+        # LNAME 全部缺失时会 fallback 到 import pwd（POSIX 模块），导致
+        # MediaCrawler 等第三方库在子进程沙箱内启动失败。
+        "USERNAME",
+        "USER",
+        "LOGNAME",
+        "LNAME",
+        "COMPUTERNAME",
     )
 
     async def prepare(self, tool_call_id: str, manifest: ToolManifest) -> dict[str, Any]:
