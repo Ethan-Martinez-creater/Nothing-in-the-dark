@@ -142,6 +142,12 @@ class ReviewService:
         item = await self._repository.get_review_item(item_id)
         if case_id is not None and item.case_id != case_id:
             raise ApplicationError("review item not found", code="review_item_not_found")
+        # RH2/18: 未显式传版本的旧调用者也把当前快照版本作为确定的 expected
+        # version 交给 repository，由数据库 CAS 决定唯一 winner；显式传版本
+        # 的客户端（第一方 Workbench）能检测跨审核轮次的 stale/ABA。
+        effective_expected_version = (
+            expected_version if expected_version is not None else item.current_version
+        )
         if expected_version is not None and expected_version != item.current_version:
             raise ApplicationError(
                 "review object version changed; reload before deciding",
@@ -161,7 +167,7 @@ class ReviewService:
         # 追加式决策：先写决策记录，再更新对象状态。
         record = ReviewDecisionRecord(
             item_id=item_id,
-            object_version=item.current_version,
+            object_version=effective_expected_version,
             decision=decision,
             structured_patch=structured_patch or {},
             reason=reason,
@@ -170,7 +176,7 @@ class ReviewService:
         result = await self._repository.decide_review_item(
             item_id=item_id,
             expected_status=item.status,
-            expected_version=item.current_version,
+            expected_version=effective_expected_version,
             target_status=target_status,
             decision=record,
         )
@@ -256,6 +262,7 @@ class ReviewService:
                     "risk_level": record.risk_level,
                     "queue": record.queue,
                     "summary": record.summary,
+                    "current_version": record.current_version,
                     "decisions": [
                         {
                             "id": d.id,

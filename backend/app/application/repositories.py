@@ -2791,13 +2791,17 @@ class ApplicationRepository:
     async def update_review_item_status(
         self, item_id: str, status: str
     ) -> ReviewItemRecord:
+        # RH3: 通用 status writer（当前无生产调用，防御性保留）——只有真正
+        # 改变 status 时递增 lifecycle revision；幂等设置同一状态不递增。
         async with self._database.session_factory() as session:
             record = await session.get(ReviewItemRecord, item_id)
             if record is None:
                 from app.core.errors import ResourceNotFoundError
 
                 raise ResourceNotFoundError("review_item")
-            record.status = status
+            if record.status != status:
+                record.status = status
+                record.current_version += 1
             await session.commit()
             await session.refresh(record)
             return record
@@ -2805,7 +2809,7 @@ class ApplicationRepository:
     async def claim_review_item(
         self, item_id: str, actor: str
     ) -> ReviewItemRecord | None:
-        """Atomically claim an unreviewed item."""
+        """Atomically claim an unreviewed item (unreviewed → in_review, version+1)."""
         from sqlalchemy import update as sa_update
 
         async with self._database.session_factory() as session:
@@ -2815,7 +2819,12 @@ class ApplicationRepository:
                     ReviewItemRecord.id == item_id,
                     ReviewItemRecord.status == "unreviewed",
                 )
-                .values(status="in_review")
+                .values(
+                    status="in_review",
+                    current_version=ReviewItemRecord.current_version + 1,
+                    updated_at=datetime.now(UTC),
+                )
+                .execution_options(synchronize_session=False)
             )
             if int(result.rowcount or 0) != 1:
                 await session.rollback()
@@ -2863,7 +2872,7 @@ class ApplicationRepository:
         target_status: str,
         decision: ReviewDecisionRecord,
     ) -> tuple[ReviewItemRecord, ReviewDecisionRecord] | None:
-        """Append a decision and update its item in one transaction.
+        """Append a decision and update its item in one transaction (RH2 CAS).
 
         M4: 当对象是 finding 时，在同一事务内把 Review 状态映射同步到
         Finding.status（避免 Review 已 accepted 而 Finding 仍是 candidate）。
@@ -2872,40 +2881,67 @@ class ApplicationRepository:
         == finding 但 Finding 不存在/跨 Case 时整体失败，不写 ReviewItem/
         ReviewDecision；Finding 必须处于 under_review 才能被裁决为终审态；
         target status mapping 缺失也视为 defensive invariant 失败。
+
+        RH2: 最终 winner 判定由数据库条件 UPDATE 完成 —— WHERE id AND
+        status==expected_status AND current_version==expected_version，只有
+        rowcount==1 的 transaction 才有权写 Finding 与 ReviewDecision；CAS
+        失败者整体 rollback（0 ReviewDecision、0 Finding 变化），返回 None。
+        ReviewItem.current_version 随状态变化 +1，ReviewDecision.object_version
+        记录决策开始时的旧版本。
         """
+        from sqlalchemy import update as sa_update
 
         from app.domain.enums import REVIEW_STATUS_TO_FINDING_STATUS
 
         async with self._database.session_factory() as session:
             item = await session.get(ReviewItemRecord, item_id)
-            if (
-                item is None
-                or item.status != expected_status
-                or item.current_version != expected_version
-            ):
+            if item is None:
                 await session.rollback()
                 return None
             finding: FindingRecord | None = None
             if item.object_type == "finding":
+                # 锁 Finding（与 submit 相同的对象访问顺序），校验 target
+                # 真实且同 Case；mapping 缺失是静态 invariant，fail fast。
                 finding = await self._require_finding_review_target(session, item)
+                if REVIEW_STATUS_TO_FINDING_STATUS.get(target_status) is None:
+                    raise ApplicationError(
+                        "finding review status mapping missing",
+                        code="review_finding_status_mapping_missing",
+                    )
+            # 数据库级 CAS：状态与版本都匹配的请求才获得唯一状态转换权。
+            result = await session.execute(
+                sa_update(ReviewItemRecord)
+                .where(
+                    ReviewItemRecord.id == item_id,
+                    ReviewItemRecord.status == expected_status,
+                    ReviewItemRecord.current_version == expected_version,
+                )
+                .values(
+                    status=target_status,
+                    current_version=ReviewItemRecord.current_version + 1,
+                    updated_at=datetime.now(UTC),
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if int(result.rowcount or 0) != 1:
+                # CAS 失败者：0 ReviewDecision、0 Finding 变化。
+                await session.rollback()
+                return None
+            if finding is not None:
+                # CAS 成功后才是 winner：此时才校验 Finding 必须处于
+                # under_review（并发 loser 的 item 已被 winner 改动，CAS
+                # 已先行排除，不会把状态不匹配误报成 version conflict）。
                 if finding.status != "under_review":
                     raise ApplicationError(
                         "finding review decision requires finding under_review",
                         code="review_finding_state_mismatch",
                     )
-            item.status = target_status
-            session.add(item)
-            if finding is not None:
-                finding_status = REVIEW_STATUS_TO_FINDING_STATUS.get(target_status)
-                if finding_status is None:
-                    raise ApplicationError(
-                        "finding review status mapping missing",
-                        code="review_finding_status_mapping_missing",
-                    )
-                finding.status = finding_status
+                finding.status = REVIEW_STATUS_TO_FINDING_STATUS[target_status]
                 session.add(finding)
             session.add(decision)
             await session.commit()
+            # CAS 成功后不信任此前加载的 item（Core UPDATE 未同步 identity map），
+            # 重新以数据库值为准。
             await session.refresh(item)
             await session.refresh(decision)
             return item, decision
@@ -2992,6 +3028,7 @@ class ApplicationRepository:
                         review_item.status, "in_review"
                     )
                     review_item.status = "in_review"
+                    review_item.current_version += 1
                     state_changed = True
                 # else: unreviewed/in_review/needs_more_evidence → 幂等返回
             elif finding.status in ("verified", "rejected"):
@@ -3001,6 +3038,7 @@ class ApplicationRepository:
                         review_item.status, "in_review"
                     )
                     review_item.status = "in_review"
+                    review_item.current_version += 1
                     state_changed = True
             else:  # candidate
                 if review_item.status in (
@@ -3013,6 +3051,7 @@ class ApplicationRepository:
                         review_item.status, "in_review"
                     )
                     review_item.status = "in_review"
+                    review_item.current_version += 1
                     state_changed = True
                 # else: unreviewed/in_review → 复用
 
@@ -3117,6 +3156,7 @@ class ApplicationRepository:
                 finding.status = "under_review"
                 session.add(finding)
             item.status = "in_review"
+            item.current_version += 1
             await session.commit()
             await session.refresh(item)
             return item
@@ -3150,10 +3190,11 @@ class ApplicationRepository:
     async def release_review_item(
         self, item_id: str, actor: str
     ) -> ReviewItemRecord | None:
+        # RH3: in_review → unreviewed 走条件 UPDATE（version+1），防止两个
+        # 并发 release 都成功导致版本被覆盖为同一值。
+        from sqlalchemy import update as sa_update
+
         async with self._database.session_factory() as session:
-            record = await session.get(ReviewItemRecord, item_id)
-            if record is None or record.status != "in_review":
-                return None
             assignment = await session.scalar(
                 select(ReviewAssignmentRecord)
                 .where(
@@ -3166,9 +3207,27 @@ class ApplicationRepository:
             )
             if assignment is None:
                 return None
+            result = await session.execute(
+                sa_update(ReviewItemRecord)
+                .where(
+                    ReviewItemRecord.id == item_id,
+                    ReviewItemRecord.status == "in_review",
+                )
+                .values(
+                    status="unreviewed",
+                    current_version=ReviewItemRecord.current_version + 1,
+                    updated_at=datetime.now(UTC),
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if int(result.rowcount or 0) != 1:
+                await session.rollback()
+                return None
             assignment.status = "released"
-            record.status = "unreviewed"
+            session.add(assignment)
             await session.commit()
+            record = await session.get(ReviewItemRecord, item_id)
+            assert record is not None
             await session.refresh(record)
             return record
 
