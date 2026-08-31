@@ -94,26 +94,44 @@ async function reopen(item: ReviewQueueItem) {
   await runAction(() => api.reviewReopen(selectedCaseId.value, item.id), '已重开')
 }
 async function decide(item: ReviewQueueItem, decision: string) {
-  await runAction(
+  const ok = await runAction(
     () =>
       api.reviewDecide(selectedCaseId.value, item.id, {
         decision,
         reason: reason.value || undefined,
+        expected_version: item.current_version,
       }),
     '裁决已提交：' + decision,
   )
-  reason.value = ''
+  // 只在成功时清空 reason；冲突/失败保留用户输入以便重新确认。
+  if (ok) reason.value = ''
 }
 
-async function runAction(fn: () => Promise<unknown>, okMessage: string) {
+function errorCode(e: unknown): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const data = (e as { response?: { data?: { code?: string } } }).response?.data
+    return data?.code ?? ''
+  }
+  return ''
+}
+
+async function runAction(fn: () => Promise<unknown>, okMessage: string): Promise<boolean> {
   busy.value = true
   actionError.value = ''
   try {
     await fn()
     notice.value = okMessage
     await loadQueue()
+    return true
   } catch (e) {
-    actionError.value = e instanceof Error ? e.message : String(e)
+    if (errorCode(e) === 'review_version_conflict') {
+      actionError.value = '该审核项已被其他操作更新，请基于最新状态重新审核。'
+      // 自动 reload queue（不自动重试旧 decision，必须人工重新确认）。
+      await loadQueue()
+    } else {
+      actionError.value = e instanceof Error ? e.message : String(e)
+    }
+    return false
   } finally {
     busy.value = false
   }

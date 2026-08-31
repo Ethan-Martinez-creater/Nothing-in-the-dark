@@ -551,3 +551,111 @@ Review API Consistency 验收矩阵（来自 corrected execution plan）：
 Final reviewer blocker resolved: Finding Review 的所有生产入口（Findings UI、
 generic Review API、harness tool、Workbench reopen、decision）现在统一遵守
 同一套后端不变量。Optimization V2 is formally CLOSED.
+
+---
+
+# Post-V2 Review Decision Concurrency Hardening
+
+Status: IN PROGRESS
+Baseline HEAD: 2a2d1e6e523fbb2d26824c4bdd4b463553dcad11
+
+Optimization V2 remains CLOSED.
+
+This independent hardening patch addresses ReviewItem optimistic
+concurrency: current_version was not advancing with lifecycle transitions,
+queue UI did not receive a reliable version, and decision persistence used
+a read/check/write sequence instead of a database CAS.
+
+---
+
+# Post-V2 Review Decision Concurrency Hardening Result
+
+Status: COMPLETED
+
+Baseline:
+2a2d1e6e523fbb2d26824c4bdd4b463553dcad11
+
+Optimization V2 remains CLOSED.
+
+## Version semantics
+- ReviewItem.current_version is now a monotonic lifecycle revision.
+- Every successful ReviewItem status transition increments it exactly once:
+  claim +1, release +1, decision +1, reopen +1, Finding re-review
+  activation +1.
+- Idempotent submit / comments / activity / reads do not increment it.
+- ReviewDecision.object_version stores the pre-transition version.
+
+## Status writer audit (RH3)
+All ReviewItem.status production writers were audited and incremented:
+- claim_review_item: conditional UPDATE unreviewed->in_review, version+1.
+- release_review_item: conditional UPDATE in_review->unreviewed, version+1.
+- decide_review_item: database CAS, version+1.
+- reopen_review_item_atomic: ORM in_review transition, version+1.
+- submit_finding_for_review: three in_review reactivation branches, version+1;
+  new ReviewItem starts at version=1; fully idempotent submit keeps version.
+- update_review_item_status: defensive generic writer (no production caller),
+  increments only when status actually changes.
+- create_review_item: new ReviewItem version=1.
+
+## Decision CAS
+- Review decision uses atomic conditional UPDATE on
+  id + expected_status + expected_version.
+- Exactly one competing decision can win; CAS loser returns
+  review_version_conflict (0 ReviewDecision, 0 Finding change).
+- Finding under_review gate runs after the CAS succeeds, so a concurrent
+  loser is reported as review_version_conflict rather than a state mismatch.
+- Finding + ReviewDecision stay in the same transaction as the winner.
+
+## UI
+- Review queue returns current_version.
+- Review Workbench sends expected_version on every decision.
+- Version conflict shows the fixed message
+  “该审核项已被其他操作更新，请基于最新状态重新审核。”, reloads the queue,
+  never auto-retries the stale decision, and keeps the user's reason input.
+
+## Tests
+- Targeted/adjacent backend (0 failed, 0 unexpected skipped):
+  - test_review.py + test_claim_review.py + test_legacy_compatibility.py: 22/22
+  - test_findings.py: 39/39
+  - test_review_concurrency.py: 11/11 (C1-C11 SQLite, incl. concurrent
+    opposite decisions single winner)
+  - test_tool_registry.py + test_tool_system.py: 17/17
+  - Total: 89/89 green.
+- PostgreSQL integration: executed against the local development
+  PostgreSQL 18.4 (TEST_POSTGRES_URL) using a dedicated disposable schema
+  `review_concurrency_test` (pgvector extension verified present). Two
+  sessions + barrier + opposite decisions: exactly one winner, one
+  review_version_conflict, one ReviewDecision, version+1, Finding matches
+  winner. Schema dropped after the run.
+- Backend regression strategy:
+  Risk-based targeted regression was used for this narrow post-V2 concurrency patch.
+
+  The previous Optimization V2 baseline had already passed the complete backend
+  regression matrix. This patch did not modify schema, migrations, database
+  bootstrap/session infrastructure, Harness runtime, or unrelated Investigation
+  domains.
+
+  Executed:
+  - Review targeted regression: test_review.py, test_review_concurrency.py
+  - Finding / Review adjacent regression: test_findings.py, test_claim_review.py,
+    test_legacy_compatibility.py
+  - Harness Review tool regression: test_tool_registry.py, test_tool_system.py
+
+  Result:
+  89/89 targeted and adjacent tests green, 0 failed, 0 unexpected skipped.
+
+  Full backend regression was intentionally not re-run for this narrow patch.
+  None of the escalation triggers defined in the execution plan were met
+  (diff scope confined to repositories.py / review_service.py / Workbench /
+  tests / delivery).
+- Frontend gates: typecheck passed, lint passed, test 151/151 passed
+  (incl. new ReviewWorkbenchView F1-F3), build passed.
+- Browser smoke: e2e-smoke.cjs 15/15.
+- Browser closure: e2e-interact.cjs 51/51 (A-F 44 + Scenario G G1-G7), 0 skipped.
+  - Scenario B B1-B14 full Finding Review loop: passed.
+  - Scenario G stale/ABA protection: passed (old expected_version v5 →
+    review_version_conflict → queue reload shows v7 → stale decision not written).
+- Unexpected console/pageerror: 0.
+
+Regression evidence is based on repository-local executed tests.
+No GitHub commit status checks were available for this HEAD.

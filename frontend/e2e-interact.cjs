@@ -305,6 +305,66 @@ function runSeed() {
     checkC('B14: Finding 再次显示 verified', finalAttr === 'verified', 'status=' + finalAttr);
   } catch (e) { checkC('Scenario B Finding Review', false, String(e).slice(0, 200)); }
 
+  // ---------- Scenario G: Review stale/ABA 保护（RH5/RH6）----------
+  // B 结束时 item 已 accepted。流程：记录 version=N → UI 重开+再 approve
+  // （version=N+2）→ 用旧 expected_version=N 提交 decision → 后端
+  // review_version_conflict → UI reload 显示最新 version → 旧 decision 未写入。
+  try {
+    await page.goto(BASE_UI + '/admin/reviews', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.toolbar .filter-select', { timeout: 15000 });
+    await page.selectOption('.toolbar .filter-select >> nth=0', { label: fx.case_title });
+    await page.waitForSelector('.review-card .badge.status.accepted', { timeout: 15000 });
+
+    const versionText = await page.evaluate(() => document.querySelector('.review-card .card-version')?.textContent?.trim() || '');
+    const staleVersion = parseInt((versionText.match(/v(\d+)/) || [])[1] || '0', 10);
+    checkC('G1: 记录当前版本', staleVersion >= 1, 'version=' + versionText);
+
+    const gQueue = await api.get(BASE_API + '/cases/' + cid + '/reviews/queue', { params: { object_type: 'finding' } });
+    const gBody = gQueue.ok() ? await gQueue.json() : null;
+    const gItem = (gBody && Array.isArray(gBody.items) ? gBody.items : []).find((it) => it.object_id === fx.finding_id);
+    const gItemId = gItem ? gItem.id : null;
+    checkC('G2: 找到 finding ReviewItem', !!gItemId, 'id=' + gItemId);
+
+    // UI 合法操作使 version 前进：重开 → in_review；再接受 → accepted。
+    await page.click('.review-card .card-main');
+    await page.waitForSelector('button:has-text("重开")', { timeout: 8000 });
+    await page.click('button:has-text("重开")');
+    await page.waitForFunction(() => !!document.querySelector('.review-card .badge.status.in_review'), null, { timeout: 10000 });
+    await page.click('.decide-box button:has-text("接受")');
+    await page.waitForFunction(() => !!document.querySelector('.review-card .badge.status.accepted'), null, { timeout: 10000 });
+    const bumpedText = await page.evaluate(() => document.querySelector('.review-card .card-version')?.textContent?.trim() || '');
+    checkC('G3: 重开+再 approve 后版本前进', bumpedText !== versionText, versionText + ' → ' + bumpedText);
+
+    // G3 的合法 approve 也计入决策数，因此在冲突提交前记录基准。
+    const preQueue = await api.get(BASE_API + '/cases/' + cid + '/reviews/queue', { params: { object_type: 'finding' } });
+    const preBody = preQueue.ok() ? await preQueue.json() : null;
+    const preItem = (preBody && Array.isArray(preBody.items) ? preBody.items : []).find((it) => it.object_id === fx.finding_id);
+    const conflictBefore = preItem && Array.isArray(preItem.decisions) ? preItem.decisions.length : 0;
+
+    // 用旧 expected_version=N 提交 decision → 必须 review_version_conflict。
+    const staleResp = await api.post(BASE_API + '/cases/' + cid + '/reviews/' + gItemId + '/decisions', {
+      data: { decision: 'rejected', reason: '旧页面提交', expected_version: staleVersion },
+    });
+    const staleBody = staleResp.ok() ? {} : await staleResp.json().catch(() => ({}));
+    checkC('G4: 旧版本 decision → review_version_conflict', staleResp.status() === 400 && staleBody.code === 'review_version_conflict', 'status=' + staleResp.status() + ' code=' + (staleBody.code || 'n/a'));
+
+    // UI reload → 显示最新 version；旧 decision 未写入。
+    await page.goto(BASE_UI + '/admin/reviews', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.toolbar .filter-select', { timeout: 15000 });
+    await page.selectOption('.toolbar .filter-select >> nth=0', { label: fx.case_title });
+    await page.waitForSelector('.review-card .badge.status.accepted', { timeout: 15000 });
+    const afterText = await page.evaluate(() => document.querySelector('.review-card .card-version')?.textContent?.trim() || '');
+    checkC('G5: reload 后显示最新版本', afterText === bumpedText, 'after=' + afterText);
+
+    const afterQueue = await api.get(BASE_API + '/cases/' + cid + '/reviews/queue', { params: { object_type: 'finding' } });
+    const afterBody = afterQueue.ok() ? await afterQueue.json() : null;
+    const afterItem = (afterBody && Array.isArray(afterBody.items) ? afterBody.items : []).find((it) => it.object_id === fx.finding_id);
+    const decisionsAfter = afterItem && Array.isArray(afterItem.decisions) ? afterItem.decisions.length : 0;
+    const noOldReason = !(afterBody && Array.isArray(afterBody.items) && afterBody.items.some((it) => Array.isArray(it.decisions) && it.decisions.some((d) => d.reason === '旧页面提交')));
+    checkC('G6: 旧 decision 未写入（决策数不变）', decisionsAfter === conflictBefore, conflictBefore + ' → ' + decisionsAfter);
+    checkC('G7: 冲突 reason 未出现在历史', noOldReason, '');
+  } catch (e) { checkC('Scenario G stale review', false, String(e).slice(0, 200)); }
+
   // ---------- Scenario C: Report Publish Gate 正反两路 ----------
   // seed 顺序保证 invalid 先创建、valid 后创建（updated_at desc → valid 是
   // activeReport）。valid 发布后 load() 会把 selected 切到剩余唯一 draft(invalid)。
