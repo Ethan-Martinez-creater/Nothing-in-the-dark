@@ -27,6 +27,10 @@ class DecideRequest(BaseModel):
     reason: str = ""
     actor: str = "local_operator"
     structured_patch: dict[str, object] | None = None
+    # RH2: optional for backward compatibility; first-party Review Workbench
+    # always sends expected_version. The repository resolves the effective
+    # version (client-provided or current snapshot) and the database CAS is
+    # the final arbitration.
     expected_version: int | None = Field(default=None, ge=1)
 
 

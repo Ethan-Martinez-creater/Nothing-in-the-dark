@@ -159,6 +159,11 @@ async def test_c2_claim_increments_version(tmp_path: Path) -> None:
     assert claimed.status == "in_review"
     assert claimed.current_version == 2
 
+    # RH4: claim 后 queue DTO 暴露新版本 v2。
+    queue = await review_service.list_queue(case_id=case_id)
+    row = next(r for r in queue if r["id"] == item.id)
+    assert row["current_version"] == 2
+
 
 # --------------------------------------------------------------------------
 # C3: Release —— in_review v2 → unreviewed v3。
