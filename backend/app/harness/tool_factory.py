@@ -116,6 +116,24 @@ class CrawlInput(BaseModel):
     comment_limit: int = Field(default=10, ge=0, le=20)
 
 
+class StartCollectionInput(BaseModel):
+    # Case/Run/Turn/Tool Call 由 runtime 注入，LLM 不得自由构造。
+    case_id: str | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    tool_call_id: str | None = None
+    approval_id: str | None = None
+    phase: str = Field(default="discovery", pattern="^(discovery|deep)$")
+    platforms: list[str] | None = None
+    time_range: dict[str, str | None] | None = None
+
+
+class GetCollectionRunInput(BaseModel):
+    case_id: str | None = None
+    collection_run_id: str | None = None
+    active_only: bool = False
+
+
 class PostsInput(BaseModel):
     posts: list[dict[str, Any]]
     # Injected by the runtime; never model-controlled.
@@ -334,6 +352,7 @@ def build_tool_registry(
     security: Any = None,
     governance: Any = None,
     collection_service: Any = None,
+    collection_run_service: Any = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     platform_semaphores: dict[str, asyncio.Semaphore] = {}
@@ -763,6 +782,134 @@ def build_tool_registry(
             # C6: exclusions 过滤审计（before/after/excluded）。
             result["collection_filter_stats"] = collection_filter_stats
         return result
+
+    async def _collection_approval_scope(
+        context: Any, arguments: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """start_social_collection 的审批 scope：解析 exact snapshot 投影。"""
+        case_id = getattr(context, "case_id", None)
+        if not case_id or collection_run_service is None:
+            return None
+        try:
+            return await collection_run_service.resolve_approval_scope(
+                case_id,
+                phase=str(arguments.get("phase") or "discovery"),
+                platforms=arguments.get("platforms"),
+                time_range=arguments.get("time_range"),
+            )
+        except ApplicationError:
+            return None
+
+    async def start_social_collection(arguments: BaseModel) -> dict[str, Any]:
+        """启动后台异步采集（创建 CollectionRun 后立即返回，不等待采集）。"""
+        request = StartCollectionInput.model_validate(arguments)
+        if collection_run_service is None:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "collection_run_unavailable",
+                    "message": "Collection runs are not configured on this deployment.",
+                },
+            }
+        if not request.case_id:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "invalid_request",
+                    "message": (
+                        "start_social_collection requires a runtime-provided "
+                        "case scope."
+                    ),
+                },
+            }
+        idempotency_key = (
+            f"tool-call:{request.tool_call_id}" if request.tool_call_id else None
+        )
+        try:
+            run = await collection_run_service.start(
+                request.case_id,
+                phase=request.phase,
+                trigger_run_id=request.run_id,
+                trigger_turn_id=request.turn_id,
+                trigger_tool_call_id=request.tool_call_id,
+                approval_id=request.approval_id,
+                platforms=request.platforms,
+                time_range=request.time_range,
+                idempotency_key=idempotency_key,
+            )
+        except ApplicationError as exc:
+            return {
+                "ok": False,
+                "error": {"code": exc.code, "message": str(exc)},
+            }
+        return {
+            "ok": True,
+            "collection_run_id": run.id,
+            "status": run.status,
+            "phase": run.phase,
+            "platforms": list((run.request_json or {}).get("platforms") or []),
+        }
+
+    async def get_collection_run(arguments: BaseModel) -> dict[str, Any]:
+        """只读查询采集运行（case scope）。"""
+        request = GetCollectionRunInput.model_validate(arguments)
+        if collection_run_service is None:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "collection_run_unavailable",
+                    "message": "Collection runs are not configured on this deployment.",
+                },
+            }
+        if not request.case_id:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "invalid_request",
+                    "message": "get_collection_run requires a runtime-provided case scope.",
+                },
+            }
+        try:
+            if request.collection_run_id:
+                runs = [
+                    await collection_run_service.get_for_case(
+                        request.case_id, request.collection_run_id
+                    )
+                ]
+            elif request.active_only:
+                runs = await collection_run_service.list_active_for_case(
+                    request.case_id
+                )
+            else:
+                runs = await collection_run_service.list_for_case(request.case_id)
+        except ApplicationError as exc:
+            return {
+                "ok": False,
+                "error": {"code": exc.code, "message": str(exc)},
+            }
+
+        def _summary(run: Any) -> dict[str, Any]:
+            return {
+                "id": run.id,
+                "case_id": run.case_id,
+                "phase": run.phase,
+                "status": run.status,
+                "posts_collected": run.posts_collected,
+                "comments_collected": run.comments_collected,
+                "platforms": list((run.request_json or {}).get("platforms") or []),
+                "progress": run.progress_json,
+                "error_code": run.error_code,
+                "error_message": run.error_message,
+                "started_at": (
+                    run.started_at.isoformat() if run.started_at else None
+                ),
+                "completed_at": (
+                    run.completed_at.isoformat() if run.completed_at else None
+                ),
+                "created_at": run.created_at.isoformat(),
+            }
+
+        return {"ok": True, "runs": [_summary(run) for run in runs]}
 
     async def classify_sentiment(arguments: BaseModel) -> dict[str, Any]:
         request = SentimentInput.model_validate(arguments)
@@ -1211,8 +1358,51 @@ def build_tool_registry(
                 ],
             },
             secrets=(),  # 平台 cookie 经 crawler 配置注入，非策略级必需（qrcode 登录无需预置 cookie）
-            resources={"timeout_seconds": 600},
+            # 单平台多关键词一次沙箱调用：Discovery 无评论、Deep 含评论，
+            # 1800s 容纳一个平台完整搜索流程（工具级整体 3600s 保留给 legacy）。
+            resources={"timeout_seconds": 1800},
             risk_level="high",
+        )
+    )
+    registry.register(
+        ToolSpec(
+            name="start_social_collection",
+            version="0.1.0",
+            description=(
+                "Start a background social collection run for the case. Creates a "
+                "durable CollectionRun from the active Collection Definition and "
+                "returns immediately with collection_run_id — the run executes "
+                "asynchronously and persists each completed platform progressively. "
+                "Requires user approval. Inputs: phase (discovery|deep), optional "
+                "platforms and time_range; keywords/exclusions/budgets come from "
+                "the approved definition snapshot, never from the model."
+            ),
+            input_model=StartCollectionInput,
+            handler=start_social_collection,
+            permissions=("crawl_platform", "write_database"),
+            side_effect="external_read",
+            idempotent=True,
+            requires_approval=True,
+            execution_mode="sequential",
+            max_concurrency=1,
+            risk_level="high",
+            approval_scope_resolver=_collection_approval_scope,
+        )
+    )
+    registry.register(
+        ToolSpec(
+            name="get_collection_run",
+            version="0.1.0",
+            description=(
+                "Read the status of a collection run (or active runs) for the case. "
+                "Read-only; use only when the user asks about collection progress, "
+                "do not poll in a loop."
+            ),
+            input_model=GetCollectionRunInput,
+            handler=get_collection_run,
+            permissions=("read_database",),
+            side_effect="none",
+            idempotent=True,
         )
     )
     registry.register(

@@ -238,7 +238,8 @@ def build_coordinator_definition(
         allowed_tools=frozenset(
             {
                 "load_skill",
-                "collect_social_posts",
+                "start_social_collection",
+                "get_collection_run",
                 "search_social_evidence",
                 "write_case_memory",
                 "dispatch_expert",

@@ -402,6 +402,8 @@ class AgentRuntime:
         arguments = dict(call.arguments)
         if call.name in {
             "collect_social_posts",
+            "start_social_collection",
+            "get_collection_run",
             "search_social_evidence",
             "write_case_memory",
             "dispatch_expert",
@@ -418,6 +420,13 @@ class AgentRuntime:
             # The creator run is also runtime controlled so persisted claims
             # always reference the real run that produced them.
             arguments["run_id"] = context.run_id
+        if call.name in {"start_social_collection", "get_collection_run"}:
+            # CollectionRun 的触发作用域与幂等键都由 runtime 控制。
+            arguments["run_id"] = context.run_id
+            arguments["turn_id"] = context.turn_id
+            arguments["tool_call_id"] = call.id
+            if context.approval_id:
+                arguments["approval_id"] = context.approval_id
         if call.name == "dispatch_expert":
             # The parent run and a stable idempotency key are also runtime
             # controlled: the call id is stable across checkpoint replays.
@@ -494,8 +503,8 @@ class AgentRuntime:
         # pre-approved a risky or costly tool. The caller decides how to
         # continue; without a handler the run is interrupted.
         approved = call.name in context.approved_tools
-        requested_scope = (
-            crawl_scope(arguments) if call.name == "collect_social_posts" else None
+        requested_scope = await self._resolve_requested_scope(
+            spec, call.name, arguments, context
         )
         prior_scope = context.metadata.get("approved_crawl_scope")
         scope_expanded = bool(
@@ -624,10 +633,8 @@ class AgentRuntime:
                         code="approval_edit_arguments_invalid",
                     )
                 arguments = dict(edited_arguments)
-                requested_scope = (
-                    crawl_scope(arguments)
-                    if call.name == "collect_social_posts"
-                    else None
+                requested_scope = await self._resolve_requested_scope(
+                    spec, call.name, arguments, context
                 )
             if requested_scope:
                 context.metadata["approved_crawl_scope"] = requested_scope
@@ -766,6 +773,27 @@ class AgentRuntime:
             }
         )
         return self._tool_message(call, result)
+
+    async def _resolve_requested_scope(
+        self,
+        spec: Any,
+        tool_name: str,
+        arguments: dict[str, Any],
+        context: Any,
+    ) -> dict[str, Any] | None:
+        """构建审批 scope：优先 ToolSpec.approval_scope_resolver（如
+        start_social_collection 的 exact snapshot scope），否则回退
+        collect_social_posts 的参数推导。scope 解析失败不阻断执行。"""
+        resolver = getattr(spec, "approval_scope_resolver", None)
+        if resolver is not None:
+            try:
+                scope = await resolver(context, arguments)
+            except Exception:
+                return None
+            return scope if isinstance(scope, dict) else None
+        if tool_name == "collect_social_posts":
+            return crawl_scope(arguments)
+        return None
 
     async def _request_approval(
         self,

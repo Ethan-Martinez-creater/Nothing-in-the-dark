@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.application.agent_service import AgentRunService
+from app.application.collection_run_service import CollectionRunService
+from app.application.collection_service import CollectionDefinitionService
 from app.application.graph_worker import GraphWorker
 from app.application.ports.crawler import CrawlRequest, SocialCrawlerPort
 from app.application.repositories import ApplicationRepository
@@ -20,6 +22,7 @@ from app.harness.tool_factory import build_tool_registry
 from app.harness.tools import ToolRegistry, ToolSpec
 from app.infrastructure.crawler.demo import DemoCrawlerAdapter
 from app.infrastructure.database import Database
+from app.infrastructure.database.collection_run_repository import CollectionRunRepository
 from app.infrastructure.database.knowledge_repository import KnowledgeRepository
 from app.infrastructure.database.models import ToolCallRecord
 from app.infrastructure.database.social_repository import SocialRepository
@@ -313,6 +316,8 @@ async def _build_worker_env(tmp_path: Path) -> tuple[
     GraphWorker,
     AgentRunService,
     CountingCrawler,
+    CollectionDefinitionService,
+    CollectionRunService,
 ]:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'worker.db'}")
     await database.create_schema()
@@ -321,6 +326,10 @@ async def _build_worker_env(tmp_path: Path) -> tuple[
     social = SocialRepository(database)
     crawler = CountingCrawler()
     skills = SkillRegistry()
+    collection_service = CollectionDefinitionService(database, llm=None)
+    collection_run_service = CollectionRunService(
+        database, collection_service, CollectionRunRepository(database)
+    )
     tools = build_tool_registry(
         crawler,
         skills,
@@ -329,16 +338,15 @@ async def _build_worker_env(tmp_path: Path) -> tuple[
             "", dimensions=1024, timeout_seconds=120
         ),
         social,
+        collection_service=collection_service,
+        collection_run_service=collection_run_service,
     )
     tools.set_sandbox_executor(CrawlerSandboxStub(crawler))
-    crawl_args: dict[str, Any] = {
-        "topic": "舆情",
-        "platforms": ["weibo"],
-        "time_range": {"start": None, "end": None},
-    }
     worker = GraphWorker(
         repository,
-        SequenceGateway(tool_call=("collect_social_posts", crawl_args)),
+        SequenceGateway(
+            tool_call=("start_social_collection", {"phase": "discovery"})
+        ),
         tools,
         skills,
         worker_id="test-worker",
@@ -350,15 +358,44 @@ async def _build_worker_env(tmp_path: Path) -> tuple[
         checkpointer=MemorySaver(),
     )
     service = AgentRunService(repository, worker)
-    return database, repository, worker, service, crawler
+    return (
+        database,
+        repository,
+        worker,
+        service,
+        crawler,
+        collection_service,
+        collection_run_service,
+    )
+
+
+async def _seed_active_definition(
+    collection_service: CollectionDefinitionService, case_id: str
+) -> None:
+    definition = await collection_service.create_manual(
+        case_id,
+        goal="采集竹知了事件讨论",
+        platforms=["weibo"],
+        platform_queries={"weibo": ["竹知了"]},
+    )
+    await collection_service.activate(case_id, definition.id)
 
 
 async def test_worker_end_to_end_approval_flow(tmp_path: Path) -> None:
-    database, repository, worker, service, crawler = await _build_worker_env(tmp_path)
+    (
+        database,
+        repository,
+        worker,
+        service,
+        crawler,
+        collection_service,
+        collection_run_service,
+    ) = await _build_worker_env(tmp_path)
     try:
         case = await repository.create_case(
             CreateCaseRequest(topic="审批流程", platforms=["weibo"])
         )
+        await _seed_active_definition(collection_service, case.id)
         run = await service.start(
             case_id=case.id, content="采集并分析", approve_crawl=False
         )
@@ -371,7 +408,7 @@ async def test_worker_end_to_end_approval_flow(tmp_path: Path) -> None:
 
         approvals = await repository.list_pending_approvals(run.id)
         assert len(approvals) == 1
-        assert approvals[0].action == "collect_social_posts"
+        assert approvals[0].action == "start_social_collection"
         tool_calls = await repository.list_run_tool_calls(run.id)
         assert tool_calls and tool_calls[0].status == "waiting_approval"
         assert tool_calls[0].approval_id == approvals[0].id
@@ -384,11 +421,13 @@ async def test_worker_end_to_end_approval_flow(tmp_path: Path) -> None:
 
         run = await repository.get_agent_run(run.id)
         assert run.status == "completed", run.error
-        assert crawler.calls == 1, "crawler runs exactly once after approval"
+        # H06/H07：AgentRun completed 且 CollectionRun 已创建（后台执行）
+        active = await collection_run_service.list_active_for_case(case.id)
+        assert len(active) == 1
+        assert active[0].status in {"queued", "running"}
         trace = await repository.get_run_trace(run.id)
         assert len(trace["tool_calls"]) == 1
         assert trace["tool_calls"][0].status == "completed"
-        assert len(trace["model_calls"]) == 2
         assert trace["approvals"][0].status == "approved"
         turns = await repository.list_turns(case.id)
         assert any(turn.role == "assistant" for turn in turns)
@@ -397,14 +436,21 @@ async def test_worker_end_to_end_approval_flow(tmp_path: Path) -> None:
 
 
 async def test_worker_end_to_end_approval_reject_flow(tmp_path: Path) -> None:
-    """拒绝审批后恢复执行：不重复插入 tool_call、run 正常完成。"""
-    database, repository, worker, service, crawler = await _build_worker_env(
-        tmp_path
-    )
+    """拒绝审批后恢复执行：不重复插入 tool_call、不创建 CollectionRun。"""
+    (
+        database,
+        repository,
+        worker,
+        service,
+        crawler,
+        collection_service,
+        collection_run_service,
+    ) = await _build_worker_env(tmp_path)
     try:
         case = await repository.create_case(
             CreateCaseRequest(topic="拒绝审批", platforms=["weibo"])
         )
+        await _seed_active_definition(collection_service, case.id)
         run = await service.start(
             case_id=case.id, content="采集并分析", approve_crawl=False
         )
@@ -426,6 +472,8 @@ async def test_worker_end_to_end_approval_reject_flow(tmp_path: Path) -> None:
         run = await repository.get_agent_run(run.id)
         assert run.status == "completed", run.error
         assert crawler.calls == 0, "rejected crawler must never run"
+        # 拒绝后不创建 CollectionRun
+        assert await collection_run_service.list_active_for_case(case.id) == []
         trace = await repository.get_run_trace(run.id)
         call_ids = [call.id for call in trace["tool_calls"]]
         assert len(call_ids) == len(set(call_ids)), "no duplicate tool calls"
@@ -440,18 +488,30 @@ async def test_worker_end_to_end_approval_reject_flow(tmp_path: Path) -> None:
 
 
 async def test_worker_preapproved_crawl_executes_directly(tmp_path: Path) -> None:
-    database, repository, worker, service, crawler = await _build_worker_env(tmp_path)
+    (
+        database,
+        repository,
+        worker,
+        service,
+        crawler,
+        collection_service,
+        collection_run_service,
+    ) = await _build_worker_env(tmp_path)
     try:
         case = await repository.create_case(
             CreateCaseRequest(topic="预批准采集", platforms=["weibo"])
         )
+        await _seed_active_definition(collection_service, case.id)
         run = await service.start(
             case_id=case.id, content="采集并分析", approve_crawl=True
         )
         await worker.tick(wait=True)
         run = await repository.get_agent_run(run.id)
         assert run.status == "completed", run.error
-        assert crawler.calls == 1, "pre-approved crawl executes directly"
+        # 预批准直接创建 CollectionRun（后台执行，不阻塞 AgentRun）
+        active = await collection_run_service.list_active_for_case(case.id)
+        assert len(active) == 1
+        assert active[0].status in {"queued", "running"}
         assert await repository.list_pending_approvals(run.id) == []
     finally:
         await database.dispose()

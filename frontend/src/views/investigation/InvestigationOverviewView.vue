@@ -3,12 +3,14 @@
 // Scope（Active Collection Definition）+ 当前状态 + Plan 区域（M5.7 迁入
 // 的显式目标与计划图）。Copilot 由 Shell 右侧提供。
 // 支持编辑调查元数据（标题/主题/说明/平台/时间范围），便于创建后修正范围。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Pencil, X } from 'lucide-vue-next'
 
 import CollectionDefinitionCard from '@/components/collection/CollectionDefinitionCard.vue'
+import CollectionRunCard from '@/components/collection/CollectionRunCard.vue'
 import GoalPlanPanel from '@/components/goals/GoalPlanPanel.vue'
+import { collectionRunApi, isActiveCollectionRun, type CollectionRun } from '@/services/api/collectionRuns'
 import { api } from '@/services/api'
 import type { AgentRun, Artifact, CaseRecord } from '@/types/api'
 
@@ -23,6 +25,59 @@ const loading = ref(true)
 const activeRuns = computed(() =>
   runs.value.filter((run) => ['pending', 'running', 'waiting_approval'].includes(run.status)),
 )
+
+// ---- 后台采集运行（async progressive collection）----
+const collectionRuns = ref<CollectionRun[]>([])
+const runPollTimer = ref<number | null>(null)
+const analyzeNotice = ref('')
+
+async function loadCollectionRuns() {
+  try {
+    collectionRuns.value = await collectionRunApi.list(caseId.value, { active: true })
+  } catch {
+    // 采集运行不可用时静默降级，不阻塞 Overview
+  }
+}
+
+function stopRunPolling() {
+  if (runPollTimer.value !== null) {
+    window.clearInterval(runPollTimer.value)
+    runPollTimer.value = null
+  }
+}
+
+function startRunPolling() {
+  stopRunPolling()
+  const poll = async () => {
+    if (document.hidden) return
+    let active: CollectionRun[] = []
+    try {
+      active = await collectionRunApi.list(caseId.value, { active: true })
+    } catch {
+      return
+    }
+    collectionRuns.value = active
+    if (!active.some(isActiveCollectionRun)) stopRunPolling()
+  }
+  void poll()
+  runPollTimer.value = window.setInterval(poll, 2500)
+}
+
+async function cancelCollectionRun(runId: string) {
+  try {
+    await collectionRunApi.cancel(caseId.value, runId)
+    await loadCollectionRuns()
+  } catch {
+    // 取消失败保持现状
+  }
+}
+
+function onAnalyze() {
+  analyzeNotice.value = '提示词已复制，请粘贴到右侧 Copilot 对话中发送。'
+  window.setTimeout(() => {
+    analyzeNotice.value = ''
+  }, 6000)
+}
 
 // ---- 编辑调查信息 ----
 const editOpen = ref(false)
@@ -105,6 +160,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  await loadCollectionRuns()
+  startRunPolling()
+})
+
+onUnmounted(() => {
+  stopRunPolling()
 })
 </script>
 
@@ -138,6 +199,18 @@ onMounted(async () => {
         :case-id="caseId"
         :case-platforms="investigation?.platforms ?? []"
       />
+
+      <section v-if="collectionRuns.length" class="ioverview__runs" aria-label="后台采集运行">
+        <h3 class="ioverview__runs-title">后台采集运行</h3>
+        <CollectionRunCard
+          v-for="run in collectionRuns"
+          :key="run.id"
+          :run="run"
+          @cancel="cancelCollectionRun"
+          @analyze="onAnalyze"
+        />
+        <p v-if="analyzeNotice" class="ioverview__runs-notice">{{ analyzeNotice }}</p>
+      </section>
 
       <section class="ioverview__plan" aria-label="调查计划">
         <h3 class="ioverview__plan-title">Plan · 目标与计划图</h3>
@@ -253,6 +326,24 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
+}
+
+.ioverview__runs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ioverview__runs-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ioverview__runs-notice {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .ioverview__plan-title {

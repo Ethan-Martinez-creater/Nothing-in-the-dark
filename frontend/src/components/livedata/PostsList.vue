@@ -7,7 +7,7 @@ import { onMounted, ref, watch } from 'vue'
 import { api } from '@/services/api'
 import type { SocialPostDTO } from '@/types/api'
 
-const props = defineProps<{ caseId: string }>()
+const props = defineProps<{ caseId: string; refreshTick?: number }>()
 const emit = defineEmits<{
   selectPost: [post: SocialPostDTO]
 }>()
@@ -63,6 +63,14 @@ watch(
   () => props.caseId,
   () => {
     void load(true)
+  },
+)
+
+// 渐进采集：后台 CollectionRun 有数据落库时（refreshTick 变化）刷新列表。
+watch(
+  () => props.refreshTick,
+  (tick) => {
+    if (typeof tick === 'number' && tick > 0) void load(true)
   },
 )
 

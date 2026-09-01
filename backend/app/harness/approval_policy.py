@@ -68,28 +68,68 @@ def _parse_bound(value: str) -> datetime | None:
         return None
 
 
+def _first_int(scope: dict[str, Any], *keys: str, default: int) -> int:
+    for key in keys:
+        value = scope.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return default
+
+
 def crawl_scope_expanded(approved: dict[str, Any], requested: dict[str, Any]) -> bool:
-    """True when the new crawl asks for more than the last approved scope."""
+    """True when the new crawl asks for more than the last approved scope.
+
+    同时兼容 collect_social_posts 的 scope（limit / upstream_candidate_
+    limit_per_platform）与 start_social_collection 的 Approval Scope
+    （limit_per_platform / upstream_limit_per_platform / phase /
+    include_comments），任一字段名缺失时按默认值比较。
+    """
     extra_platforms = set(requested.get("platforms") or []) - set(
         approved.get("platforms") or []
     )
     if extra_platforms:
         return True
-    if int(requested.get("limit") or DEFAULT_CRAWL_LIMIT) > int(
-        approved.get("limit") or DEFAULT_CRAWL_LIMIT
+    if _first_int(
+        requested, "limit", "limit_per_platform", default=DEFAULT_CRAWL_LIMIT
+    ) > _first_int(
+        approved, "limit", "limit_per_platform", default=DEFAULT_CRAWL_LIMIT
     ):
         return True
-    if int(requested.get("per_day_limit") or DEFAULT_PER_DAY_LIMIT) > int(
-        approved.get("per_day_limit") or DEFAULT_PER_DAY_LIMIT
+    if _first_int(
+        requested, "per_day_limit", default=DEFAULT_PER_DAY_LIMIT
+    ) > _first_int(
+        approved, "per_day_limit", default=DEFAULT_PER_DAY_LIMIT
     ):
         return True
-    if int(requested.get("comment_limit") or DEFAULT_COMMENT_LIMIT) > int(
-        approved.get("comment_limit") or DEFAULT_COMMENT_LIMIT
+    if _first_int(
+        requested, "comment_limit", default=DEFAULT_COMMENT_LIMIT
+    ) > _first_int(
+        approved, "comment_limit", default=DEFAULT_COMMENT_LIMIT
     ):
         return True
-    if int(requested.get("upstream_candidate_limit_per_platform") or 0) > int(
-        approved.get("upstream_candidate_limit_per_platform") or 0
+    if _first_int(
+        requested,
+        "upstream_candidate_limit_per_platform",
+        "upstream_limit_per_platform",
+        default=0,
+    ) > _first_int(
+        approved,
+        "upstream_candidate_limit_per_platform",
+        "upstream_limit_per_platform",
+        default=0,
     ):
+        return True
+    # 评论抓取关闭 → 开启属于扩大（AP05）。
+    if bool(requested.get("include_comments")) and not bool(
+        approved.get("include_comments")
+    ):
+        return True
+    # Discovery 审批不能授权 Deep（AP06）。
+    if requested.get("phase") == "deep" and approved.get("phase") != "deep":
         return True
     approved_start = _parse_bound(str(approved.get("start") or ""))
     requested_start = _parse_bound(str(requested.get("start") or ""))

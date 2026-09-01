@@ -297,7 +297,9 @@ class GraphWorker:
         definition = self._definition_for(run)
         metadata = run.metadata_json or {}
         approved_tools = (
-            {"collect_social_posts"} if metadata.get("approve_crawl") else set()
+            {"collect_social_posts", "start_social_collection"}
+            if metadata.get("approve_crawl")
+            else set()
         )
         if metadata.get("budget_approved"):
             approved_tools.add("budget_exceeded")

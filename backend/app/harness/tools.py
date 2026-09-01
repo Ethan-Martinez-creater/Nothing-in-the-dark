@@ -54,6 +54,10 @@ class ToolSpec:
     # （"module:function"），由 SandboxedToolExecutor 在独立子进程中执行；
     # 未装配沙箱执行器时 fail closed，绝不降级裸跑。
     external_handler: str | None = None
+    # Approval scope resolver：运行时在构建审批请求前调用，返回规范化
+    # scope（用于 collect_social_posts 之外需要精确 scope 的工具，如
+    # start_social_collection）。返回 None 时回退默认 scope 规则。
+    approval_scope_resolver: Callable[..., Awaitable[dict[str, Any] | None]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
