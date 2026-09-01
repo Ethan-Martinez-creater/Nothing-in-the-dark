@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import codecs
 import json
+import logging
 import math
 import os
 import re
@@ -278,56 +279,77 @@ class MediaCrawlerAdapter:
                     f"Unsupported platform '{platform}'. "
                     f"Configured platforms: {', '.join(PLATFORM_CODES)}"
                 )
-            # LLM 检索优化可能为每平台产出多组关键词：每组各跑一次搜索，
-            # 按 native_id 去重合并。
+            # 每平台一个 MediaCrawler process：多组关键词逗号分隔一次命令
+            # （上游 --keywords 支持逗号分隔，进程内顺序搜索，复用登录态
+            # 与浏览器上下文；避免"一组关键词 = 一次浏览器全流程"的启动
+            # 开销）。结果按 native_id 去重合并。
             keywords = (request.keywords or {}).get(platform) or [request.topic]
             platform_root = run_root / platform
             platform_root.mkdir(parents=True, exist_ok=False)
-            for index, keyword in enumerate(keywords):
-                command = self._build_command(
-                    platform,
-                    request,
-                    platform_root / f"kw{index}",
-                    keyword,
+            command = self._build_command(
+                platform,
+                request,
+                platform_root,
+                keywords,
+            )
+            try:
+                return_code, stdout, stderr = await self._command_runner(
+                    command,
+                    self._config.root,
+                    self._config.timeout_seconds,
+                    cancel,
+                    self._process_environment(platform),
                 )
-                try:
-                    return_code, stdout, stderr = await self._command_runner(
-                        command,
-                        self._config.root,
-                        self._config.timeout_seconds,
-                        cancel,
-                        self._process_environment(platform),
+            except TypeError:
+                return_code, stdout, stderr = await self._command_runner(
+                    command,
+                    self._config.root,
+                    self._config.timeout_seconds,
+                )
+            if return_code != 0:
+                detail = (stderr or stdout).strip()[-1500:]
+                # INV-4：进程非零退出但已产出部分数据时，保留已采集内容
+                # （MediaCrawler 常写完 JSONL 后异常退出），而不是丢弃整平台。
+                partial = list(self._load_platform_posts(platform, platform_root))
+                if partial:
+                    logging.getLogger(__name__).warning(
+                        "MediaCrawler %s exited %s but produced %d posts; "
+                        "keeping partial data",
+                        platform, return_code, len(partial),
                     )
-                except TypeError:
-                    return_code, stdout, stderr = await self._command_runner(
-                        command,
-                        self._config.root,
-                        self._config.timeout_seconds,
-                    )
-                if return_code != 0:
-                    detail = (stderr or stdout).strip()[-1500:]
+                    platform_posts = partial
+                else:
                     raise CrawlerExecutionError(
                         f"MediaCrawler failed for {platform} with exit code "
                         f"{return_code}: {detail or 'no diagnostic output'}"
                     )
-                platform_posts = self._load_platform_posts(
-                    platform, platform_root / f"kw{index}"
+            else:
+                platform_posts = self._load_platform_posts(platform, platform_root)
+            platform_posts = [
+                post
+                for post in platform_posts
+                if _within_time_range(
+                    post.get("published_at"),
+                    request.time_range,
                 )
+            ]
+            if platform == "weibo":
                 platform_posts = [
                     post
                     for post in platform_posts
-                    if _within_time_range(
-                        post.get("published_at"),
-                        request.time_range,
-                    )
+                    if not _is_weibo_marketing_noise(post)
                 ]
-                if platform == "weibo":
-                    platform_posts = [
-                        post
-                        for post in platform_posts
-                        if not _is_weibo_marketing_noise(post)
-                    ]
-                posts.extend(platform_posts)
+            # Platform aggregate upstream cap：多关键词一次命令可能使上游
+            # 抓取量成倍放大，Adapter 返回前按平台严格封顶（不依赖上游
+            # crawler_max_notes_count 的 per-keyword/aggregate 语义）。
+            upstream_limit = int(request.upstream_limit_per_platform or 0)
+            if upstream_limit > 0 and len(platform_posts) > upstream_limit:
+                platform_posts = sorted(
+                    platform_posts,
+                    key=lambda post: int(post.get("engagement") or 0),
+                    reverse=True,
+                )[:upstream_limit]
+            posts.extend(platform_posts)
 
         # 按 native_id 去重（多组关键词可能命中同一批帖子）
         seen: set[tuple[str, str]] = set()
@@ -401,7 +423,7 @@ class MediaCrawlerAdapter:
         platform: str,
         request: CrawlRequest,
         output_root: Path,
-        keyword: str | None = None,
+        keywords: list[str] | None = None,
     ) -> list[str]:
         cookies = {
             "weibo": self._config.weibo_cookies,
@@ -415,6 +437,16 @@ class MediaCrawlerAdapter:
                 f"Cookie login is enabled but no cookie is configured for {platform}"
             )
 
+        # Discovery 传平台 aggregate 上限；legacy 调用保持 fetch_limit_for。
+        upstream_limit = request.upstream_limit_per_platform
+        if upstream_limit is None:
+            upstream_limit = fetch_limit_for(request)
+        # Discovery 必须真正关闭评论抓取（include_comments=false 时上游
+        # 不进入评论采集逻辑）；legacy 调用回退适配器默认。
+        include_comments = request.include_comments
+        if include_comments is None:
+            include_comments = self._config.include_comments
+
         command = [
             str(self._config.python_executable),
             str(self._config.entrypoint or "main.py"),
@@ -425,13 +457,13 @@ class MediaCrawlerAdapter:
             "--type",
             "search",
             "--keywords",
-            keyword or request.topic,
+            ",".join(keywords or [request.topic]),
             "--save_data_option",
             "jsonl",
             "--save_data_path",
             str(output_root),
             "--crawler_max_notes_count",
-            str(fetch_limit_for(request)),
+            str(int(upstream_limit)),
             "--max_comments_count_singlenotes",
             str(
                 min(
@@ -440,7 +472,7 @@ class MediaCrawlerAdapter:
                 )
             ),
             "--get_comment",
-            str(self._config.include_comments).lower(),
+            str(bool(include_comments)).lower(),
             "--headless",
             str(self._config.headless).lower(),
             "--max_concurrency_num",
