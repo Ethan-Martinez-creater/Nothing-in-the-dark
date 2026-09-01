@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     mediacrawler_timeout_seconds: float = 1800
     mediacrawler_max_output_runs: int = 100
     mediacrawler_usage_mode: str = "research"
+    # 系统级同时活跃的 MediaCrawler browser process 上限（全局爬取容量）。
+    mediacrawler_global_concurrency: int = 2
     mediacrawler_weibo_cookies: SecretStr = SecretStr("")
     mediacrawler_bilibili_cookies: SecretStr = SecretStr("")
     mediacrawler_tieba_cookies: SecretStr = SecretStr("")
@@ -83,6 +85,12 @@ class Settings(BaseSettings):
     monitor_overlap_seconds: int = 0
     monitor_max_concurrent_executions: int = 2
     monitor_worker_id: str = "local-monitor-worker"
+
+    # 异步渐进式采集：后台 CollectionRunWorker（租约/心跳/恢复）。
+    collection_worker_enabled: bool = True
+    collection_worker_poll_interval_seconds: float = 2.0
+    collection_worker_lease_seconds: int = 60
+    collection_worker_id: str = "local-collection-worker"
 
     # 04: 多模态媒体流水线。
     media_storage_root: Path = Path("../artifacts/media")

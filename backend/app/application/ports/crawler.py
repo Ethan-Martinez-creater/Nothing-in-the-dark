@@ -15,6 +15,11 @@ class CrawlRequest:
     per_day_limit: int = 150
     # 每帖/每视频评论保留上限（过滤排序后的前 N 条）。
     comment_limit: int = 10
+    # 每平台 aggregate 上游抓取上限（Discovery 场景按平台 Aggregate
+    # Budget 显式传入；None 时保持 legacy 语义，由 fetch_limit_for 决定）。
+    upstream_limit_per_platform: int | None = None
+    # 是否抓取评论；None 时回退适配器默认（legacy 语义）。
+    include_comments: bool | None = None
     # 每平台的检索关键词组（LLM 检索优化产出）；缺省回退 [topic]。
     keywords: dict[str, list[str]] | None = None
     cancel_event: asyncio.Event | None = None

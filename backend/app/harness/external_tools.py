@@ -71,6 +71,16 @@ async def collect_social_posts(payload: dict[str, Any]) -> dict[str, Any]:
         limit_per_platform=int(payload.get("limit_per_platform") or 150),
         per_day_limit=int(payload.get("per_day_limit") or 150),
         comment_limit=int(payload.get("comment_limit") or 10),
+        upstream_limit_per_platform=(
+            int(payload["upstream_limit_per_platform"])
+            if payload.get("upstream_limit_per_platform") is not None
+            else None
+        ),
+        include_comments=(
+            bool(payload["include_comments"])
+            if payload.get("include_comments") is not None
+            else None
+        ),
         keywords=dict(payload.get("keywords") or {}),
     )
     crawler = _build_crawler()

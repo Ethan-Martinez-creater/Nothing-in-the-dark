@@ -9,6 +9,9 @@ from app.application.agent_service import AgentRunService
 from app.application.alignment_service import AlignmentService
 from app.application.analysis_job_worker import AnalysisJobWorker
 from app.application.authorization_service import AuthorizationService
+from app.application.collection_capacity import CrawlCapacityLimiter
+from app.application.collection_run_service import CollectionRunService
+from app.application.collection_run_worker import CollectionRunWorker
 from app.application.collection_service import CollectionDefinitionService
 from app.application.context_builder import ContextBuilder
 from app.application.conversation_summary import ConversationSummarizer
@@ -42,6 +45,7 @@ from app.core.config import Settings
 from app.core.errors import ApplicationError
 from app.graphs.case_analysis import CaseAnalysisGraph
 from app.harness.egress_proxy import EgressProxy
+from app.harness.collection_platform_executor import CollectionPlatformExecutor
 from app.harness.sandbox import (
     SandboxedToolExecutor,
     SecretProvider,
@@ -59,6 +63,7 @@ from app.infrastructure.crawler import (
 from app.infrastructure.database import Database
 from app.infrastructure.database.alignment_repository import AlignmentRepository
 from app.infrastructure.database.analysis_job_repository import AnalysisJobRepository
+from app.infrastructure.database.collection_run_repository import CollectionRunRepository
 from app.infrastructure.database.integrity_repository import IntegrityRepository
 from app.infrastructure.database.knowledge_repository import KnowledgeRepository
 from app.infrastructure.database.media_pipeline_repository import MediaPipelineRepository
@@ -201,6 +206,13 @@ class ApplicationContainer:
         self.collection_service = CollectionDefinitionService(
             self.database, self.llm
         )
+        # 异步渐进式采集：持久化 CollectionRun + 审批冻结 snapshot。
+        self.collection_run_repository = CollectionRunRepository(self.database)
+        self.collection_run_service = CollectionRunService(
+            self.database,
+            self.collection_service,
+            self.collection_run_repository,
+        )
         self.tools = build_tool_registry(
             self.crawler,
             self.skills,
@@ -213,6 +225,7 @@ class ApplicationContainer:
             security=self.content_security,
             governance=self.memory_governance,
             collection_service=self.collection_service,
+            collection_run_service=self.collection_run_service,
         )
         execution_class = settings.tool_sandbox_execution
         if execution_class == "container" and not container_supported():
@@ -432,6 +445,26 @@ class ApplicationContainer:
             integrity_service=self.integrity_service,
             worker_id=settings.monitor_worker_id + "-analysis",
         )
+        # 异步渐进式采集：全局浏览器容量 + 沙箱平台执行 + 后台 Worker。
+        self.crawl_capacity_limiter = CrawlCapacityLimiter(
+            settings.mediacrawler_global_concurrency
+        )
+        self.collection_platform_executor = CollectionPlatformExecutor(
+            self.tools,
+            capacity_limiter=self.crawl_capacity_limiter,
+        )
+        self.collection_run_worker = CollectionRunWorker(
+            self.collection_run_repository,
+            self.collection_platform_executor,
+            self.social,
+            worker_id=settings.collection_worker_id,
+            poll_interval_seconds=settings.collection_worker_poll_interval_seconds,
+            lease_seconds=settings.collection_worker_lease_seconds,
+            enabled=settings.collection_worker_enabled,
+            platform_concurrency_discovery=2,
+            platform_concurrency_deep=1,
+            telemetry=self.telemetry,
+        )
         self.debate_service = DebateService(
             self.repository,
             self.social,
@@ -489,6 +522,7 @@ class ApplicationContainer:
         await self.notify_dispatcher.start()
         await self.media_worker.start()
         await self.analysis_job_worker.start()
+        await self.collection_run_worker.start()
         # P0-1.5: CaseAnalysisGraph / AnalysisRunner are Legacy fixtures.
         # Production never recovers leftover analysis_tasks; those rows stay
         # pending and do not write Artifacts. Tests construct the runner
@@ -500,6 +534,7 @@ class ApplicationContainer:
         await self.notify_dispatcher.stop()
         await self.media_worker.stop()
         await self.analysis_job_worker.stop()
+        await self.collection_run_worker.stop()
         await self.egress_proxy.stop()
         # Legacy runner is never started in production, so there is nothing
         # to cancel. Keep the instance for explicit test construction only.

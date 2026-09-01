@@ -28,6 +28,8 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "error_code",
         "dependency",
         "scope",
+        "phase",
+        "attempt",
     }
 )
 
@@ -55,6 +57,18 @@ METRIC_TYPES: dict[str, str] = {
     "crawler.empty": "counter",
     "crawler.errors": "counter",
     "crawler.duration_ms": "histogram",
+    # Async progressive collection run metrics（CollectionRunWorker）。
+    "collection.enqueue_latency_ms": "histogram",
+    "collection.queue_wait_ms": "histogram",
+    "collection.platform_duration_ms": "histogram",
+    "collection.first_persist_ms": "histogram",
+    "collection.total_duration_ms": "histogram",
+    "collection.posts_persisted": "counter",
+    "collection.comments_persisted": "counter",
+    "collection.retry_count": "counter",
+    "collection.platform_failures": "counter",
+    "collection.cancelled": "counter",
+    "collection.lease_lost": "counter",
     "queue.depth": "gauge",
     "queue.wait_ms": "histogram",
     "worker.lease_recovered": "counter",

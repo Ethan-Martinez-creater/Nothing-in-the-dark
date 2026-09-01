@@ -2710,6 +2710,81 @@ class CollectionDefinitionRecord(Base):
     )
 
 
+class CollectionRunRecord(Base):
+    """Durable background social collection run (async progressive collection).
+
+    一次 start_social_collection 创建一条 run：request_json 是审批冻结的
+    immutable snapshot（INV-1），progress_json 记录平台级 checkpoint，
+    租约 + 心跳 + 恢复保证 Worker crash 后可续跑（INV-2/INV-4）。
+    """
+
+    __tablename__ = "collection_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    case_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    collection_definition_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    collection_definition_version: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    trigger_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    trigger_turn_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    trigger_tool_call_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False, default="discovery")
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="queued", index=True
+    )
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    progress_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    result_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    posts_collected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    comments_collected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "idempotency_key", name="uq_collection_run_idem"),
+        Index("ix_collection_runs_status_created", "status", "created_at"),
+        Index("ix_collection_runs_case_created", "case_id", "created_at"),
+        Index("ix_collection_runs_lease_expires", "lease_expires_at"),
+        Index("ix_collection_runs_fingerprint", "request_fingerprint"),
+    )
+
+
 class FindingRecord(Base):
     """M4：调查结论对象（用户可审核/接受/拒绝/追溯证据的稳定 Finding）。
 
