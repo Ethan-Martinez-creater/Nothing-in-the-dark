@@ -18,8 +18,11 @@ from app.infrastructure.database.models import (
     EvidenceRecord,
     FindingRecord,
     ReportDocumentRecord,
+    SourceCommentRecord,
+    SourcePostRecord,
 )
 from app.infrastructure.database.report_repository import ReportDocumentRepository
+from sqlalchemy import select
 
 _REPORT_STATUS_TRANSITIONS = {
     ("draft", "in_review"),
@@ -51,7 +54,25 @@ def normalize_citation_refs(link: Any, index: int = 0) -> list[tuple[str, str, s
 
     def _collect(ref_type: str, value: Any, path: str) -> None:
         if isinstance(value, str) and value.strip():
-            refs.append((ref_type, value.strip(), path))
+            text = value.strip()
+            if text.startswith("social_post:"):
+                # 报告生成器引用帖子时使用 social_post:<id> 前缀；这类引用
+                # 指向 SourcePost（帖子），不是 Evidence，需单独解析。
+                refs.append(("social_post", text[len("social_post:"):], path))
+            elif text.startswith("social_comment:"):
+                refs.append(("social_comment", text[len("social_comment:"):], path))
+            elif text.startswith("aggregate_social_data:"):
+                # 聚合引用（aggregate_social_data:<group_by>）：报告对统计结论
+                # 的依据引用，指向确定性聚合结果而非某个对象 id。
+                refs.append(
+                    (
+                        "aggregate_social_data",
+                        text[len("aggregate_social_data:"):],
+                        path,
+                    )
+                )
+            else:
+                refs.append((ref_type, text, path))
 
     for key in ("evidence_id", "evidence"):
         _collect("evidence", link.get(key), f"{base}.{key}")
@@ -263,6 +284,41 @@ class ReportDocumentService:
     ) -> str | None:
         """返回问题 issue 名或 None；只认数据库记录，不靠 ID 前缀。"""
         async with self._database.session_factory() as session:
+            if ref_type == "aggregate_social_data":
+                # 聚合引用（aggregate_social_data:<group_by>）：确定性统计结论
+                # 的依据，非对象 id；只校验 group_by 是否为工具的合法取值。
+                if ref_id in ("platform", "day", "content_type"):
+                    return None
+                return "unresolvable_ref"
+            if ref_type == "social_post":
+                # 帖子引用（social_post:<id>）：报告生成器可能写 uuid 前 8 位
+                # 短 id，先精确匹配完整主键，再用前缀 LIKE 兼容短 id。
+                record = await session.get(SourcePostRecord, ref_id)
+                if record is None:
+                    record = await session.scalar(
+                        select(SourcePostRecord).where(
+                            SourcePostRecord.id.like(f"{ref_id}%")
+                        )
+                    )
+                if record is not None:
+                    if record.case_id != case_id:
+                        return "post_not_in_case"
+                    return None
+                return "post_not_found"
+            if ref_type == "social_comment":
+                # 评论引用（social_comment:<id>）：评论无 case_id，必须 JOIN
+                # 其 SourcePost 才能校验 Case scope。
+                record = await session.scalar(
+                    select(SourceCommentRecord).where(
+                        SourceCommentRecord.id.like(f"{ref_id}%")
+                    )
+                )
+                if record is not None:
+                    post = await session.get(SourcePostRecord, record.post_id)
+                    if post is not None and post.case_id == case_id:
+                        return None
+                    return "comment_not_in_case"
+                return "comment_not_found"
             if ref_type in ("evidence", "generic"):
                 record = await session.get(EvidenceRecord, ref_id)
                 if record is not None:
@@ -270,6 +326,30 @@ class ReportDocumentService:
                         return "evidence_not_in_case"
                     return None
                 if ref_type == "evidence":
+                    # 报告生成器对帖子/评论有时直接写裸 uuid（完整 id）而漏掉
+                    # social_post:/social_comment: 前缀；Evidence 查不到时按
+                    # 帖子、评论依次精确匹配。
+                    post = await session.scalar(
+                        select(SourcePostRecord).where(
+                            SourcePostRecord.id == ref_id
+                        )
+                    )
+                    if post is not None:
+                        if post.case_id != case_id:
+                            return "post_not_in_case"
+                        return None
+                    comment = await session.scalar(
+                        select(SourceCommentRecord).where(
+                            SourceCommentRecord.id == ref_id
+                        )
+                    )
+                    if comment is not None:
+                        owner = await session.get(
+                            SourcePostRecord, comment.post_id
+                        )
+                        if owner is not None and owner.case_id == case_id:
+                            return None
+                        return "comment_not_in_case"
                     return "evidence_not_found"
             if ref_type in ("finding", "generic"):
                 record = await session.get(FindingRecord, ref_id)
