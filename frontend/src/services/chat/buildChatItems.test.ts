@@ -25,22 +25,27 @@ function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
 }
 
 describe('buildChatItems（完整对话流重建）', () => {
-  it('merges coordinator final answer into the run card', () => {
+  it('renders coordinator final answer as a standalone assistant turn', () => {
+    // 协调器 run 的 turn_id 指向用户指令；最终总结报告是独立 assistant turn，
+    // 不再被绑定进 run 卡片（否则报告会被提前放到指令位置、跑到专家之前）。
     const turns = [
       makeTurn({ id: 't-user', role: 'user', content: '启动调查' }),
       makeTurn({
         id: 't-final',
         role: 'assistant',
-        content: '协调器最终回答',
+        content: '协调器最终报告',
         created_at: '2026-08-01T00:00:05+00:00',
       }),
     ]
     const runs = [makeRun({ id: 'run-top', turn_id: 't-user' })]
     const items = buildChatItems(turns, runs, [])
-    expect(items).toHaveLength(1)
+    expect(items).toHaveLength(2)
     const runItem = items[0]
     expect(runItem?.type).toBe('run')
-    expect(runItem?.type === 'run' && runItem.finalContent).toBe('协调器最终回答')
+    expect(runItem?.type === 'run' && runItem.finalContent).toBeUndefined()
+    const reportTurn = items[1]
+    expect(reportTurn?.type).toBe('turn')
+    expect(reportTurn?.type === 'turn' && reportTurn.turn.content).toBe('协调器最终报告')
   })
 
   it('keeps expert assistant turns as their own run cards', () => {
@@ -68,9 +73,15 @@ describe('buildChatItems（完整对话流重建）', () => {
       (item) => item.type === 'run' && item.run.id === 'run-expert',
     )
     expect(expertItem?.type === 'run' && expertItem.finalContent).toBe('专家回答')
-    // coordinator 的 finalContent 不吃掉专家 turn
+    // coordinator run 卡片不绑定回答，协调器回答 turn 独立保留（AgentBubble）
     const topItem = items.find((item) => item.type === 'run' && item.run.id === 'run-top')
-    expect(topItem?.type === 'run' && topItem.finalContent).toBe('协调器回答')
+    expect(topItem?.type === 'run' && topItem.finalContent).toBeUndefined()
+    const coordinatorTurn = items.find(
+      (item) => item.type === 'turn' && item.turn.id === 't-coordinator',
+    )
+    expect(coordinatorTurn?.type === 'turn' && coordinatorTurn.turn.content).toBe(
+      '协调器回答',
+    )
   })
 
   it('renders plain turns without runs and preserves ordering', () => {

@@ -1614,6 +1614,29 @@ a {
 .run-output {
   margin-top: 10px;
 }
+.answer-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  color: var(--text-muted, #64748b);
+}
+.answer-toggle:hover {
+  color: var(--text, #0f172a);
+}
+.answer-caret {
+  color: var(--text-soft, #94a3b8);
+  flex-shrink: 0;
+}
+.answer-body {
+  padding-top: 2px;
+}
 .run-error {
   color: #b91c1c;
   font-size: 13px;

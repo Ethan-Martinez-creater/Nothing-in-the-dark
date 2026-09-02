@@ -99,6 +99,9 @@ const timelineEventTypes = new Set([
 // 也避免 ECharts 图在未查看时挂载）。
 const artifactsOpen = ref(false)
 
+// 最终回答折叠：默认展开，点击标题栏收起（超长回答不再占据整个视口）。
+const answerOpen = ref(true)
+
 const artifactSummary = computed(() => {
   if (!props.artifacts.length) return ''
   const labels = props.artifacts
@@ -421,9 +424,23 @@ function eventIcon(event: RunEvent) {
 
     <!-- ② 审批提示已上移到输入框上方（队列式，见 ChatInputBar） -->
 
-    <!-- ③ 最终输出：加粗大一号正文，与上方过程区形成明显视觉层级 -->
+    <!-- ③ 最终输出：加粗大一号正文，与上方过程区形成明显视觉层级；
+         带折叠标题栏（默认展开，点击收起，避免超长回答占满整个视口） -->
     <div class="run-output">
-      <MarkdownBody v-if="finalContent" :text="finalContent" class="run-answer" />
+      <button
+        v-if="finalContent"
+        type="button"
+        class="answer-toggle"
+        :aria-expanded="answerOpen"
+        @click="answerOpen = !answerOpen"
+      >
+        <component :is="answerOpen ? ChevronDown : ChevronRight" :size="14" class="answer-caret" />
+        <Bot :size="13" />
+        <span>{{ agentLabels[run.agent] || run.agent }} · 回答</span>
+      </button>
+      <div v-if="finalContent" v-show="answerOpen" class="answer-body">
+        <MarkdownBody :text="finalContent" class="run-answer" />
+      </div>
       <div v-else-if="isActive" class="answer-pending">
         <span class="typing-dots"><i /><i /><i /></span>
         正在生成回答

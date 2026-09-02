@@ -27,18 +27,6 @@ export function buildChatItems(
   }
 
   const items: ChatItem[] = []
-  // 被专家子 run 直接关联的回答 turn（turn.role === 'assistant' 且该 run
-  // 的 turn_id 指向它）：顶层 run 的最终回答必须跳过这些 turn，向后找
-  // 第一个未被任何 run 关联的 assistant turn。
-  const turnById = new Map(turns.map((turn) => [turn.id, turn]))
-  const runLinkedAssistantIds = new Set(
-    runs
-      .filter(
-        (candidate) =>
-          candidate.turn_id && turnById.get(candidate.turn_id)?.role === 'assistant',
-      )
-      .map((candidate) => candidate.turn_id),
-  )
   const consumedIndexes = new Set<number>()
   for (let index = 0; index < turns.length; index += 1) {
     if (consumedIndexes.has(index)) continue
@@ -46,30 +34,13 @@ export function buildChatItems(
     if (!turn) continue
     const run = runs.find((candidate) => candidate.turn_id === turn.id)
     if (run) {
-      // 最终回答合并进 run 卡片顶部（Markdown）：
-      // - 专家子 run：turn_id 指向它自己的回答 turn（graph worker 完成时
-      //   回写），该 turn 本身就是 finalContent；
-      // - 顶层 run（协调器）：turn_id 指向用户指令 turn，向后找第一个未被
-      //   专家 run 关联的 assistant turn 作为回答。只标记该回答 turn 已
-      //   消费，中间的专家回答 turn 仍留给主循环正常生成卡片。
+      // 专家子 run：turn_id 指向它自己的回答 turn（assistant），finalContent
+      // 即该 turn 内容；顶层协调器 run：turn_id 指向用户指令 turn，其最终
+      // 总结报告是独立 assistant turn，在主循环中单独生成 AgentBubble——
+      // 不再向后匹配绑定，否则报告会被提前放到指令位置、跑到所有专家之前。
       let finalContent: string | undefined
       if (turn.role === 'assistant') {
         finalContent = turn.content
-      } else {
-        let nextIndex = index + 1
-        while (nextIndex < turns.length) {
-          const candidate = turns[nextIndex]
-          if (!candidate) break
-          if (
-            candidate.role === 'assistant' &&
-            !runLinkedAssistantIds.has(candidate.id)
-          ) {
-            finalContent = candidate.content
-            consumedIndexes.add(nextIndex)
-            break
-          }
-          nextIndex += 1
-        }
       }
       items.push({
         type: 'run',
