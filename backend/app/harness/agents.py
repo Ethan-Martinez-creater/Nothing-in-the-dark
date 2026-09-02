@@ -13,6 +13,19 @@ COORDINATOR_INSTRUCTIONS = (
     "模型记忆当作证据。需要领域分析时，通过 dispatch_expert 委派专家并等待"
     "其返回的 Artifact，而不是自行编造结论。所有事实性结论必须引用工具返回的"
     "帖子、评论、Evidence 或 Artifact ID。"
+    "【当前持久化状态】当用户询问当前 Case 已经持久化的数据、精确数量、"
+    "精确记录列表、最新记录、平台分布、Finding/Review/Report 当前状态时，"
+    "必须优先调用结构化数据库查询工具（get_case_data_overview / "
+    "query_social_posts / get_social_post / query_social_comments / "
+    "aggregate_social_data / query_findings / query_review_items / "
+    "query_reports / query_case_activity）。Conversation History、Memory、"
+    "旧 Artifact、先前 Assistant 回答不能替代当前数据库查询。"
+    "search_social_evidence 用于语义相关性与 Evidence discovery，"
+    "不得作为数据库 exact count 或 complete list 的权威来源。"
+    "若数据库返回 0 条，必须以当前数据库结果为准，不得因为历史对话中曾经"
+    "出现这些数据就声称它们当前仍存在。如果当前 DB 与历史回答冲突，"
+    "以当前数据库为准。数据库中存在某条 Social Post 只代表系统持久化了该内容，"
+    "不代表该 Post 陈述的事实已经被证明。"
 )
 
 OPINION_INSTRUCTIONS = (
@@ -21,8 +34,12 @@ OPINION_INSTRUCTIONS = (
     "必须遵守：1) 只基于 search_social_evidence / get_artifact / analyze_opinion "
     "返回的真实数据工作，不得把模型记忆当作证据；2) 每条结论绑定 Post、Comment "
     "或 Evidence ID；3) 必须依据 analyze_opinion 返回的 clusters / time_series / "
-    "trends / influencers / explanation 解释统计，不得编造数字；4) 最终回复必须是"
-    "一个可解析的 JSON 对象，结构为："
+    "trends / influencers / explanation 解释统计，不得编造数字；"
+    "4) 精确帖子数量、平台分布、当前帖子列表、时间范围内当前持久化数据必须来自"
+    "get_case_data_overview / query_social_posts / get_social_post / "
+    "query_social_comments / aggregate_social_data 等结构化数据库工具；"
+    "语义相关观点与 Evidence 检索使用 search_social_evidence；"
+    "5) 最终回复必须是一个可解析的 JSON 对象，结构为："
     '{"conclusions": [{"claim": "...", "evidence_ids": ["..."], "confidence": 0.9}], '
     '"statistics": {...}, "explanation": {"text": "...", "evidence_ids": ["..."]}, '
     '"limitations": ["..."]}。'
@@ -33,7 +50,12 @@ PROPAGATION_INSTRUCTIONS = (
     "置信度、observed/inferred 严格分类、源头候选、桥接账号、爆发节点。"
     "必须遵守：1) 仅发布时间相邻不能自动成为 observed 边，observed 边必须来自"
     "平台显式引用、转发、回复或 URL 关系；2) 不得引用不存在的节点或证据；"
-    "3) 每条边给出特征理由和置信度；4) 最终回复必须是可解析的 JSON 对象，"
+    "3) 每条边给出特征理由和置信度；"
+    "4) 需要确认当前数据库中实际存在的 Post / Comment 时，使用 "
+    "query_social_posts / get_social_post / query_social_comments；"
+    "传播关系判断仍以 reconstruct_propagation / query_propagation 以及真实 "
+    "Post / Comment 关系为准；"
+    "5) 最终回复必须是可解析的 JSON 对象，"
     '结构为：{"nodes": [{"id": "...", "platform": "..."}], '
     '"edges": [{"source": "...", "target": "...", "relation": "observed|inferred", '
     '"confidence": 0.8, "reasons": ["..."]}], "origin_candidates": [...], '
@@ -46,7 +68,11 @@ VERIFICATION_INSTRUCTIONS = (
     "必须遵守：1) 证据不足时 verdict 必须为 insufficient 并强制拒判，不得臆断；"
     "2) 每张核查卡包含主张、结论、置信度、支持证据、反驳证据、局限；"
     "3) 不得使用通用网页搜索，只基于 search_social_evidence 与 get_artifact "
-    "返回的证据；4) 最终回复必须是可解析的 JSON 对象，"
+    "返回的证据；"
+    "4) query_social_posts / get_social_post / query_social_comments 只能证明"
+    "数据库中实际存在这些内容，不能直接证明内容陈述为真；事实判断仍必须依赖 "
+    "search_social_evidence / query_claims / query_evidence / verify_claims；"
+    "5) 最终回复必须是可解析的 JSON 对象，"
     '结构为：{"cards": [{"claim": "...", "verdict": "supported|refuted|insufficient|'
     'misleading", "confidence": 0.8, "reason": "...", "supporting_evidence": ["..."], '
     '"contradicting_evidence": ["..."]}], "limitations": ["..."]}。'
@@ -56,7 +82,10 @@ EVIDENCE_CRITIC_INSTRUCTIONS = (
     "你是 COIFESP 证据批判评审专家（Evidence Critic）。职责：批判性审查其他专家"
     "结论与证据之间的蕴含关系——结论是否真的被其引用的证据支持、是否存在过度推断、"
     "引用的 Evidence ID 是否真实存在且属于当前案例。必须逐条给出判定与理由，"
-    "对含糊或证据不足的结论必须指出而非放行。最终回复必须是可解析的 JSON 对象，"
+    "对含糊或证据不足的结论必须指出而非放行。"
+    "get_social_post 用于核验被引用帖子是否真实存在；query_findings 用于确认 "
+    "Finding 当前状态；不得因为数据库中存在一条帖子就判断证据充分。"
+    "最终回复必须是可解析的 JSON 对象，"
     '结构为：{"verdicts": [{"target": "claim/结论文本", "verdict": "supported|'
     'unsupported|overreach", "reason": "...", "evidence_ids": ["..."]}]}。'
 )
@@ -66,7 +95,9 @@ REPORT_INSTRUCTIONS = (
     "的结构化结果，生成正式报告 IR（executive_summary、sections、核查卡、传播图引用），"
     "重要结论逐条绑定 Evidence ID。必须遵守：1) 所有结论可跳转到真实存在且属于"
     "当前案例的 Evidence ID；2) 不得编造统计数字，一律来自输入的结构化结果；"
-    "3) 最终回复必须是可解析的 JSON 对象，包含 title、executive_summary、sections、"
+    "3) 当前 Case 数据覆盖与精确数量使用 get_case_data_overview，当前 Findings "
+    "使用 query_findings；正式结论仍只能建立在已治理 Evidence / Finding 上；"
+    "4) 最终回复必须是可解析的 JSON 对象，包含 title、executive_summary、sections、"
     "citation_links（每条结论指向的 Evidence ID）、disclaimer。"
 )
 
@@ -74,7 +105,10 @@ CITATION_VALIDATOR_INSTRUCTIONS = (
     "你是 COIFESP 引用校验专家（Citation Validator）。职责：逐条检查报告或结论中"
     "的每个引用（Evidence ID、Artifact ID、帖子 ID）是否真实存在于当前案例数据，"
     "以及被引内容是否实际支持对应结论。必须通过 search_social_evidence 与 "
-    "get_artifact 核实后再判定。最终回复必须是可解析的 JSON 对象，结构为："
+    "get_artifact 核实后再判定。get_social_post 用于精确核验 Post ID，"
+    "query_findings 用于精确核验 Finding ID / status；引用是否真正支持结论仍需"
+    "结合 Evidence / Artifact，不能只做“ID 存在性”检查。"
+    "最终回复必须是可解析的 JSON 对象，结构为："
     '{"checks": [{"citation": "...", "verdict": "valid|invalid|not_found", '
     '"reason": "..."}]}。'
 )
@@ -87,6 +121,12 @@ _OPINION_TOOLS = frozenset(
         "get_artifact",
         "classify_sentiment",
         "analyze_opinion",
+        # DB01–DB05: 平台分布 / 时间趋势 / 当前真实 Post / Comment
+        "get_case_data_overview",
+        "query_social_posts",
+        "get_social_post",
+        "query_social_comments",
+        "aggregate_social_data",
     }
 )
 _PROPAGATION_TOOLS = frozenset(
@@ -96,6 +136,10 @@ _PROPAGATION_TOOLS = frozenset(
         "get_artifact",
         "reconstruct_propagation",
         "query_propagation",
+        # DB02–DB04: 核验当前数据库中真实存在的 Post / Comment
+        "query_social_posts",
+        "get_social_post",
+        "query_social_comments",
     }
 )
 _VERIFICATION_TOOLS = frozenset(
@@ -106,6 +150,10 @@ _VERIFICATION_TOOLS = frozenset(
         "verify_claims",
         "query_claims",
         "query_evidence",
+        # DB02–DB04: 确认数据库实际持久化内容（不直接证明事实）
+        "query_social_posts",
+        "get_social_post",
+        "query_social_comments",
     }
 )
 _CRITIC_TOOLS = frozenset(
@@ -115,6 +163,9 @@ _CRITIC_TOOLS = frozenset(
         "get_artifact",
         "query_claims",
         "query_evidence",
+        # DB03/DB06: 核验被引用 Post 是否存在、Finding 当前状态
+        "get_social_post",
+        "query_findings",
     }
 )
 _REPORT_TOOLS = frozenset(
@@ -126,6 +177,9 @@ _REPORT_TOOLS = frozenset(
         "query_claims",
         "query_evidence",
         "query_propagation",
+        # DB01/DB06: 覆盖概况与 verified Findings
+        "get_case_data_overview",
+        "query_findings",
     }
 )
 _VALIDATOR_TOOLS = frozenset(
@@ -136,6 +190,9 @@ _VALIDATOR_TOOLS = frozenset(
         "query_claims",
         "query_evidence",
         "query_propagation",
+        # DB03/DB06: 精确核验 Post ID 与 Finding ID / status
+        "get_social_post",
+        "query_findings",
     }
 )
 
@@ -245,6 +302,16 @@ def build_coordinator_definition(
                 "dispatch_expert",
                 "get_artifact",
                 "submit_review_item",
+                # DB01–DB09: 用户数据库状态问题的主要响应者
+                "get_case_data_overview",
+                "query_social_posts",
+                "get_social_post",
+                "query_social_comments",
+                "aggregate_social_data",
+                "query_findings",
+                "query_review_items",
+                "query_reports",
+                "query_case_activity",
             }
         ),
         permissions=frozenset(
