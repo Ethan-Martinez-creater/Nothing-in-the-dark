@@ -330,9 +330,11 @@ onMounted(async () => {
 }
 
 .copilot__thread {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 10px 12px;
 }
 

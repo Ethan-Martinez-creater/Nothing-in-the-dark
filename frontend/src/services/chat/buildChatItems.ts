@@ -104,9 +104,10 @@ export function buildChatItems(
       liveModelCalls: [],
     }
     const insertAt = items.findIndex((candidate) => {
-      const time =
-        candidate.type === 'run' ? candidate.run.created_at : candidate.turn.created_at
-      return time > run.created_at
+      // orphan-artifacts 无 created_at，不参与时间排序定位
+      if (candidate.type === 'run') return candidate.run.created_at > run.created_at
+      if (candidate.type === 'turn') return candidate.turn.created_at > run.created_at
+      return false
     })
     if (insertAt === -1) items.push(item)
     else items.splice(insertAt, 0, item)

@@ -15,12 +15,27 @@ import {
 import { api } from '@/services/api'
 import type { CaseRecord } from '@/types/api'
 
+type LayoutMode = 'split' | 'content' | 'copilot'
+
 const route = useRoute()
 
 const caseId = computed(() => String(route.params.caseId ?? ''))
 const investigation = ref<CaseRecord | null>(null)
 const loadError = ref<string | null>(null)
-const copilotOpen = ref(true)
+
+/**
+ * 工作区布局三态：
+ * - split   ：左侧概览等模块与右侧 Copilot 分屏（默认）
+ * - content ：全部显示概览等模块，隐藏 Copilot
+ * - copilot ：全部显示 Copilot，隐藏概览等模块
+ */
+const layoutMode = ref<LayoutMode>('split')
+
+const LAYOUT_OPTIONS: Array<{ key: LayoutMode; label: string }> = [
+  { key: 'split', label: '分屏' },
+  { key: 'content', label: '仅内容' },
+  { key: 'copilot', label: '仅 Copilot' },
+]
 
 const WORKSPACE_BY_SUFFIX: Record<string, InvestigationWorkspace> = {
   overview: 'overview',
@@ -62,18 +77,23 @@ onMounted(loadCase)
 
 <template>
   <div class="ishell">
-    <div class="ishell__main" :class="{ 'ishell__main--with-copilot': copilotOpen }">
-      <div class="ishell__content">
+    <div class="ishell__main" :class="`ishell__main--${layoutMode}`">
+      <div v-show="layoutMode !== 'copilot'" class="ishell__content">
         <InvestigationHeader :investigation="investigation">
           <template #actions>
-            <button
-              v-if="!copilotOpen"
-              type="button"
-              class="ishell__copilot-launcher"
-              @click="copilotOpen = true"
-            >
-              Copilot
-            </button>
+            <div class="ishell__layout-switch" role="group" aria-label="工作区布局">
+              <button
+                v-for="option in LAYOUT_OPTIONS"
+                :key="option.key"
+                type="button"
+                class="ishell__layout-btn"
+                :class="{ 'ishell__layout-btn--active': layoutMode === option.key }"
+                :aria-pressed="layoutMode === option.key"
+                @click="layoutMode = option.key"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </template>
         </InvestigationHeader>
         <InvestigationNav :case-id="caseId" />
@@ -83,10 +103,10 @@ onMounted(loadCase)
         </div>
       </div>
       <CopilotDrawer
-        v-if="copilotOpen && investigation"
+        v-if="layoutMode !== 'content' && investigation"
         :case-id="caseId"
         class="ishell__copilot"
-        @close="copilotOpen = false"
+        @close="layoutMode = 'content'"
       />
     </div>
   </div>
@@ -111,8 +131,19 @@ onMounted(loadCase)
     flex-direction: row;
   }
 
-  .ishell__main--with-copilot .ishell__content {
+  /* 分屏：内容区让出右侧 Copilot 宽度 */
+  .ishell__main--split .ishell__content {
     width: calc(100% - 420px);
+  }
+
+  /* 仅内容：内容区占满 */
+  .ishell__main--content .ishell__content {
+    width: 100%;
+  }
+
+  /* 仅 Copilot：Copilot 占满（内容区 v-show 隐藏） */
+  .ishell__main--copilot .ishell__copilot {
+    width: 100%;
   }
 
   .ishell__copilot {
@@ -132,15 +163,30 @@ onMounted(loadCase)
   min-height: 0;
 }
 
-.ishell__copilot-launcher {
-  padding: 7px 14px;
-  border: 1px solid var(--accent);
+.ishell__layout-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
-  color: var(--accent);
-  font-size: 13px;
+}
+
+.ishell__layout-btn {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.ishell__layout-btn--active {
+  background: var(--accent);
+  color: #fff;
 }
 
 .ishell__error {
