@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import (
@@ -80,18 +80,66 @@ class FindingRepository:
         self,
         case_id: str,
         *,
+        finding_id: str | None = None,
         kind: str | None = None,
         status: str | None = None,
+        query: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> Sequence[FindingRecord]:
-        query = select(FindingRecord).where(FindingRecord.case_id == case_id)
+        query_builder = select(FindingRecord).where(
+            FindingRecord.case_id == case_id
+        )
+        if finding_id:
+            query_builder = query_builder.where(FindingRecord.id == finding_id)
         if kind:
-            query = query.where(FindingRecord.kind == kind)
+            query_builder = query_builder.where(FindingRecord.kind == kind)
         if status:
-            query = query.where(FindingRecord.status == status)
-        query = query.order_by(FindingRecord.updated_at.desc()).limit(limit)
+            query_builder = query_builder.where(FindingRecord.status == status)
+        if query:
+            like = f"%{query}%"
+            query_builder = query_builder.where(
+                or_(
+                    FindingRecord.title.ilike(like),
+                    FindingRecord.statement.ilike(like),
+                )
+            )
+        query_builder = (
+            query_builder.order_by(
+                FindingRecord.updated_at.desc(), FindingRecord.id
+            )
+            .limit(limit)
+            .offset(offset)
+        )
         async with self._database.session_factory() as session:
-            return (await session.scalars(query)).all()
+            return (await session.scalars(query_builder)).all()
+
+    async def count(
+        self,
+        case_id: str,
+        *,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> int:
+        conditions = [FindingRecord.case_id == case_id]
+        if kind:
+            conditions.append(FindingRecord.kind == kind)
+        if status:
+            conditions.append(FindingRecord.status == status)
+        if query:
+            like = f"%{query}%"
+            conditions.append(
+                or_(
+                    FindingRecord.title.ilike(like),
+                    FindingRecord.statement.ilike(like),
+                )
+            )
+        async with self._database.session_factory() as session:
+            value = await session.scalar(
+                select(func.count(FindingRecord.id)).where(*conditions)
+            )
+            return int(value or 0)
 
     async def update_status(
         self, finding_id: str, status: str

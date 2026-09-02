@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import ReportDocumentRecord
@@ -27,16 +27,47 @@ class ReportDocumentRepository:
             return await session.get(ReportDocumentRecord, report_id)
 
     async def list_for_case(
-        self, case_id: str, *, limit: int = 50
+        self,
+        case_id: str,
+        *,
+        report_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
     ) -> Sequence[ReportDocumentRecord]:
-        async with self._database.session_factory() as session:
-            result = await session.execute(
-                select(ReportDocumentRecord)
-                .where(ReportDocumentRecord.case_id == case_id)
-                .order_by(ReportDocumentRecord.created_at.desc())
-                .limit(limit)
+        query = select(ReportDocumentRecord).where(
+            ReportDocumentRecord.case_id == case_id
+        )
+        if report_id:
+            query = query.where(ReportDocumentRecord.id == report_id)
+        if status:
+            query = query.where(ReportDocumentRecord.status == status)
+        query = (
+            query.order_by(
+                ReportDocumentRecord.created_at.desc(),
+                ReportDocumentRecord.id,
             )
+            .limit(limit)
+            .offset(offset)
+        )
+        async with self._database.session_factory() as session:
+            result = await session.execute(query)
             return result.scalars().all()
+
+    async def count_for_case(
+        self,
+        case_id: str,
+        *,
+        status: str | None = None,
+    ) -> int:
+        conditions = [ReportDocumentRecord.case_id == case_id]
+        if status:
+            conditions.append(ReportDocumentRecord.status == status)
+        async with self._database.session_factory() as session:
+            value = await session.scalar(
+                select(func.count(ReportDocumentRecord.id)).where(*conditions)
+            )
+            return int(value or 0)
 
     async def list_global(
         self, *, status: str | None = None, limit: int = 100

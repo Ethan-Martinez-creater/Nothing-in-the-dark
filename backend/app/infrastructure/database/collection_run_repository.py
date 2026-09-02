@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import ResourceNotFoundError
@@ -154,6 +154,15 @@ class CollectionRunRepository:
         self, case_id: str, *, limit: int = 10
     ) -> Sequence[CollectionRunRecord]:
         return await self.list_for_case(case_id, active_only=True, limit=limit)
+
+    async def count_for_case(self, case_id: str) -> int:
+        async with self._database.session_factory() as session:
+            value = await session.scalar(
+                select(func.count(CollectionRunRecord.id)).where(
+                    CollectionRunRecord.case_id == case_id
+                )
+            )
+            return int(value or 0)
 
     async def list_active_by_trigger_run(
         self, trigger_run_id: str

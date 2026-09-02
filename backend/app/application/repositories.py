@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.core.errors import ApplicationError, ResourceNotFoundError
 from app.domain.enums import CaseStatus, EventType, TaskStatus
@@ -206,6 +206,51 @@ class ApplicationRepository:
             if record is None:
                 raise ResourceNotFoundError("case", case_id)
             return record
+
+    async def get_case_database_counts(self, case_id: str) -> dict[str, int]:
+        """DB01: exact case-scoped counts of claim/evidence/artifact/review.
+
+        ``review_decisions`` 无 case_id 列，必须 JOIN ReviewItem 并以
+        ReviewItem.case_id 限定 Case scope（DB-INV-3），否则会泄漏其它
+        Case 的 Review 数据。posts/comments/findings/reports/collection_runs
+        不在此统计——它们由各自 Repository 负责。
+        """
+        async with self._database.session_factory() as session:
+            claims = await session.scalar(
+                select(func.count(ClaimRecord.id)).where(
+                    ClaimRecord.case_id == case_id
+                )
+            )
+            evidence = await session.scalar(
+                select(func.count(EvidenceRecord.id)).where(
+                    EvidenceRecord.case_id == case_id
+                )
+            )
+            artifacts = await session.scalar(
+                select(func.count(ArtifactRecord.id)).where(
+                    ArtifactRecord.case_id == case_id
+                )
+            )
+            review_items = await session.scalar(
+                select(func.count(ReviewItemRecord.id)).where(
+                    ReviewItemRecord.case_id == case_id
+                )
+            )
+            review_decisions = await session.scalar(
+                select(func.count(ReviewDecisionRecord.id))
+                .join(
+                    ReviewItemRecord,
+                    ReviewDecisionRecord.item_id == ReviewItemRecord.id,
+                )
+                .where(ReviewItemRecord.case_id == case_id)
+            )
+        return {
+            "claims": int(claims or 0),
+            "evidence": int(evidence or 0),
+            "artifacts": int(artifacts or 0),
+            "review_items": int(review_items or 0),
+            "review_decisions": int(review_decisions or 0),
+        }
 
     async def set_case_status(self, case_id: str, status: CaseStatus) -> None:
         async with self._database.session_factory() as session:
@@ -2800,20 +2845,33 @@ class ApplicationRepository:
         self,
         case_id: str,
         *,
-        status: str | None = None,
+        review_item_id: str | None = None,
         object_type: str | None = None,
+        object_id: str | None = None,
+        status: str | None = None,
         limit: int = 200,
+        offset: int = 0,
     ) -> Sequence[ReviewItemRecord]:
         query = select(ReviewItemRecord).where(
             ReviewItemRecord.case_id == case_id
         )
+        if review_item_id:
+            query = query.where(ReviewItemRecord.id == review_item_id)
         if status:
             query = query.where(ReviewItemRecord.status == status)
         if object_type:
             query = query.where(ReviewItemRecord.object_type == object_type)
-        query = query.order_by(
-            ReviewItemRecord.priority.desc(), ReviewItemRecord.created_at.asc()
-        ).limit(limit)
+        if object_id:
+            query = query.where(ReviewItemRecord.object_id == object_id)
+        query = (
+            query.order_by(
+                ReviewItemRecord.priority.desc(),
+                ReviewItemRecord.created_at.asc(),
+                ReviewItemRecord.id,
+            )
+            .limit(limit)
+            .offset(offset)
+        )
         async with self._database.session_factory() as session:
             result = await session.scalars(query)
             return result.all()
@@ -3324,13 +3382,30 @@ class ApplicationRepository:
             return log
 
     async def list_activity_log(
-        self, case_id: str, *, limit: int = 200
+        self,
+        case_id: str,
+        *,
+        activity_type: str | None = None,
+        actor: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
     ) -> Sequence[CaseActivityLogRecord]:
+        query = select(CaseActivityLogRecord).where(
+            CaseActivityLogRecord.case_id == case_id
+        )
+        if activity_type:
+            query = query.where(
+                CaseActivityLogRecord.activity_type == activity_type
+            )
+        if actor:
+            query = query.where(CaseActivityLogRecord.actor == actor)
         query = (
-            select(CaseActivityLogRecord)
-            .where(CaseActivityLogRecord.case_id == case_id)
-            .order_by(CaseActivityLogRecord.created_at.desc())
+            query.order_by(
+                CaseActivityLogRecord.created_at.desc(),
+                CaseActivityLogRecord.id,
+            )
             .limit(limit)
+            .offset(offset)
         )
         async with self._database.session_factory() as session:
             result = await session.scalars(query)

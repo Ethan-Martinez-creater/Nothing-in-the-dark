@@ -5,9 +5,9 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import (
@@ -176,47 +176,69 @@ class SocialRepository:
         case_id: str,
         *,
         platform: str | None = None,
+        platforms: list[str] | None = None,
         q: str | None = None,
+        author: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        sort_order: Literal["newest", "oldest"] = "newest",
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[SourcePostRecord]:
-        """C8.3: 分页 raw posts（platform/关键词/时间范围过滤， newest first）。"""
-        conditions = [SourcePostRecord.case_id == case_id]
+        """分页 raw posts（platform(s)/关键词/作者/时间范围过滤，确定性排序）。
+
+        ``platform`` 为向后兼容的单平台参数，``platforms`` 为多选；
+        两者合并取并集，Service 层负责归一化到 ``platforms``。
+        """
+        effective_platforms = list(platforms or [])
         if platform:
-            conditions.append(SourcePostRecord.platform == platform)
-        if q:
-            conditions.append(
-                or_(
-                    SourcePostRecord.content.ilike(f"%{q}%"),
-                    SourcePostRecord.title.ilike(f"%{q}%"),
-                )
-            )
-        if date_from is not None:
-            conditions.append(SourcePostRecord.published_at >= date_from)
-        if date_to is not None:
-            conditions.append(SourcePostRecord.published_at <= date_to)
+            effective_platforms.append(platform)
+        conditions = self._post_filters(
+            case_id,
+            platforms=effective_platforms or None,
+            q=q,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        order = (
+            SourcePostRecord.published_at.desc()
+            if sort_order == "newest"
+            else SourcePostRecord.published_at.asc()
+        )
         async with self._database.session_factory() as session:
             result = await session.scalars(
                 select(SourcePostRecord)
                 .where(*conditions)
-                .order_by(SourcePostRecord.published_at.desc())
+                .order_by(order, SourcePostRecord.id)
                 .limit(limit)
                 .offset(offset)
             )
             return result.all()
 
     async def list_post_time_rows(
-        self, case_id: str
+        self,
+        case_id: str,
+        *,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> list[tuple[datetime | None, str]]:
         """C8.2: 轻量聚合原始行 —— (published_at, platform)，Python 侧按
         天/平台聚合（双方言安全：不依赖 SQL date 函数）。"""
+        conditions = self._post_filters(
+            case_id,
+            platforms=platforms,
+            q=q,
+            date_from=date_from,
+            date_to=date_to,
+        )
         async with self._database.session_factory() as session:
             rows = await session.execute(
-                select(
-                    SourcePostRecord.published_at, SourcePostRecord.platform
-                ).where(SourcePostRecord.case_id == case_id)
+                select(SourcePostRecord.published_at, SourcePostRecord.platform)
+                .where(*conditions)
+                .order_by(SourcePostRecord.published_at.asc(), SourcePostRecord.id)
             )
             return [(row[0], row[1]) for row in rows.all()]
 
@@ -250,6 +272,256 @@ class SocialRepository:
                 .limit(limit)
             )
             return result.all()
+
+    @staticmethod
+    def _post_filters(
+        case_id: str,
+        *,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> list[Any]:
+        """Post 查询共享过滤条件（typed bind parameters，无 SQL 拼接）。"""
+        conditions = [SourcePostRecord.case_id == case_id]
+        if platforms:
+            conditions.append(SourcePostRecord.platform.in_(platforms))
+        if q:
+            conditions.append(
+                or_(
+                    SourcePostRecord.content.ilike(f"%{q}%"),
+                    SourcePostRecord.title.ilike(f"%{q}%"),
+                )
+            )
+        if author:
+            conditions.append(
+                or_(
+                    SourcePostRecord.author_name.ilike(f"%{author}%"),
+                    SourcePostRecord.author_id.ilike(f"%{author}%"),
+                )
+            )
+        if date_from is not None:
+            conditions.append(SourcePostRecord.published_at >= date_from)
+        if date_to is not None:
+            conditions.append(SourcePostRecord.published_at <= date_to)
+        return conditions
+
+    @staticmethod
+    def _comment_filters(
+        case_id: str,
+        *,
+        post_id: str | None = None,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> list[Any]:
+        """Comment 查询共享过滤条件。Comment 无独立 case 边界，必须 JOIN
+        SourcePost 并以 SourcePost.case_id 作为 Case scope（DB-INV-3）。"""
+        conditions = [SourcePostRecord.case_id == case_id]
+        if post_id is not None:
+            conditions.append(SourceCommentRecord.post_id == post_id)
+        if platforms:
+            conditions.append(SourcePostRecord.platform.in_(platforms))
+        if q:
+            conditions.append(SourceCommentRecord.content.ilike(f"%{q}%"))
+        if author:
+            conditions.append(
+                or_(
+                    SourceCommentRecord.author_name.ilike(f"%{author}%"),
+                    SourceCommentRecord.author_id.ilike(f"%{author}%"),
+                )
+            )
+        if date_from is not None:
+            conditions.append(SourceCommentRecord.published_at >= date_from)
+        if date_to is not None:
+            conditions.append(SourceCommentRecord.published_at <= date_to)
+        return conditions
+
+    async def count_posts(
+        self,
+        case_id: str,
+        *,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> int:
+        """Exact count of persisted posts matching the filters (current DB)."""
+        conditions = self._post_filters(
+            case_id,
+            platforms=platforms,
+            q=q,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        async with self._database.session_factory() as session:
+            value = await session.scalar(
+                select(func.count(SourcePostRecord.id)).where(*conditions)
+            )
+            return int(value or 0)
+
+    async def get_post_for_case(
+        self,
+        case_id: str,
+        *,
+        post_id: str | None = None,
+        platform: str | None = None,
+        native_id: str | None = None,
+    ) -> SourcePostRecord | None:
+        """Exact post lookup strictly scoped to the case (DB-INV-4):
+        a post belonging to another case must resolve to None."""
+        if post_id is not None:
+            async with self._database.session_factory() as session:
+                return await session.scalar(
+                    select(SourcePostRecord).where(
+                        SourcePostRecord.id == post_id,
+                        SourcePostRecord.case_id == case_id,
+                    )
+                )
+        if platform and native_id:
+            async with self._database.session_factory() as session:
+                return await session.scalar(
+                    select(SourcePostRecord).where(
+                        SourcePostRecord.case_id == case_id,
+                        SourcePostRecord.platform == platform,
+                        SourcePostRecord.native_id == native_id,
+                    )
+                )
+        return None
+
+    async def list_comments_page(
+        self,
+        case_id: str,
+        *,
+        post_id: str | None = None,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        sort_order: Literal["newest", "oldest"] = "newest",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[SourceCommentRecord]:
+        """Paginated comments, always JOINed through SourcePost for case scope."""
+        conditions = self._comment_filters(
+            case_id,
+            post_id=post_id,
+            platforms=platforms,
+            q=q,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        order = (
+            SourceCommentRecord.published_at.desc()
+            if sort_order == "newest"
+            else SourceCommentRecord.published_at.asc()
+        )
+        async with self._database.session_factory() as session:
+            result = await session.scalars(
+                select(SourceCommentRecord)
+                .join(
+                    SourcePostRecord,
+                    SourceCommentRecord.post_id == SourcePostRecord.id,
+                )
+                .where(*conditions)
+                .order_by(order, SourceCommentRecord.id)
+                .limit(limit)
+                .offset(offset)
+            )
+            return result.all()
+
+    async def count_comments(
+        self,
+        case_id: str,
+        *,
+        post_id: str | None = None,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> int:
+        """Exact comment count scoped through SourcePost.case_id."""
+        conditions = self._comment_filters(
+            case_id,
+            post_id=post_id,
+            platforms=platforms,
+            q=q,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        async with self._database.session_factory() as session:
+            value = await session.scalar(
+                select(func.count(SourceCommentRecord.id))
+                .join(
+                    SourcePostRecord,
+                    SourceCommentRecord.post_id == SourcePostRecord.id,
+                )
+                .where(*conditions)
+            )
+            return int(value or 0)
+
+    async def count_posts_by_platform(
+        self,
+        case_id: str,
+        *,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> list[tuple[str, int]]:
+        conditions = self._post_filters(
+            case_id,
+            platforms=platforms,
+            q=q,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(SourcePostRecord.platform, func.count(SourcePostRecord.id))
+                .where(*conditions)
+                .group_by(SourcePostRecord.platform)
+            )
+            return [(str(row[0]), int(row[1])) for row in rows.all()]
+
+    async def count_posts_by_content_type(
+        self,
+        case_id: str,
+        *,
+        platforms: list[str] | None = None,
+        q: str | None = None,
+        author: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> list[tuple[str, int]]:
+        conditions = self._post_filters(
+            case_id,
+            platforms=platforms,
+            q=q,
+            author=author,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    SourcePostRecord.content_type, func.count(SourcePostRecord.id)
+                )
+                .where(*conditions)
+                .group_by(SourcePostRecord.content_type)
+            )
+            return [(str(row[0]), int(row[1])) for row in rows.all()]
 
     async def list_platform_capabilities(
         self,
