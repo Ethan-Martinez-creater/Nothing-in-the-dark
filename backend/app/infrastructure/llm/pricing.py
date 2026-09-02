@@ -27,15 +27,16 @@ class CostEstimate:
 DEEPSEEK_PRICES = {
     "deepseek-v4-flash": ModelPrice(
         canonical_model="deepseek-v4-flash",
-        cached_input_per_million=Decimal("0.02"),
-        uncached_input_per_million=Decimal("1"),
-        output_per_million=Decimal("2"),
+        cached_input_per_million=Decimal("0.1"),
+        uncached_input_per_million=Decimal("3"),
+        output_per_million=Decimal("9"),
     ),
 }
 
 MODEL_ALIASES = {
     "deepseek-chat": "deepseek-v4-flash",
     "deepseek-reasoner": "deepseek-v4-flash",
+    "deepseek-v4-flash-0731": "deepseek-v4-flash",
 }
 
 

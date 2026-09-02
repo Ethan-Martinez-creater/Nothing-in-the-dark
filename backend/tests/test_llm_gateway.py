@@ -6,8 +6,9 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
-from openai import APITimeoutError
+from openai import APITimeoutError, RateLimitError
 
 from app.core.config import Settings
 from app.core.errors import ApplicationError
@@ -134,6 +135,43 @@ async def test_retries_then_reports_llm_request_failed() -> None:
 
     assert exc_info.value.code == "llm_request_failed"
     assert client.calls == 2  # initial attempt + 1 retry
+
+
+async def test_429_rate_limit_without_headers_attr_retries_and_succeeds() -> None:
+    # openai>=2.x 的 RateLimitError 没有 `headers` 属性（retry-after 在
+    # response.headers 上）。回归：此前 `exc.headers` 直接抛 AttributeError，
+    # 掩盖真实限流导致重试失效。现在应安全读取 response.headers 并重试。
+    class Flaky429Client:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **kwargs: Any) -> Any:
+            self.calls += 1
+            if self.calls == 1:
+                request = httpx.Request("POST", "http://llm")
+                response = httpx.Response(
+                    429,
+                    request=request,
+                    headers={"retry-after": "0"},
+                )
+                raise RateLimitError(
+                    "rate limited",
+                    response=response,
+                    body={"error": {"message": "too many requests"}},
+                )
+            return fake_response()
+
+    gateway = build_gateway(llm_max_retries=2)
+    gateway._client = Flaky429Client()  # noqa: SLF001
+
+    result = await gateway.complete(
+        messages=[LLMMessage(role="user", content="hi")],
+        tools=[],
+        route=ModelRoute.FAST,
+    )
+    assert result.message.content == "ok"
+    assert gateway._client.calls == 2  # noqa: SLF001 — 1 次 429 + 1 次成功
 
 
 def test_unconfigured_gateway_reports_llm_not_configured() -> None:

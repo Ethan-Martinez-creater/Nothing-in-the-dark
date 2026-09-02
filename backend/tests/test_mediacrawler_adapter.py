@@ -12,6 +12,7 @@ from app.core.errors import CrawlerConfigurationError, CrawlerExecutionError
 from app.infrastructure.crawler.mediacrawler import (
     MediaCrawlerAdapter,
     MediaCrawlerConfig,
+    _TIMEOUT_EXIT_CODE,
     _normalize_timestamp,
     _parse_metric,
     _within_time_range,
@@ -364,3 +365,239 @@ def test_non_research_usage_is_rejected(
     )
     with pytest.raises(CrawlerConfigurationError, match="non-commercial"):
         adapter._validate_installation()
+
+
+# ---------- 登录态感知 headless ----------
+
+
+def _write_cookie_db(crawler_root: Path, platform_code: str, names: list[str]) -> None:
+    """构造一个最小 Chrome Cookies SQLite（只读检测用）。"""
+    import sqlite3
+
+    db = (
+        crawler_root
+        / "browser_data"
+        / f"{platform_code}_user_data_dir"
+        / "Default"
+        / "Network"
+        / "Cookies"
+    )
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE cookies (name TEXT PRIMARY KEY, value TEXT, host_key TEXT)"
+    )
+    for name in names:
+        conn.execute(
+            "INSERT INTO cookies (name, value, host_key) VALUES (?, ?, ?)",
+            (name, "v", "example.com"),
+        )
+    conn.commit()
+    conn.close()
+
+
+def _make_adapter(
+    crawler_root: Path,
+    tmp_path: Path,
+    *,
+    headless: bool = True,
+    login_type: str = "qrcode",
+    weibo_cookies: str = "",
+) -> MediaCrawlerAdapter:
+    return MediaCrawlerAdapter(
+        MediaCrawlerConfig(
+            root=crawler_root,
+            output_root=tmp_path / "runs",
+            python_executable=Path(__file__),
+            headless=headless,
+            login_type=login_type,
+            weibo_cookies=weibo_cookies,
+        )
+    )
+
+
+def test_headless_keeps_background_when_platform_logged_in(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    _write_cookie_db(crawler_root, "dy", ["sessionid", "sid_guard"])
+    adapter = _make_adapter(crawler_root, tmp_path, headless=True)
+    assert adapter._effective_headless("douyin") is True
+
+
+def test_headless_forces_foreground_when_platform_not_logged_in(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    # 目录存在但只有匿名 cookie（无登录标志）。
+    _write_cookie_db(crawler_root, "dy", ["ttwid", "__ac_signature"])
+    adapter = _make_adapter(crawler_root, tmp_path, headless=True)
+    assert adapter._effective_headless("douyin") is False
+
+
+def test_headless_forces_foreground_when_no_profile_dir(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    adapter = _make_adapter(crawler_root, tmp_path, headless=True)
+    assert adapter._effective_headless("douyin") is False
+
+
+def test_headless_respects_explicit_foreground_config(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    _write_cookie_db(crawler_root, "dy", ["sessionid"])
+    adapter = _make_adapter(crawler_root, tmp_path, headless=False)
+    assert adapter._effective_headless("douyin") is False
+
+
+def test_headless_background_for_cookie_configured_platform(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    # 未建 profile，但平台配置了 cookie → 无需可见扫码窗口，保持后台。
+    adapter = _make_adapter(
+        crawler_root, tmp_path, headless=True, weibo_cookies="session=secret"
+    )
+    assert adapter._effective_headless("weibo") is True
+
+
+def test_headless_background_when_login_type_is_cookie(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    adapter = _make_adapter(
+        crawler_root, tmp_path, headless=True, login_type="cookie"
+    )
+    assert adapter._effective_headless("douyin") is True
+
+
+def test_headless_falls_back_to_background_on_cookie_read_error(
+    tmp_path: Path, crawler_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3 as _sqlite3
+
+    _write_cookie_db(crawler_root, "dy", ["sessionid"])
+
+    def _broken_connect(*args, **kwargs):  # noqa: ARG001
+        raise OSError("locked")
+
+    monkeypatch.setattr(_sqlite3, "connect", _broken_connect)
+    adapter = _make_adapter(crawler_root, tmp_path, headless=True)
+    # 读取失败保守按已登录处理（不强制切前台打扰用户）。
+    assert adapter._effective_headless("douyin") is True
+
+
+@pytest.mark.asyncio
+async def test_collect_passes_login_aware_headless_to_command(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    commands: list[list[str]] = []
+
+    async def fake_runner(command, cwd, timeout_seconds):
+        commands.append(list(command))
+        output = Path(command[command.index("--save_data_path") + 1])
+        folder = output / "weibo" / "jsonl"
+        folder.mkdir(parents=True)
+        (folder / "search_contents.jsonl").write_text(
+            json.dumps(
+                {
+                    "note_id": "h1",
+                    "content": "headless 测试",
+                    "create_time": 1_700_000_000,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return 0, "", ""
+
+    # 微博已登录（SUB）→ 后台；抖音无 profile → 前台。
+    _write_cookie_db(crawler_root, "wb", ["SUB", "WBPSESS"])
+    adapter = MediaCrawlerAdapter(
+        MediaCrawlerConfig(
+            root=crawler_root,
+            output_root=tmp_path / "runs",
+            python_executable=Path(__file__),
+            headless=True,
+        ),
+        command_runner=fake_runner,
+    )
+    await adapter.collect(
+        CrawlRequest(
+            topic="测试",
+            platforms=["weibo", "douyin"],
+            time_range={"start": None, "end": None},
+        )
+    )
+    assert len(commands) == 2
+    by_platform = {
+        cmd[cmd.index("--platform") + 1]: cmd[cmd.index("--headless") + 1]
+        for cmd in commands
+    }
+    assert by_platform["wb"] == "true"  # 已登录 → 后台
+    assert by_platform["dy"] == "false"  # 未登录 → 前台扫码
+
+
+@pytest.mark.asyncio
+async def test_collect_keeps_partial_data_on_timeout_exit(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    # 回归：超时（_TIMEOUT_EXIT_CODE）时 collect 应保留已写出的 JSONL
+    # 数据，而不是抛异常丢弃整平台（INV-4）。
+    async def timeout_runner(command, cwd, timeout_seconds):
+        output = Path(command[command.index("--save_data_path") + 1])
+        folder = output / "weibo" / "jsonl"
+        folder.mkdir(parents=True)
+        (folder / "search_contents.jsonl").write_text(
+            json.dumps(
+                {
+                    "note_id": "timeout-1",
+                    "content": "超时前已采到的微博",
+                    "create_time": 1_700_000_000,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return _TIMEOUT_EXIT_CODE, "", "MediaCrawler exceeded the timeout"
+
+    adapter = MediaCrawlerAdapter(
+        MediaCrawlerConfig(
+            root=crawler_root,
+            output_root=tmp_path / "runs",
+            python_executable=Path(__file__),
+        ),
+        command_runner=timeout_runner,
+    )
+    posts = await adapter.collect(
+        CrawlRequest(
+            topic="测试",
+            platforms=["weibo"],
+            time_range={"start": None, "end": None},
+        )
+    )
+    assert len(posts) == 1
+    assert posts[0]["id"] == "weibo-timeout-1"
+
+
+@pytest.mark.asyncio
+async def test_collect_raises_when_timeout_and_no_partial_data(
+    tmp_path: Path, crawler_root: Path
+) -> None:
+    async def timeout_runner(command, cwd, timeout_seconds):
+        return _TIMEOUT_EXIT_CODE, "", "MediaCrawler exceeded the timeout"
+
+    adapter = MediaCrawlerAdapter(
+        MediaCrawlerConfig(
+            root=crawler_root,
+            output_root=tmp_path / "runs",
+            python_executable=Path(__file__),
+        ),
+        command_runner=timeout_runner,
+    )
+    with pytest.raises(CrawlerExecutionError, match="exit code"):
+        await adapter.collect(
+            CrawlRequest(
+                topic="测试",
+                platforms=["weibo"],
+                time_range={"start": None, "end": None},
+            )
+        )

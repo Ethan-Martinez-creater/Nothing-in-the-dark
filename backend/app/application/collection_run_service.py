@@ -289,3 +289,17 @@ class CollectionRunService:
 
     async def cancel(self, case_id: str, run_id: str) -> CollectionRunRecord:
         return await self._repository.request_cancel(run_id)
+
+    async def cancel_by_trigger_run(
+        self, run_id: str
+    ) -> list[CollectionRunRecord]:
+        """级联取消：把某个 agent run 触发的所有活跃采集一并取消。
+
+        协调器 run 取消时（Copilot 取消按钮 / API cancel），其发起的后台
+        CollectionRun 由独立的 worker 驱动，若不级联取消会继续空转。
+        """
+        active = await self._repository.list_active_by_trigger_run(run_id)
+        cancelled: list[CollectionRunRecord] = []
+        for record in active:
+            cancelled.append(await self._repository.request_cancel(record.id))
+        return cancelled

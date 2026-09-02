@@ -7,7 +7,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import { X } from 'lucide-vue-next'
 
-import ChatInputBar from '@/components/chat/ChatInputBar.vue'
+import ChatInputBar, { type ApprovalTarget } from '@/components/chat/ChatInputBar.vue'
 import ChatThread from '@/components/chat/ChatThread.vue'
 import {
   useInvestigationContext,
@@ -42,6 +42,28 @@ const contextLabel = computed(() => {
   return parts.join(' · ')
 })
 
+// 审批队列队首：任意 run 进入 waiting_approval 且带 pending approval 时，
+// 把首条审批交给输入框上方审批卡（批准/拒绝经 handleDecide 落库并恢复 run）。
+const approvalTarget = computed<ApprovalTarget | null>(() => {
+  const pendingRuns = items.value.filter(
+    (item): item is Extract<ChatItem, { type: 'run' }> =>
+      item.type === 'run' &&
+      item.run.status === 'waiting_approval' &&
+      item.approvals.some((approval) => approval.status === 'pending'),
+  )
+  if (pendingRuns.length === 0) return null
+  const first = pendingRuns[0]
+  if (!first) return null
+  const approval = first.approvals.find((candidate) => candidate.status === 'pending')
+  if (!approval) return null
+  return {
+    runId: first.run.id,
+    run: first.run,
+    approval,
+    queueCount: pendingRuns.length,
+  }
+})
+
 function runItemFor(run: AgentRun): ChatItem {
   return {
     type: 'run',
@@ -66,6 +88,30 @@ async function loadHistory() {
     ])
     // C10：重建时保留 run 项的 live 状态（approvals/trace/liveEvents）
     items.value = preserveRunLiveState(items.value, buildChatItems(turns, runs, artifacts))
+    // 页面刷新后 SSE 不会重放已消费的审批事件；为 waiting_approval 的 run
+    // 从 trace 补齐 approvals，使输入框上方审批卡在重载后依然出现。
+    const waitingRuns = items.value.filter(
+      (item): item is Extract<ChatItem, { type: 'run' }> =>
+        item.type === 'run' && item.run.status === 'waiting_approval',
+    )
+    await Promise.all(
+      waitingRuns.map(async (item) => {
+        try {
+          const trace = await api.getRunTrace(item.run.id)
+          if (trace.approvals?.length) {
+            item.approvals = trace.approvals.map((approval) => ({
+              id: approval.id,
+              action: approval.action,
+              reason: approval.reason,
+              status: approval.status,
+              request_payload: approval.request_payload,
+            }))
+          }
+        } catch {
+          // trace 拉取失败不影响主流程
+        }
+      }),
+    )
   } catch {
     error.value = 'Copilot 历史加载失败，请重试。'
   } finally {
@@ -149,6 +195,15 @@ async function handleDecide(
   }
 }
 
+async function handleCancel(runId: string) {
+  try {
+    await api.cancelRun(runId)
+    await loadHistory()
+  } catch {
+    error.value = '取消失败，请重试。'
+  }
+}
+
 watch(
   () => props.caseId,
   () => {
@@ -198,6 +253,7 @@ onMounted(async () => {
         :items="items"
         :case-id="caseId"
         @decide="handleDecide"
+        @cancel="handleCancel"
       />
     </div>
 
@@ -206,7 +262,9 @@ onMounted(async () => {
         :sending="sending"
         :real-crawl="realCrawl"
         :llm-configured="llmConfigured"
+        :approval-target="approvalTarget"
         @send="handleSend"
+        @decide="handleDecide"
       />
     </div>
   </aside>

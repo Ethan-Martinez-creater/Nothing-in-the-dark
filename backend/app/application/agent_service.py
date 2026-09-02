@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,6 +20,8 @@ from app.harness.approval_policy import (
     validate_approval_transition,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class AgentRunService:
     """Enqueue agent runs and drive approvals.
@@ -34,9 +37,11 @@ class AgentRunService:
         self,
         repository: ApplicationRepository,
         worker: GraphWorker,
+        collection_run_service: Any = None,
     ) -> None:
         self._repository = repository
         self._worker = worker
+        self._collection_run_service = collection_run_service
 
     async def start(
         self,
@@ -116,6 +121,13 @@ class AgentRunService:
 
     async def cancel(self, run_id: str) -> Any:
         await self._worker.cancel(run_id)
+        # 级联取消：协调器 run 发起的后台 CollectionRun 由独立 worker
+        # 驱动，取消 agent run 时必须一并取消，否则采集会继续空转。
+        if self._collection_run_service is not None:
+            try:
+                await self._collection_run_service.cancel_by_trigger_run(run_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("cascade cancel of collection runs failed for %s", run_id)
         return await self._repository.update_agent_run(run_id, status="cancelled")
 
     async def approve(

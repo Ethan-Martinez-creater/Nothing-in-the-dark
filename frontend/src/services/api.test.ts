@@ -81,7 +81,7 @@ describe('api transport', () => {
     await api.approveRun('run-1', 'appr-9', true, '允许采集')
     expect(http.post).toHaveBeenCalledWith('/runs/run-1/approve', {
       approval_id: 'appr-9',
-      decision: true,
+      decision: 'approve',
       note: '允许采集',
     })
   })

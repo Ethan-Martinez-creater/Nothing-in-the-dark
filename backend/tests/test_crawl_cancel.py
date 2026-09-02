@@ -16,6 +16,7 @@ from app.harness.tools import ToolRegistry, ToolSpec
 from app.infrastructure.crawler.mediacrawler import (
     MediaCrawlerAdapter,
     MediaCrawlerConfig,
+    _TIMEOUT_EXIT_CODE,
     _run_command,
 )
 
@@ -32,6 +33,19 @@ async def test_run_command_kills_child_when_cancel_event_set() -> None:
     with pytest.raises(ApplicationError) as exc:
         await task
     assert exc.value.code == "tool_cancelled"
+
+
+@pytest.mark.asyncio
+async def test_run_command_timeout_returns_exit_code_instead_of_raising() -> None:
+    # 回归：超时强杀后应返回非零退出码（走 collect 的 partial 保留），
+    # 而不是抛异常丢弃已采数据。
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    return_code, stdout, stderr = await _run_command(
+        command, Path.cwd(), 0.2
+    )
+    assert return_code == _TIMEOUT_EXIT_CODE
+    assert isinstance(stdout, str)
+    assert isinstance(stderr, str)
 
 
 @pytest.mark.asyncio

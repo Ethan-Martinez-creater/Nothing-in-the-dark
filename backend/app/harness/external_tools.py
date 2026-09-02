@@ -82,6 +82,11 @@ async def collect_social_posts(payload: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
         keywords=dict(payload.get("keywords") or {}),
+        output_root_name=(
+            str(payload["output_root_name"])
+            if payload.get("output_root_name") is not None
+            else None
+        ),
     )
     crawler = _build_crawler()
     posts = await crawler.collect(request)

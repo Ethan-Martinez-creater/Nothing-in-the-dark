@@ -352,7 +352,7 @@ export const api = {
   ): Promise<AgentRun> {
     const { data } = await http.post<AgentRun>(`/runs/${runId}/approve`, {
       approval_id: approvalId,
-      decision,
+      decision: decision ? 'approve' : 'reject',
       note: note || null,
     })
     return data

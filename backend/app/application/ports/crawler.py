@@ -23,6 +23,9 @@ class CrawlRequest:
     # 每平台的检索关键词组（LLM 检索优化产出）；缺省回退 [topic]。
     keywords: dict[str, list[str]] | None = None
     cancel_event: asyncio.Event | None = None
+    # 输出子目录名（run 级进度扫描用）。缺省时 adapter 随机生成 uuid，
+    # 这样 worker 无法在采集运行中定位输出目录来统计实时进度。
+    output_root_name: str | None = None
 
 
 class SocialCrawlerPort(Protocol):

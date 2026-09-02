@@ -14,7 +14,8 @@ def test_deepseek_v4_flash_cache_aware_cost() -> None:
 
     assert estimate.priced is True
     assert estimate.currency == "CNY"
-    assert estimate.amount == 0.955
+    # 0.25M cached×0.1 + 0.75M uncached×3 + 0.1M output×9
+    assert estimate.amount == 3.175
 
 
 def test_deprecated_chat_alias_uses_v4_flash_price() -> None:
@@ -26,7 +27,22 @@ def test_deprecated_chat_alias_uses_v4_flash_price() -> None:
     )
 
     assert estimate.pricing_model == "deepseek-v4-flash"
-    assert estimate.amount == 3
+    # 1M uncached×3 + 1M output×9
+    assert estimate.amount == 12
+
+
+def test_version_suffixed_model_alias_prices() -> None:
+    # 实际运行 model 名带版本后缀（deepseek-v4-flash-0731），必须命中定价。
+    estimate = estimate_deepseek_cost(
+        model="deepseek-v4-flash-0731",
+        input_tokens=1_000_000,
+        cached_input_tokens=0,
+        output_tokens=1_000_000,
+    )
+
+    assert estimate.priced is True
+    assert estimate.pricing_model == "deepseek-v4-flash"
+    assert estimate.amount == 12
 
 
 def test_gateway_reads_deepseek_cache_usage_fields() -> None:
@@ -53,7 +69,8 @@ def test_gateway_reads_deepseek_cache_usage_fields() -> None:
 
     assert converted.usage.cached_input_tokens == 600
     assert converted.usage.uncached_input_tokens == 400
-    assert converted.estimated_cost == 0.000612
+    # 600 cached×0.1/M + 400 uncached×3/M + 100 output×9/M
+    assert converted.estimated_cost == 0.00216
     assert converted.pricing_model == "deepseek-v4-flash"
 
 

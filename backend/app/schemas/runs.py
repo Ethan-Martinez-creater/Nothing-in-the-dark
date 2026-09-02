@@ -92,7 +92,7 @@ class RunEventResponse(BaseModel):
 
 class ApproveRequest(BaseModel):
     approval_id: str
-    decision: bool = True
+    decision: str = "approve"
     note: str | None = None
 
 

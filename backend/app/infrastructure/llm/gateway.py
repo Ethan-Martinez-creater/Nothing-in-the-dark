@@ -193,8 +193,14 @@ class OpenAICompatibleGateway(LLMGateway):
                         ) from exc
                     last_error = exc
                     # M22: 尊重 429 Retry-After（不存在时按指数退避）。
-                    if exc.status_code == 429 and exc.headers is not None:
-                        raw = exc.headers.get("retry-after")
+                    # openai>=2.x 的 APIStatusError 没有 `headers` 属性；
+                    # retry-after 只能从 exc.response.headers 读取。
+                    response = getattr(exc, "response", None)
+                    if exc.status_code == 429 and response is not None:
+                        try:
+                            raw = response.headers.get("retry-after")
+                        except AttributeError:
+                            raw = None
                         if raw is not None:
                             try:
                                 retry_after = float(raw)

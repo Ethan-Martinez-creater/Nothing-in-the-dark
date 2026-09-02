@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import re
+import sqlite3
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -30,6 +31,10 @@ CommandRunner = Callable[..., Awaitable[tuple[int, str, str]]]
 _COOKIE_ENV = "COIFESP_MEDIACRAWLER_COOKIES"
 _CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
+# GNU timeout 约定的超时退出码：超时强杀后以此码返回，让 collect 走
+# "进程非零退出但已产出部分数据则保留" 的逻辑（INV-4）。
+_TIMEOUT_EXIT_CODE = 124
+
 _WEIBO_ACCOUNT_TRADE_RE = re.compile(
     r"(?:出|卖|收|换|估).{0,6}(?:号|账号)|"
     r"(?:账号|游戏号).{0,8}(?:出售|交易|换绑|估价)|"
@@ -45,6 +50,16 @@ PLATFORM_CODES = {
     "tieba": "tieba",
     "zhihu": "zhihu",
     "douyin": "dy",
+}
+
+# 各平台登录态标志 cookie（登录后才会写入 browser_data；name 明文可读）。
+# 存在任一标志即认为该平台已登录。
+_PLATFORM_LOGIN_COOKIES: dict[str, tuple[str, ...]] = {
+    "weibo": ("SUB", "WBPSESS"),
+    "bilibili": ("SESSDATA",),
+    "tieba": ("BDUSS",),
+    "zhihu": ("z_c0",),
+    "douyin": ("sessionid", "sid_guard", "uid_tt"),
 }
 
 
@@ -191,20 +206,28 @@ async def _run_command(
                 if process.returncode is None:
                     await _kill_process_tree(process)
                     await process.wait()
-                await asyncio.gather(
+                stdout, stderr = await asyncio.gather(
                     stdout_task, stderr_task, return_exceptions=True
                 )
-                raise CrawlerExecutionError(
-                    f"MediaCrawler exceeded the {timeout_seconds:g}-second timeout"
+                # 超时不抛异常：返回非零退出码，让 collect 走 partial 保留
+                # 逻辑（INV-4：已产出部分数据时保留，而不是丢弃整平台）。
+                return (
+                    _TIMEOUT_EXIT_CODE,
+                    stdout if isinstance(stdout, str) else "",
+                    stderr if isinstance(stderr, str) else "",
                 )
     except TimeoutError:
         if process.returncode is None:
             await _kill_process_tree(process)
             await process.wait()
-        await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-        raise CrawlerExecutionError(
-            f"MediaCrawler exceeded the {timeout_seconds:g}-second timeout"
-        ) from None
+        stdout, stderr = await asyncio.gather(
+            stdout_task, stderr_task, return_exceptions=True
+        )
+        return (
+            _TIMEOUT_EXIT_CODE,
+            stdout if isinstance(stdout, str) else "",
+            stderr if isinstance(stderr, str) else "",
+        )
     except asyncio.CancelledError:
         if process.returncode is None:
             await _kill_process_tree(process)
@@ -263,7 +286,11 @@ class MediaCrawlerAdapter:
         self._validate_installation()
         async with self._output_lock:
             self._validate_output_capacity()
-            run_root = self._config.output_root / str(uuid4())
+            # run 级进度扫描：worker 传入 output_root_name 时用稳定目录名，
+            # 便于运行中定位 JSONL 统计实时帖子/评论数；否则随机 uuid。
+            run_root = self._config.output_root / (
+                request.output_root_name or str(uuid4())
+            )
             run_root.mkdir(parents=True, exist_ok=False)
         cancel = request.cancel_event or current_cancel_event()
 
@@ -418,6 +445,74 @@ class MediaCrawlerAdapter:
         }[platform]
         return {_COOKIE_ENV: cookies} if cookies else {}
 
+    def _platform_login_state(self, platform: str) -> bool:
+        """检测该平台是否已在持久化浏览器 profile 中登录（读 Cookies 库）。
+
+        登录态判断：browser_data/{code}_user_data_dir/Default/Network/Cookies
+        中存在该平台的登录标志 cookie（如微博 SUB、B站 SESSDATA、抖音
+        sessionid）即视为已登录。只读 SQLite，不影响浏览器运行。
+        """
+        markers = _PLATFORM_LOGIN_COOKIES.get(platform)
+        if not markers:
+            # 未知平台：无法判断登录态，保守按"已登录"处理（避免误判
+            # 导致采集被强制切到前台）。
+            return True
+        code = PLATFORM_CODES[platform]
+        cookies_db = (
+            self._config.root
+            / "browser_data"
+            / f"{code}_user_data_dir"
+            / "Default"
+            / "Network"
+            / "Cookies"
+        )
+        if not cookies_db.is_file():
+            return False
+        try:
+            conn = sqlite3.connect(f"file:{cookies_db}?mode=ro", uri=True)
+            try:
+                placeholders = ",".join("?" * len(markers))
+                row = conn.execute(
+                    f"SELECT 1 FROM cookies WHERE name IN ({placeholders}) LIMIT 1",
+                    list(markers),
+                ).fetchone()
+                return row is not None
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            # 读取失败（浏览器正占用 / 权限等）时保守按"已登录"处理，
+            # 避免采集被强制切到前台干扰用户。
+            return True
+
+    def _effective_headless(self, platform: str) -> bool:
+        """登录态感知的 headless。
+
+        用户配置 MEDIACRAWLER_HEADLESS=true 表示希望后台采集，但未登录的
+        平台需要可见浏览器完成扫码登录。规则：
+        - 配置为前台（headless=false）：保持前台；
+        - 平台配置了 cookie（cookie 登录，无需扫码）：保持后台；
+        - 已登录：保持后台；
+        - 未登录：强制前台（弹浏览器扫码，登录后 cookie 落盘，下次自动后台）。
+        """
+        if not self._config.headless:
+            return False
+        if self._config.login_type == "cookie":
+            return True
+        if self._configured_cookies(platform):
+            return True
+        return self._platform_login_state(platform)
+
+    def _configured_cookies(self, platform: str) -> bool:
+        """该平台是否配置了持久 cookie（此时登录不需要可见扫码窗口）。"""
+        cookies = {
+            "weibo": self._config.weibo_cookies,
+            "bilibili": self._config.bilibili_cookies,
+            "tieba": self._config.tieba_cookies,
+            "zhihu": self._config.zhihu_cookies,
+            "douyin": self._config.douyin_cookies,
+        }[platform]
+        return bool(cookies)
+
     def _build_command(
         self,
         platform: str,
@@ -474,7 +569,7 @@ class MediaCrawlerAdapter:
             "--get_comment",
             str(bool(include_comments)).lower(),
             "--headless",
-            str(self._config.headless).lower(),
+            str(self._effective_headless(platform)).lower(),
             "--max_concurrency_num",
             "1",
         ]

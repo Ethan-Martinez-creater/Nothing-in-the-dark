@@ -114,6 +114,46 @@ describe('buildChatItems（完整对话流重建）', () => {
     expect(items[0]?.type).toBe('run')
   })
 
+  it('places failed expert runs (no turn) into their own conversation turn, not at the end', () => {
+    // 回归：失败/取消的专家子 run 没有回答 turn（turn_id 为空）。
+    // 此前兜底逻辑把它们追加到列表末尾，导致上一轮的失败提示跑到
+    // 最新命令之后（新命令显示在失败提示上面）。
+    const turns = [
+      makeTurn({ id: 't-user', role: 'user', content: '委派专家', created_at: '2026-08-01T00:00:00+00:00' }),
+      makeTurn({
+        id: 't-final',
+        role: 'assistant',
+        content: '上一轮协调器回答',
+        created_at: '2026-08-01T00:00:05+00:00',
+      }),
+      makeTurn({ id: 't-new', role: 'user', content: '新的深度采集', created_at: '2026-08-01T00:00:10+00:00' }),
+    ]
+    const runs = [
+      makeRun({
+        id: 'run-top',
+        turn_id: 't-user',
+        created_at: '2026-08-01T00:00:00+00:00',
+      }),
+      makeRun({
+        id: 'run-expert-fail',
+        turn_id: undefined,
+        status: 'failed',
+        created_at: '2026-08-01T00:00:02+00:00',
+      }),
+      makeRun({
+        id: 'run-new',
+        turn_id: 't-new',
+        created_at: '2026-08-01T00:00:10+00:00',
+      }),
+    ]
+    const items = buildChatItems(turns, runs, [])
+    const runOrder = items
+      .filter((item): item is Extract<ChatItem, { type: 'run' }> => item.type === 'run')
+      .map((item) => item.run.id)
+    // 失败专家应插在所属轮次（run-top 之后、新命令 run-new 之前）。
+    expect(runOrder).toEqual(['run-top', 'run-expert-fail', 'run-new'])
+  })
+
   it('preserves approvals and trace across a refresh rebuild', () => {
     const turns = [makeTurn({ id: 't-user' })]
     const runs = [makeRun({ id: 'run-1', turn_id: 't-user' })]

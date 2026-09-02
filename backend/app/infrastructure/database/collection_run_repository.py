@@ -155,6 +155,21 @@ class CollectionRunRepository:
     ) -> Sequence[CollectionRunRecord]:
         return await self.list_for_case(case_id, active_only=True, limit=limit)
 
+    async def list_active_by_trigger_run(
+        self, trigger_run_id: str
+    ) -> Sequence[CollectionRunRecord]:
+        """级联取消用：某个 agent run 触发的所有 queued/running 采集。"""
+        async with self._database.session_factory() as session:
+            result = await session.execute(
+                select(CollectionRunRecord)
+                .where(
+                    CollectionRunRecord.trigger_run_id == trigger_run_id,
+                    CollectionRunRecord.status.in_(_ACTIVE_STATUSES),
+                )
+                .order_by(CollectionRunRecord.created_at.asc())
+            )
+            return result.scalars().all()
+
     async def find_active_by_fingerprint(
         self, case_id: str, request_fingerprint: str
     ) -> CollectionRunRecord | None:

@@ -212,7 +212,9 @@ class LoadSkillInput(BaseModel):
 
 class SearchEvidenceInput(BaseModel):
     case_id: str
-    query: str
+    # LLM 偶尔会漏生成 query；缺省为空字符串，由 handler 用 case topic 兜底，
+    # 而不是让 pydantic 校验失败导致整轮 run 中断。
+    query: str = ""
     limit: int = 12
     platforms: list[str] | None = None
     time_range: dict[str, str | None] | None = None
@@ -1095,13 +1097,17 @@ def build_tool_registry(
         request = SearchEvidenceInput.model_validate(arguments)
         if knowledge is None:
             return {"hits": [], "available": False}
-        # LLM 检索优化：重写/扩写检索词（失败回退原始 query）。
-        query = await rewrite_search_query(llm, request.query)
-        query_vectors = (
-            await embeddings.embed([query])
-            if embeddings is not None
-            else None
-        )
+        # LLM 偶尔漏生成 query：用 case topic 兜底，保证检索仍能继续，
+        # 而不是返回空结果让分析整轮失败。
+        query_text = (request.query or "").strip()
+        if not query_text:
+            try:
+                case = await repository.get_case(request.case_id)
+                query_text = case.topic
+            except Exception:  # noqa: BLE001
+                query_text = ""
+        if not query_text:
+            return {"available": True, "hits": []}
         time_from = time_to = None
         if request.time_range:
             try:
@@ -1117,15 +1123,32 @@ def build_tool_registry(
                         "message": "time_range must contain ISO-8601 dates.",
                     },
                 }
-        hits = await knowledge.search(
-            case_id=request.case_id,
-            query=query,
-            limit=request.limit,
-            embedding=query_vectors[0] if query_vectors else None,
-            platforms=request.platforms,
-            time_from=time_from,
-            time_to=time_to,
-        )
+
+        async def _search(term: str) -> list[Any]:
+            # embedding 为空时只走 keyword 分支；保持与重写 query 一致。
+            vectors = (
+                await embeddings.embed([term])
+                if embeddings is not None
+                else None
+            )
+            return await knowledge.search(
+                case_id=request.case_id,
+                query=term,
+                limit=request.limit,
+                embedding=vectors[0] if vectors else None,
+                platforms=request.platforms,
+                time_from=time_from,
+                time_to=time_to,
+            )
+
+        # LLM 检索优化：重写/扩写检索词（失败回退原始 query）。
+        query = await rewrite_search_query(llm, query_text)
+        hits = await _search(query)
+        if not hits and query != query_text:
+            # 扩写把 query 变成空格分隔的 AND 多词，PostgreSQL 的
+            # ILIKE ALL 要求全部命中，中文语料下几乎必空。空结果时
+            # 降级用原始 query 再检索一次（优化是增强而非硬依赖）。
+            hits = await _search(query_text)
         return {
             "available": True,
             "hits": [
@@ -1358,9 +1381,12 @@ def build_tool_registry(
                 ],
             },
             secrets=(),  # 平台 cookie 经 crawler 配置注入，非策略级必需（qrcode 登录无需预置 cookie）
-            # 单平台多关键词一次沙箱调用：Discovery 无评论、Deep 含评论，
-            # 1800s 容纳一个平台完整搜索流程（工具级整体 3600s 保留给 legacy）。
-            resources={"timeout_seconds": 1800},
+            # 单平台多关键词一次沙箱调用：Discovery 无评论、Deep 含评论。
+            # 外层 sandbox 超时必须明显大于内层 MediaCrawler 超时
+            # （MEDIACRAWLER_TIMEOUT_SECONDS），否则外层先 _kill_tree_sync
+            # 杀进程树，内层"超时返回 124 + 保留 partial"的逻辑永远跑不到，
+            # 已采数据会整平台丢失。
+            resources={"timeout_seconds": 3600},
             risk_level="high",
         )
     )

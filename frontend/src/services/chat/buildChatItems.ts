@@ -87,21 +87,29 @@ export function buildChatItems(
       items.push({ type: 'turn', turn })
     }
   }
-  // 兜底：没有关联 turn 的 run（当前后端 turn/run 一对一，正常不会出现）
+  // 兜底：没有关联 turn 的 run（失败/取消的专家子 run 没有回答 turn，
+  // turn_id 为空）。按 created_at 插回正确位置，而不是追加到末尾——
+  // 否则会脱离所属对话轮次，跑到最新命令之后。
   for (const run of runs) {
-    if (!run.turn_id || !turns.some((turn) => turn.id === run.turn_id)) {
-      items.push({
-        type: 'run',
-        run,
-        artifacts: artifactsByRun.get(run.id) ?? [],
-        approvals: [],
-        trace: null,
-        traceLoading: false,
-        liveEvents: [],
-        liveToolCalls: [],
-        liveModelCalls: [],
-      })
+    if (run.turn_id && turns.some((turn) => turn.id === run.turn_id)) continue
+    const item: Extract<ChatItem, { type: 'run' }> = {
+      type: 'run',
+      run,
+      artifacts: artifactsByRun.get(run.id) ?? [],
+      approvals: [],
+      trace: null,
+      traceLoading: false,
+      liveEvents: [],
+      liveToolCalls: [],
+      liveModelCalls: [],
     }
+    const insertAt = items.findIndex((candidate) => {
+      const time =
+        candidate.type === 'run' ? candidate.run.created_at : candidate.turn.created_at
+      return time > run.created_at
+    })
+    if (insertAt === -1) items.push(item)
+    else items.splice(insertAt, 0, item)
   }
   if (orphanArtifacts.length) {
     items.push({ type: 'orphan-artifacts', artifacts: orphanArtifacts })

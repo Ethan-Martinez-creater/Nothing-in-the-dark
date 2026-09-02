@@ -123,9 +123,9 @@ export function formatRunEvent(event: RunEvent): SemanticActivity {
       return {
         ...base,
         category: event.tool === 'collect_social_posts' ? 'collection' : 'analysis',
-        title: `${toolLabel(event.tool)}${event.status === 'success' ? '完成' : `结束（${event.status}）`}`,
+        title: `${toolLabel(event.tool)}${event.status === 'success' || event.status === 'completed' ? '完成' : `结束（${event.status}）`}`,
         status:
-          event.status === 'success'
+          event.status === 'success' || event.status === 'completed'
             ? 'success'
             : event.status === 'cancelled'
               ? 'warning'

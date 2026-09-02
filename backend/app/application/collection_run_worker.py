@@ -25,6 +25,7 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from app.application.ports.crawler import CrawlRequest
@@ -57,6 +58,8 @@ class CollectionRunWorker:
         platform_concurrency_discovery: int = 2,
         platform_concurrency_deep: int = 1,
         telemetry: Any | None = None,
+        output_root: Path | None = None,
+        live_progress_interval_seconds: float = 2.0,
     ) -> None:
         self._repository = repository
         self._executor = platform_executor
@@ -70,6 +73,8 @@ class CollectionRunWorker:
             "deep": max(1, platform_concurrency_deep),
         }
         self._telemetry = telemetry
+        self._output_root = output_root
+        self._live_progress_interval = max(0.5, live_progress_interval_seconds)
         self._stopping = False
         self._task: asyncio.Task[None] | None = None
         self._active: set[asyncio.Task[Any]] = set()
@@ -210,18 +215,41 @@ class CollectionRunWorker:
         async def platform_task(platform: str) -> None:
             attempt = self._platform_attempts(progress, platform) + 1
             await queue.put(("started", platform, attempt, None))
+            # 稳定输出目录名：worker 运行期间扫描 JSONL 行数，实时更新
+            # 帖子/评论计数（前端每 2.5s 轮询即可看到进度，而非等平台完成）。
+            # 未配置 output_root 时（如单元测试）不启用实时扫描，也不传
+            # 该参数，保持对无 output_root 的 executor 兼容。
+            output_root_name: str | None = None
+            scan_task: asyncio.Task[None] | None = None
+            if self._output_root is not None:
+                output_root_name = f"{run_id}-{platform}-{attempt}"
+                scan_task = asyncio.create_task(
+                    self._scan_live_progress(
+                        run_id,
+                        progress,
+                        platform,
+                        output_root_name,
+                    )
+                )
             try:
                 async with sem:
                     if cancel_event.is_set():
                         await queue.put(("cancelled", platform, attempt, None))
                         return
                     platform_started = time.perf_counter()
+                    # 仅在启用实时扫描时传稳定输出目录名；否则不传该参数，
+                    # 保持对不接收 output_root_name 的 executor 兼容。
+                    run_kwargs: dict[str, Any] = {
+                        "cancel_event": cancel_event,
+                        "run_id": run_id,
+                        "tool_call_id": f"collection-run:{run_id}:{platform}",
+                    }
+                    if output_root_name is not None:
+                        run_kwargs["output_root_name"] = output_root_name
                     posts = await self._executor.run_platform(
                         platform,
                         snapshot,
-                        cancel_event=cancel_event,
-                        run_id=run_id,
-                        tool_call_id=f"collection-run:{run_id}:{platform}",
+                        **run_kwargs,
                     )
                     duration_ms = int(
                         (time.perf_counter() - platform_started) * 1000
@@ -249,6 +277,10 @@ class CollectionRunWorker:
                         str(exc).strip()[:400] or type(exc).__name__,
                     )
                 )
+            finally:
+                if scan_task is not None:
+                    scan_task.cancel()
+                    await asyncio.gather(scan_task, return_exceptions=True)
 
         tasks = [asyncio.create_task(platform_task(platform)) for platform in platforms]
         try:
@@ -297,6 +329,65 @@ class CollectionRunWorker:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     # ---------------- single-writer ingest ----------------
+
+    @staticmethod
+    def _count_jsonl_lines(root: Path, pattern: str) -> int:
+        """统计输出目录下匹配文件的非空行数（每行一条记录）。"""
+        total = 0
+        for path in root.rglob(pattern):
+            try:
+                with path.open(encoding="utf-8") as source:
+                    total += sum(1 for line in source if line.strip())
+            except OSError:
+                # 文件可能正被 MediaCrawler 写入/轮转，跳过即可。
+                continue
+        return total
+
+    @staticmethod
+    def _sum_all_posts(progress: dict[str, Any]) -> int:
+        return sum(
+            int((state or {}).get("posts_collected") or 0)
+            for state in (progress.get("platforms") or {}).values()
+        )
+
+    @staticmethod
+    def _sum_all_comments(progress: dict[str, Any]) -> int:
+        return sum(
+            int((state or {}).get("comments_collected") or 0)
+            for state in (progress.get("platforms") or {}).values()
+        )
+
+    async def _scan_live_progress(
+        self,
+        run_id: str,
+        progress: dict[str, Any],
+        platform: str,
+        output_root_name: str,
+    ) -> None:
+        """平台采集运行期间，周期扫描输出 JSONL 统计实时帖子/评论数。
+
+        平台完成后由 coordinator 用精确 ingest 计数覆盖（INV-4），这里
+        只负责运行中的渐进展示，不改变终态语义。
+        """
+        if self._output_root is None:
+            return
+        root = self._output_root / output_root_name
+        try:
+            while True:
+                posts = self._count_jsonl_lines(root, "*contents*.jsonl")
+                comments = self._count_jsonl_lines(root, "*comments*.jsonl")
+                state = self._platform_state(progress, platform)
+                if state.get("status") == "running":
+                    state["posts_collected"] = posts
+                    state["comments_collected"] = comments
+                    progress["posts_collected"] = self._sum_all_posts(progress)
+                    progress["comments_collected"] = self._sum_all_comments(progress)
+                    await self._flush_progress(run_id, progress)
+                await asyncio.sleep(self._live_progress_interval)
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # noqa: BLE001 - 实时进度失败不应影响采集
+            logger.exception("live progress scan failed for %s", platform)
 
     async def _ingest_platform(
         self,

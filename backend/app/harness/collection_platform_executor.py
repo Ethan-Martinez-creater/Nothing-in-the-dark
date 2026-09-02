@@ -35,6 +35,7 @@ class CollectionPlatformExecutor:
         cancel_event: asyncio.Event | None = None,
         run_id: str | None = None,
         tool_call_id: str | None = None,
+        output_root_name: str | None = None,
     ) -> list[dict[str, Any]]:
         """执行一个平台：从 immutable snapshot 构造 payload 并跑沙箱采集。"""
         budget = snapshot.get("budget") or {}
@@ -52,6 +53,7 @@ class CollectionPlatformExecutor:
             "keywords": {
                 platform: list(keywords.get(platform) or [topic]),
             },
+            "output_root_name": output_root_name,
         }
         if self._capacity is not None:
             await self._capacity.acquire(cancel_event=cancel_event)

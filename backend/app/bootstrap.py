@@ -383,6 +383,7 @@ class ApplicationContainer:
         self.agent_service = AgentRunService(
             self.repository,
             self.worker,
+            self.collection_run_service,
         )
         # M17: 显式目标、计划图与完成条件。
         self.goal_service = GoalService(self.repository)
@@ -464,6 +465,7 @@ class ApplicationContainer:
             platform_concurrency_discovery=2,
             platform_concurrency_deep=1,
             telemetry=self.telemetry,
+            output_root=settings.mediacrawler_output_root,
         )
         self.debate_service = DebateService(
             self.repository,

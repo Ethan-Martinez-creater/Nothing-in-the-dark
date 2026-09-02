@@ -29,6 +29,8 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -494,109 +496,124 @@ class RestrictedProcessExecutor:
         creation_flags = 0
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=str(cwd),
-            env=base_env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            creationflags=creation_flags,
-        )
-        # 流式输出上限：边读边计数，超限立即终止进程，防止无限累积
-        # stdout/stderr 占满内存后才做检查。
-        _limit = max_output_bytes
-        _exceeded: dict[str, bool] = {"stdout": False, "stderr": False}
 
-        async def read_stream(stream: asyncio.StreamReader | None, kind: str) -> str:
-            if stream is None:
-                return ""
-            chunks: list[str] = []
-            total = 0
-            while chunk := await stream.read(16 * 1024):
-                total += len(chunk)
-                if _limit is not None and total >= _limit:
-                    _exceeded[kind] = True
-                    try:
-                        process.kill()
-                    except ProcessLookupError:
-                        pass
-                    # 超限后不再累积，但继续读完管道（丢弃），确保 Windows
-                    # Proactor 下 process.wait() 可随管道 EOF 正常返回。
-                    continue
-                chunks.append(chunk.decode("utf-8", errors="replace"))
-            return "".join(chunks)
-
-        stdout_task = asyncio.create_task(read_stream(process.stdout, "stdout"))
-        stderr_task = asyncio.create_task(read_stream(process.stderr, "stderr"))
-        cancel = cancel_event
-        try:
-            if cancel is None:
-                await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
-            else:
-                wait_task = asyncio.create_task(process.wait())
-                cancel_task = asyncio.create_task(cancel.wait())
-                try:
-                    done, _ = await asyncio.wait(
-                        {wait_task, cancel_task},
-                        timeout=timeout_seconds,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                finally:
-                    for leftover in (wait_task, cancel_task):
-                        if not leftover.done():
-                            leftover.cancel()
-                if cancel.is_set() and process.returncode is None:
-                    await self._kill_tree(process)
-                    await asyncio.shield(process.wait())
-                    await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-                    raise ApplicationError("sandbox process cancelled", code="tool_cancelled")
-                if not done and process.returncode is None:
-                    await self._kill_tree(process)
-                    await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-                    raise ApplicationError(
-                        f"sandbox process timed out after {timeout_seconds}s",
-                        code="tool_timeout",
-                    )
-        except TimeoutError:
-            await self._kill_tree(process)
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            raise ApplicationError(
-                f"sandbox process timed out after {timeout_seconds}s",
-                code="tool_timeout",
-            ) from None
-        except asyncio.CancelledError:
-            await self._kill_tree(process)
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            raise
-        stdout = stdout_task.result()
-        stderr = stderr_task.result()
-        if _exceeded["stdout"] or _exceeded["stderr"]:
-            raise ApplicationError(
-                f"sandbox output exceeded {max_output_bytes} bytes limit",
-                code="tool_output_too_large",
+        # Windows 的 SelectorEventLoop 不支持 asyncio.create_subprocess_exec
+        # （_make_subprocess_transport 直接抛 NotImplementedError），而后端主
+        # 进程为兼容 psycopg async 运行在 SelectorEventLoop 上；因此子进程
+        # 改用同步 subprocess 在线程中执行，语义与异步版本完全一致。
+        def _run_sync() -> tuple[int, str, str]:
+            process = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                env=base_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creation_flags,
             )
-        return process.returncode or 0, stdout, stderr
+            _limit = max_output_bytes
+            _exceeded: dict[str, bool] = {"stdout": False, "stderr": False}
+            _out_chunks: list[str] = []
+            _err_chunks: list[str] = []
+            _out_total = 0
+            _err_total = 0
 
-    async def _kill_tree(self, process: asyncio.subprocess.Process) -> None:
+            def _read(stream: Any, kind: str) -> None:
+                nonlocal _out_total, _err_total
+                while True:
+                    chunk = stream.read(16 * 1024)
+                    if not chunk:
+                        break
+                    if kind == "stdout":
+                        _out_total += len(chunk)
+                        total = _out_total
+                    else:
+                        _err_total += len(chunk)
+                        total = _err_total
+                    if _limit is not None and total >= _limit:
+                        _exceeded[kind] = True
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            pass
+                        continue
+                    (_out_chunks if kind == "stdout" else _err_chunks).append(
+                        chunk.decode("utf-8", errors="replace")
+                    )
+
+            t_out = threading.Thread(
+                target=_read, args=(process.stdout, "stdout"), daemon=True
+            )
+            t_err = threading.Thread(
+                target=_read, args=(process.stderr, "stderr"), daemon=True
+            )
+            t_out.start()
+            t_err.start()
+
+            deadline = time.monotonic() + timeout_seconds
+            cancelled = False
+            timed_out = False
+            try:
+                while True:
+                    if process.poll() is not None:
+                        break
+                    if cancel_event is not None and cancel_event.is_set():
+                        cancelled = True
+                        self._kill_tree_sync(process)
+                        break
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        self._kill_tree_sync(process)
+                        break
+                    time.sleep(0.05)
+                if process.poll() is None:
+                    process.wait()
+            finally:
+                t_out.join(timeout=2)
+                t_err.join(timeout=2)
+
+            stdout = "".join(_out_chunks)
+            stderr = "".join(_err_chunks)
+            if cancelled:
+                raise ApplicationError(
+                    "sandbox process cancelled", code="tool_cancelled"
+                )
+            if timed_out:
+                raise ApplicationError(
+                    f"sandbox process timed out after {timeout_seconds}s",
+                    code="tool_timeout",
+                )
+            if _exceeded["stdout"] or _exceeded["stderr"]:
+                raise ApplicationError(
+                    f"sandbox output exceeded {max_output_bytes} bytes limit",
+                    code="tool_output_too_large",
+                )
+            return process.returncode or 0, stdout, stderr
+
+        return await asyncio.to_thread(_run_sync)
+
+    def _kill_tree_sync(self, process: subprocess.Popen) -> None:
         try:
-            if process.returncode is None:
+            if process.poll() is None:
                 process.kill()
-                await asyncio.wait_for(process.wait(), timeout=5)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
         except Exception:
             logger.exception("process kill failed")
         if os.name == "nt":
             try:
-                await asyncio.create_subprocess_exec(
-                    "taskkill",
-                    "/PID",
-                    str(process.pid),
-                    "/T",
-                    "/F",
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
                 )
             except Exception:
                 pass
+
+    async def _kill_tree(self, process: subprocess.Popen) -> None:
+        await asyncio.to_thread(self._kill_tree_sync, process)
 
     async def cancel(self, token: Any) -> None:
         if token is None:
