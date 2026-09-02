@@ -144,6 +144,20 @@ class PostsInput(BaseModel):
 
 class VerificationInput(PostsInput):
     topic: str
+    # 推荐传 post_ids（小参数，避免大 JSON 被模型截断损坏）；posts 兼容
+    # 少量精选帖子的旧用法。handler 会按 post_ids 从当前 Case 数据库拉取全量。
+    post_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Stable post ids of the current case to verify. Prefer passing "
+            "post_ids over full post payloads to keep tool arguments small."
+        ),
+    )
+    # posts 覆盖为可选：模型只须传 post_ids 或 posts 之一
+    posts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Optional small list of post payloads to verify.",
+    )
     # Injected by the runtime so claims persist with their creator run.
     run_id: str | None = None
 
@@ -965,8 +979,29 @@ def build_tool_registry(
 
     async def verification(arguments: BaseModel) -> dict[str, Any]:
         request = VerificationInput.model_validate(arguments)
+        posts = list(request.posts or [])
+        # post_ids 优先：按 ID 从当前 Case 数据库拉取全量内容，避免 LLM
+        # 把大列表塞进 tool arguments 导致 JSON 截断/损坏。
+        if request.post_ids and social is not None and request.case_id:
+            for post_id in request.post_ids:
+                record = await social.get_post_for_case(
+                    request.case_id, post_id=post_id
+                )
+                if record is not None:
+                    posts.append(_post_record_to_verify_dict(record))
+        if not posts:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "invalid_request",
+                    "message": (
+                        "verify_claims requires post_ids referencing posts in "
+                        "the current case (or a small posts list)."
+                    ),
+                },
+            }
         return await verify_claims(
-            request.posts,
+            posts,
             request.topic,
             repository=repository,
             case_id=request.case_id,
@@ -1606,6 +1641,26 @@ def build_tool_registry(
     if agent_database is not None:
         register_database_tools(registry, agent_database)
     return registry
+
+
+def _post_record_to_verify_dict(record: Any) -> dict[str, Any]:
+    """Serialize a SourcePostRecord into the post dict verify_claims expects.
+
+    Only the fields the verification rules read are emitted (id / content /
+    platform / author / published_at); no raw_payload or embedding leaks out.
+    """
+    return {
+        "id": record.id,
+        "platform": record.platform,
+        "native_id": record.native_id,
+        "content": record.content or "",
+        "title": record.title or "",
+        "author": record.author_name or "",
+        "author_id": record.author_id or "",
+        "published_at": (
+            record.published_at.isoformat() if record.published_at else None
+        ),
+    }
 
 
 def _resolve_graph_post_id(

@@ -41,6 +41,38 @@ _MAX_SIMILARITY_NODES = 200
 # Explicit relation keys looked up in the post dict AND its raw payload.
 _OBSERVED_RELATION_KEYS = ("reply_to_id", "quote_id", "retweet_of_id")
 
+# Keys probed inside a dict-shaped ``engagement`` value (DB JSON object).
+_ENGAGEMENT_DICT_KEYS = (
+    "total",
+    "like_count",
+    "comment_count",
+    "repost_count",
+    "view_count",
+)
+
+
+def _engagement_count(value: Any) -> int:
+    """Robust engagement count for node serialization.
+
+    ``engagement`` may be a plain int (older post shapes) or a dict such as
+    ``{"total": 10}`` produced by the structured DB tools (SourcePost
+    engagement is a JSON object). Never let an ``int(dict)`` TypeError break
+    the whole propagation graph.
+    """
+    if isinstance(value, dict):
+        for key in _ENGAGEMENT_DICT_KEYS:
+            item = value.get(key)
+            if isinstance(item, (int, float, str)):
+                try:
+                    return int(item)
+                except (TypeError, ValueError):
+                    continue
+        return 0
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
 ENTITY_PATTERNS = (
     re.compile(r"20\d{2}[-/年]\d{1,2}(?:[-/月]\d{1,2})?"),  # dates
     re.compile(r"\d+(?:\.\d+)?%"),  # percentages
@@ -341,7 +373,7 @@ def build_propagation_graph(
             "platform": str(post.get("platform") or ""),
             "published_at": str(post.get("published_at") or ""),
             "content": str(post.get("content") or ""),
-            "engagement": int(post.get("engagement") or 0),
+            "engagement": _engagement_count(post.get("engagement")),
         }
         for post in ordered_posts
     ]
