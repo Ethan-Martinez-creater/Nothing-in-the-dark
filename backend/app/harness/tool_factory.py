@@ -10,9 +10,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.application.platform_profile import PlatformProfileService
+from app.application.agent_database_service import AgentDatabaseReadService
 from app.application.ports.crawler import CrawlRequest, SocialCrawlerPort
 from app.application.repositories import ApplicationRepository
 from app.core.errors import ApplicationError
+from app.harness.database_tools import register_database_tools
 from app.harness.progress import emit_progress
 from app.harness.agents import ExpertKind, build_definition_for
 from app.harness.search_optimizer import (
@@ -355,6 +357,7 @@ def build_tool_registry(
     governance: Any = None,
     collection_service: Any = None,
     collection_run_service: Any = None,
+    agent_database: AgentDatabaseReadService | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     platform_semaphores: dict[str, asyncio.Semaphore] = {}
@@ -1304,7 +1307,10 @@ def build_tool_registry(
             version="1.0.0",
             description=(
                 "Search case-scoped social posts, uploaded documents, and sourced "
-                "memory. Returns stable evidence IDs for citation."
+                "memory. Returns stable evidence IDs for citation. Do not use "
+                "this tool as the authoritative source for exact database counts "
+                "or complete record lists — use the structured DB tools "
+                "(get_case_data_overview / query_social_posts / ...) instead."
             ),
             input_model=SearchEvidenceInput,
             handler=search_evidence,
@@ -1595,6 +1601,10 @@ def build_tool_registry(
             execution_mode="sequential",
         )
     )
+    # DB01–DB09: 结构化数据库查询 Tool Pack（在 skills.validate_tools 之前
+    # 注册，保证 allowlist 校验能看到全部工具）。
+    if agent_database is not None:
+        register_database_tools(registry, agent_database)
     return registry
 
 

@@ -39,6 +39,36 @@ _SENSITIVE_KEYS = frozenset(
 )
 _SUMMARY_LIMIT = 500
 
+# DB-INV-3（V2）: 这些 Tool 的 case_id 一律由 runtime 覆盖——模型即使传入
+# 其它 Case 也被强制改写为当前 Case。统一抽取，避免维护越来越长的 inline set。
+_CASE_SCOPED_TOOLS = frozenset(
+    {
+        # existing
+        "collect_social_posts",
+        "start_social_collection",
+        "get_collection_run",
+        "search_social_evidence",
+        "write_case_memory",
+        "dispatch_expert",
+        "get_artifact",
+        "reconstruct_propagation",
+        "verify_claims",
+        "query_claims",
+        "query_evidence",
+        "query_propagation",
+        # new structured DB tools (DB01–DB09)
+        "get_case_data_overview",
+        "query_social_posts",
+        "get_social_post",
+        "query_social_comments",
+        "aggregate_social_data",
+        "query_findings",
+        "query_review_items",
+        "query_reports",
+        "query_case_activity",
+    }
+)
+
 
 def _redact(value: object, *, key: str = "") -> object:
     """Replace sensitive values and truncate long payloads for audit logs."""
@@ -400,20 +430,7 @@ class AgentRuntime:
             return self._tool_message(call, result)
         spec = self._tools.get(call.name)
         arguments = dict(call.arguments)
-        if call.name in {
-            "collect_social_posts",
-            "start_social_collection",
-            "get_collection_run",
-            "search_social_evidence",
-            "write_case_memory",
-            "dispatch_expert",
-            "get_artifact",
-            "reconstruct_propagation",
-            "verify_claims",
-            "query_claims",
-            "query_evidence",
-            "query_propagation",
-        }:
+        if call.name in _CASE_SCOPED_TOOLS:
             # Case scope is controlled by the runtime, never by model output.
             arguments["case_id"] = context.case_id
         if call.name == "verify_claims":

@@ -54,6 +54,7 @@ from app.harness.sandbox import (
     container_supported,
 )
 from app.harness.skills import SkillRegistry
+from app.application.agent_database_service import AgentDatabaseReadService
 from app.harness.tool_factory import build_tool_registry, register_mcp_tools
 from app.infrastructure.crawler import (
     DemoCrawlerAdapter,
@@ -64,10 +65,12 @@ from app.infrastructure.database import Database
 from app.infrastructure.database.alignment_repository import AlignmentRepository
 from app.infrastructure.database.analysis_job_repository import AnalysisJobRepository
 from app.infrastructure.database.collection_run_repository import CollectionRunRepository
+from app.infrastructure.database.finding_repository import FindingRepository
 from app.infrastructure.database.integrity_repository import IntegrityRepository
 from app.infrastructure.database.knowledge_repository import KnowledgeRepository
 from app.infrastructure.database.media_pipeline_repository import MediaPipelineRepository
 from app.infrastructure.database.monitor_repository import MonitorRepository
+from app.infrastructure.database.report_repository import ReportDocumentRepository
 from app.infrastructure.database.resilience_repository import ResilienceRepository
 from app.infrastructure.database.social_repository import SocialRepository
 from app.infrastructure.database.uncertainty_repository import UncertaintyRepository
@@ -213,6 +216,18 @@ class ApplicationContainer:
             self.collection_service,
             self.collection_run_repository,
         )
+        # DB01–DB09 只读 Tool Pack：在 build_tool_registry 之前创建轻量无状态
+        # read Repository wrapper（与 FindingService / ReportDocumentService 的
+        # 生命周期解耦，二者仍按原顺序创建）。
+        self.finding_read_repository = FindingRepository(self.database)
+        self.report_read_repository = ReportDocumentRepository(self.database)
+        self.agent_database = AgentDatabaseReadService(
+            repository=self.repository,
+            social_repository=self.social,
+            collection_run_repository=self.collection_run_repository,
+            finding_repository=self.finding_read_repository,
+            report_repository=self.report_read_repository,
+        )
         self.tools = build_tool_registry(
             self.crawler,
             self.skills,
@@ -226,6 +241,7 @@ class ApplicationContainer:
             governance=self.memory_governance,
             collection_service=self.collection_service,
             collection_run_service=self.collection_run_service,
+            agent_database=self.agent_database,
         )
         execution_class = settings.tool_sandbox_execution
         if execution_class == "container" and not container_supported():
