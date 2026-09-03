@@ -123,6 +123,30 @@ class AlignmentRepository:
             await session.refresh(record)
         return record
 
+    async def list_account_mentions_by_entity(
+        self, case_id: str
+    ) -> dict[str, list[str]]:
+        """V3 §30: 当前 Case 的 account mention → canonical entity 批量映射。
+
+        返回 {canonical_entity_id: [AccountRecord.id, ...]}；只包含当前仍
+        存在的 mention（materialization retract 会删除 mention，因此
+        retract 后映射自动消失，无需读取 candidate decision）。
+        """
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    EntityMentionRecord.entity_id,
+                    EntityMentionRecord.platform_object_id,
+                ).where(
+                    EntityMentionRecord.case_id == case_id,
+                    EntityMentionRecord.platform_object_type == "account",
+                )
+            )
+            mapping: dict[str, list[str]] = {}
+            for entity_id, account_id in rows.all():
+                mapping.setdefault(str(entity_id), []).append(str(account_id))
+            return mapping
+
     # ---- alignment candidates -------------------------------------------
 
     async def create_alignment_candidate(

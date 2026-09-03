@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import (
@@ -522,6 +522,137 @@ class SocialRepository:
                 .group_by(SourcePostRecord.content_type)
             )
             return [(str(row[0]), int(row[1])) for row in rows.all()]
+
+    async def latest_post_created_at(self, case_id: str) -> datetime | None:
+        """V3 §22 Quality fingerprint 输入：posts 最新持久化时间。"""
+        async with self._database.session_factory() as session:
+            return await session.scalar(
+                select(func.max(SourcePostRecord.created_at)).where(
+                    SourcePostRecord.case_id == case_id
+                )
+            )
+
+    async def list_case_post_authors(
+        self, case_id: str
+    ) -> list[tuple[str, str, str]]:
+        """V3 §28: Case 内出现过的作者账号（platform, native_id, name）。
+
+        AccountRecord 是全局表（case_id 只记首次观察），因此 Case 的账号
+        appearance 必须补充 SourcePost.author 维度；一次分组查询，禁止 N+1。
+        """
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    SourcePostRecord.platform,
+                    SourcePostRecord.author_id,
+                    func.max(SourcePostRecord.author_name),
+                )
+                .where(
+                    SourcePostRecord.case_id == case_id,
+                    SourcePostRecord.author_id != "",
+                )
+                .group_by(SourcePostRecord.platform, SourcePostRecord.author_id)
+            )
+            return [
+                (str(platform), str(author_id), str(name or ""))
+                for platform, author_id, name in rows.all()
+            ]
+
+    # ---------------- V3 §37/§39: cross-case batch matching ----------------
+
+    async def find_cross_case_native_post_matches(
+        self,
+        case_id: str,
+        platform_native_pairs: Sequence[tuple[str, str]],
+        limit: int = 2000,
+    ) -> Sequence[SourcePostRecord]:
+        """§37 shared_post：同 platform + native_id、不同 case 的原始帖。
+
+        一次批量 IN/OR 查询（禁逐 Post N+1）；结果排除 anchor case。
+        """
+        if not platform_native_pairs:
+            return []
+        by_platform: dict[str, list[str]] = {}
+        for platform, native_id in platform_native_pairs:
+            by_platform.setdefault(platform, []).append(native_id)
+        conditions = [
+            and_(
+                SourcePostRecord.platform == platform,
+                SourcePostRecord.native_id.in_(tuple(native_ids)),
+            )
+            for platform, native_ids in by_platform.items()
+        ]
+        async with self._database.session_factory() as session:
+            result = await session.scalars(
+                select(SourcePostRecord)
+                .where(
+                    SourcePostRecord.case_id != case_id,
+                    or_(*conditions),
+                )
+                .order_by(SourcePostRecord.case_id, SourcePostRecord.id)
+                .limit(limit)
+            )
+            return result.all()
+
+    async def find_cross_case_content_hash_matches(
+        self,
+        case_id: str,
+        hashes: Sequence[str],
+        limit: int = 2000,
+    ) -> Sequence[SourcePostRecord]:
+        """§39 shared_content：同 raw content_hash、不同 case 的帖子。
+
+        走 (content_hash, case_id) 复合索引；调用方需保证 hash 非空且
+        已剔除与 shared_post 重叠的原始 Post。
+        """
+        unique_hashes = sorted({h for h in hashes if h})
+        if not unique_hashes:
+            return []
+        async with self._database.session_factory() as session:
+            result = await session.scalars(
+                select(SourcePostRecord)
+                .where(
+                    SourcePostRecord.case_id != case_id,
+                    SourcePostRecord.content_hash.in_(tuple(unique_hashes)),
+                )
+                .order_by(SourcePostRecord.case_id, SourcePostRecord.id)
+                .limit(limit)
+            )
+            return result.all()
+
+    async def list_case_post_content_hashes(
+        self, case_id: str, limit: int = 20000
+    ) -> list[tuple[str, str]]:
+        """anchor case 的 (post_id, content_hash)（detector expected set 输入）。"""
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(SourcePostRecord.id, SourcePostRecord.content_hash)
+                .where(
+                    SourcePostRecord.case_id == case_id,
+                    SourcePostRecord.content_hash != "",
+                )
+                .limit(limit)
+            )
+            return [(str(post_id), str(content_hash)) for post_id, content_hash in rows.all()]
+
+    async def list_case_native_pairs(
+        self, case_id: str, limit: int = 20000
+    ) -> list[tuple[str, str, str]]:
+        """anchor case 的 (post_id, platform, native_id)（shared_post detector 输入）。"""
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    SourcePostRecord.id,
+                    SourcePostRecord.platform,
+                    SourcePostRecord.native_id,
+                )
+                .where(SourcePostRecord.case_id == case_id)
+                .limit(limit)
+            )
+            return [
+                (str(post_id), str(platform), str(native_id))
+                for post_id, platform, native_id in rows.all()
+            ]
 
     async def list_platform_capabilities(
         self,
