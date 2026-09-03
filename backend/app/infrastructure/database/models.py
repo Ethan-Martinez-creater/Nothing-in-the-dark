@@ -485,7 +485,11 @@ class SourcePostRecord(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
-    __table_args__ = (UniqueConstraint("case_id", "platform", "native_id"),)
+    __table_args__ = (
+        UniqueConstraint("case_id", "platform", "native_id"),
+        # V3 plan §5: cross-case content matching needs (content_hash, case_id).
+        Index("ix_source_posts_content_hash_case", "content_hash", "case_id"),
+    )
 
 
 class SourceCommentRecord(Base):
@@ -2892,4 +2896,308 @@ class ReportDocumentRecord(Base):
     __table_args__ = (
         Index("ix_report_documents_case_status", "case_id", "status"),
         Index("ix_report_documents_family", "family_id", "created_at"),
+    )
+
+
+class InvestigationQualityRecord(Base):
+    """V3 §6: 每 Case 最新一次调查质量评估（只保存当前，不做历史 snapshot）。
+
+    overall_score 为 None 表示无可计算维度（grade=insufficient_data）；
+    UNIQUE(case_id) 保证一 Case 一条，刷新即覆盖。
+    """
+
+    __tablename__ = "investigation_quality"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grade: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="insufficient_data", index=True
+    )
+    dimensions_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    gaps_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    warnings_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("case_id", name="uq_investigation_quality_case"),
+        Index("ix_investigation_quality_updated_at", "updated_at"),
+    )
+
+
+class WorkspaceEntityRecord(Base):
+    """V3 §7: 全局稳定平台账号 identity node（非不可逆全局 merge 结果）。
+
+    第一版只处理 entity_type="account"；display name 变化时旧 canonical_name
+    进 aliases_json（去空/去重/最多 MAX_ENTITY_ALIASES 条）。
+    """
+
+    __tablename__ = "workspace_entities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    entity_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="account", index=True
+    )
+    canonical_name: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    aliases_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    attributes_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="active", index=True
+    )
+    first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_by: Mapped[str] = mapped_column(String(100), nullable=False, default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class WorkspaceEntityKeyRecord(Base):
+    """V3 §8: Workspace entity 稳定 identity key（platform_account / case_account）。
+
+    display_name / normalize_name 严禁成为全局 identity key；
+    UNIQUE(key_type, key_value) 保证同一 platform:{native_id} 全局只指向一个节点。
+    """
+
+    __tablename__ = "workspace_entity_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    entity_id: Mapped[str] = mapped_column(
+        ForeignKey("workspace_entities.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    key_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    key_value: Mapped[str] = mapped_column(String(500), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    method: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("key_type", "key_value", name="uq_workspace_entity_key"),
+    )
+
+
+class WorkspaceEntityCaseLinkRecord(Base):
+    """V3 §9: WorkspaceEntity 与 Case 内 account/canonical_entity 来源的链接。
+
+    reconciliation（非 append-only）：refresh_case 时 upsert expected、
+    清除 stale links；UNIQUE(case_id, source_type, source_id) 保证一来源一链接。
+    """
+
+    __tablename__ = "workspace_entity_case_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    entity_id: Mapped[str] = mapped_column(
+        ForeignKey("workspace_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    method: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id", "source_type", "source_id", name="uq_workspace_entity_case_link"
+        ),
+        Index("ix_workspace_entity_case_links_entity_case", "entity_id", "case_id"),
+        Index("ix_workspace_entity_case_links_case", "case_id"),
+    )
+
+
+class WorkspaceEntityRelationRecord(Base):
+    """V3 §9.1: 可撤销跨平台 same_as identity evidence（替代不可逆 merge）。
+
+    materialization retract → relation retracted；pair 用 canonical ordering
+    （left_entity_id <= right_entity_id），Identity component 由运行时计算。
+    """
+
+    __tablename__ = "workspace_entity_relations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    left_entity_id: Mapped[str] = mapped_column(
+        ForeignKey("workspace_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    right_entity_id: Mapped[str] = mapped_column(
+        ForeignKey("workspace_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(String(32), nullable=False, default="same_as")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    source_case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    method: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_case_id",
+            "left_entity_id",
+            "right_entity_id",
+            "relation_type",
+            name="uq_workspace_entity_relation",
+        ),
+        Index("ix_workspace_entity_relations_left_status", "left_entity_id", "status"),
+        Index("ix_workspace_entity_relations_right_status", "right_entity_id", "status"),
+        Index("ix_workspace_entity_relations_case_status", "source_case_id", "status"),
+    )
+
+
+class CrossInvestigationLinkRecord(Base):
+    """V3 §10: 跨调查聚合 Link（case pair + relation_type + algorithm_version 一条）。
+
+    pair 由上层 canonical ordering 保证 left<right；status=observed/candidate
+    表示证据性质，is_active 表示当前刷新后关系是否仍成立，两者不得混用。
+    """
+
+    __tablename__ = "cross_investigation_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    left_case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    right_case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    evidence_refs_json: Mapped[list[object]] = mapped_column(JSON, default=list)
+    feature_scores_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_cross_investigation_link_fingerprint"),
+        Index("ix_cross_investigation_links_left_active", "left_case_id", "is_active"),
+        Index("ix_cross_investigation_links_right_active", "right_case_id", "is_active"),
+        Index(
+            "ix_cross_investigation_links_type_status_active",
+            "relation_type",
+            "status",
+            "is_active",
+        ),
+    )
+
+
+class DerivedSignalRecord(Base):
+    """V3 §11: 非 Monitor Alert 来源的高级信号，fingerprint 标识持续 detector subject。
+
+    status（open/acknowledged/resolved/suppressed）是用户/工作流状态，
+    detector_active 表示当前 detector 条件是否仍成立，两者必须分离。
+    """
+
+    __tablename__ = "derived_signals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", index=True
+    )
+    detector_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    why_it_matters: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    metric_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    evidence_refs_json: Mapped[list[object]] = mapped_column(JSON, default=list)
+    related_case_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    detector_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    status_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_derived_signal_fingerprint"),
+    )
+
+
+class DerivedSignalCaseLinkRecord(Base):
+    """V3 §11.1: DerivedSignal ↔ 关联 Case 的过滤表。
+
+    query_signals / Signals API ?case_id= 必须通过该表过滤跨 Case Signal，
+    不得依赖 related_case_ids_json contains 做跨方言 JSON 查询。
+    """
+
+    __tablename__ = "derived_signal_case_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    signal_id: Mapped[str] = mapped_column(
+        ForeignKey("derived_signals.id", ondelete="CASCADE"), nullable=False
+    )
+    case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("signal_id", "case_id", name="uq_derived_signal_case_link"),
+        Index("ix_derived_signal_case_links_case", "case_id"),
     )
