@@ -1749,6 +1749,184 @@ class ApplicationRepository:
             result = await session.scalars(query)
             return result.all()
 
+    async def get_claim_evidence_quality_metrics(
+        self, case_id: str
+    ) -> dict[str, object]:
+        """V3 §12.2: Evidence Coverage 批量指标（一次聚合，禁止逐 claim N+1）。
+
+        Evidence↔Claim 关联直接使用 EvidenceRecord.claim_id。
+        """
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            claims_total = await session.scalar(
+                select(func.count(ClaimRecord.id)).where(
+                    ClaimRecord.case_id == case_id
+                )
+            )
+            claims_with_evidence = await session.scalar(
+                select(
+                    func.count(func.distinct(EvidenceRecord.claim_id))
+                ).where(
+                    EvidenceRecord.case_id == case_id,
+                    EvidenceRecord.claim_id.isnot(None),
+                )
+            )
+            evidence_total = await session.scalar(
+                select(func.count(EvidenceRecord.id)).where(
+                    EvidenceRecord.case_id == case_id
+                )
+            )
+            latest_claim_at = await session.scalar(
+                select(func.max(ClaimRecord.created_at)).where(
+                    ClaimRecord.case_id == case_id
+                )
+            )
+            latest_evidence_at = await session.scalar(
+                select(func.max(EvidenceRecord.created_at)).where(
+                    EvidenceRecord.case_id == case_id
+                )
+            )
+        return {
+            "claims_total": int(claims_total or 0),
+            "claims_with_evidence": int(claims_with_evidence or 0),
+            "evidence_total": int(evidence_total or 0),
+            "latest_claim_at": latest_claim_at,
+            "latest_evidence_at": latest_evidence_at,
+        }
+
+    async def get_review_decision_quality_metrics(
+        self, case_id: str
+    ) -> dict[str, object]:
+        """V3 §22 fingerprint 输入：Case 级 ReviewDecision count + latest。
+
+        ReviewDecision 无 case_id，必须 JOIN ReviewItem 限定 Case scope
+        （沿用 V2 agent DB tools 的防跨 Case 泄漏约束）。
+        """
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            total = await session.scalar(
+                select(func.count(ReviewDecisionRecord.id))
+                .select_from(ReviewDecisionRecord)
+                .join(
+                    ReviewItemRecord,
+                    ReviewDecisionRecord.item_id == ReviewItemRecord.id,
+                )
+                .where(ReviewItemRecord.case_id == case_id)
+            )
+            latest = await session.scalar(
+                select(func.max(ReviewDecisionRecord.created_at))
+                .select_from(ReviewDecisionRecord)
+                .join(
+                    ReviewItemRecord,
+                    ReviewDecisionRecord.item_id == ReviewItemRecord.id,
+                )
+                .where(ReviewItemRecord.case_id == case_id)
+            )
+        return {
+            "review_decision_count": int(total or 0),
+            "latest_review_decision_at": latest,
+        }
+
+    async def get_finding_link_integrity_metrics(
+        self, case_id: str
+    ) -> dict[str, object]:
+        """V3 §18 Provenance Integrity：Finding evidence/source link dangling 检查。
+
+        checked_refs = 当前 case 全部 FindingEvidenceLink + FindingSourceLink；
+        dangling 分级：verified Finding 上的 dangling → critical，其余 → warning。
+        """
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            findings = (
+                await session.scalars(
+                    select(FindingRecord).where(FindingRecord.case_id == case_id)
+                )
+            ).all()
+            finding_ids = [finding.id for finding in findings]
+            if not finding_ids:
+                return {
+                    "checked_refs": 0,
+                    "dangling_refs": 0,
+                    "critical_dangling": [],
+                    "warning_dangling": [],
+                }
+            status_by_finding = {finding.id: finding.status for finding in findings}
+            evidence_links = (
+                await session.scalars(
+                    select(FindingEvidenceLinkRecord).where(
+                        FindingEvidenceLinkRecord.finding_id.in_(finding_ids)
+                    )
+                )
+            ).all()
+            source_links = (
+                await session.scalars(
+                    select(FindingSourceLinkRecord).where(
+                        FindingSourceLinkRecord.finding_id.in_(finding_ids)
+                    )
+                )
+            ).all()
+            evidence_ids = {link.evidence_ref for link in evidence_links}
+            existing_evidence: set[str] = set()
+            if evidence_ids:
+                rows = await session.scalars(
+                    select(EvidenceRecord.id).where(
+                        EvidenceRecord.id.in_(evidence_ids),
+                        EvidenceRecord.case_id == case_id,
+                    )
+                )
+                existing_evidence = set(rows.all())
+            artifact_ids = {
+                link.source_id
+                for link in source_links
+                if link.source_type == "artifact"
+            }
+            existing_artifacts: set[str] = set()
+            if artifact_ids:
+                rows = await session.scalars(
+                    select(ArtifactRecord.id).where(
+                        ArtifactRecord.id.in_(artifact_ids),
+                        ArtifactRecord.case_id == case_id,
+                    )
+                )
+                existing_artifacts = set(rows.all())
+            checked = 0
+            critical: list[dict[str, str]] = []
+            warning: list[dict[str, str]] = []
+            for link in evidence_links:
+                checked += 1
+                if link.evidence_ref in existing_evidence:
+                    continue
+                entry = {
+                    "object_type": "finding_evidence_link",
+                    "object_id": link.finding_id,
+                    "ref": link.evidence_ref,
+                }
+                if status_by_finding.get(link.finding_id) == "verified":
+                    critical.append(entry)
+                else:
+                    warning.append(entry)
+            for link in source_links:
+                checked += 1
+                if link.source_type == "artifact":
+                    if link.source_id in existing_artifacts:
+                        continue
+                # 未知 source_type 视为 dangling（当前唯一合法值为 artifact）
+                entry = {
+                    "object_type": "finding_source_link",
+                    "object_id": link.finding_id,
+                    "ref": f"{link.source_type}:{link.source_id}",
+                }
+                if status_by_finding.get(link.finding_id) == "verified":
+                    critical.append(entry)
+                else:
+                    warning.append(entry)
+            return {
+                "checked_refs": checked,
+                "dangling_refs": len(critical) + len(warning),
+                "critical_dangling": critical,
+                "warning_dangling": warning,
+            }
+
     async def create_propagation_edge(
         self,
         *,

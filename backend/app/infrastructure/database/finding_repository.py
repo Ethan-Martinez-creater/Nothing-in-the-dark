@@ -256,3 +256,93 @@ class FindingRepository:
         """在调用方事务内更新 Finding 状态（Review decide 同一 commit）。"""
         finding.status = status
         session.add(finding)
+
+    # ---------------- V3 §12.2: Quality 批量指标 ----------------
+
+    async def get_quality_metrics(self, case_id: str) -> dict[str, object]:
+        """V3 Finding Support / Resolution 批量指标。
+
+        ``findings_with_support`` 只统计 relation=="supports" 的 evidence
+        link（contradicts/context 不算支持，V3 §16）。
+        """
+        async with self._database.session_factory() as session:
+            findings = (
+                await session.scalars(
+                    select(FindingRecord).where(FindingRecord.case_id == case_id)
+                )
+            ).all()
+            finding_ids = [finding.id for finding in findings]
+            support_rows: list[tuple[str, int]] = []
+            latest_evidence_link = None
+            latest_source_link = None
+            evidence_link_count = 0
+            source_link_count = 0
+            if finding_ids:
+                support_rows = list(
+                    await session.execute(
+                        select(
+                            FindingEvidenceLinkRecord.finding_id,
+                            func.count(FindingEvidenceLinkRecord.id),
+                        )
+                        .where(
+                            FindingEvidenceLinkRecord.finding_id.in_(finding_ids),
+                            FindingEvidenceLinkRecord.relation == "supports",
+                        )
+                        .group_by(FindingEvidenceLinkRecord.finding_id)
+                    )
+                )
+                evidence_link_count = int(
+                    await session.scalar(
+                        select(func.count(FindingEvidenceLinkRecord.id)).where(
+                            FindingEvidenceLinkRecord.finding_id.in_(finding_ids)
+                        )
+                    )
+                    or 0
+                )
+                latest_evidence_link = await session.scalar(
+                    select(func.max(FindingEvidenceLinkRecord.created_at)).where(
+                        FindingEvidenceLinkRecord.finding_id.in_(finding_ids)
+                    )
+                )
+                source_link_count = int(
+                    await session.scalar(
+                        select(func.count(FindingSourceLinkRecord.id)).where(
+                            FindingSourceLinkRecord.finding_id.in_(finding_ids)
+                        )
+                    )
+                    or 0
+                )
+                latest_source_link = await session.scalar(
+                    select(func.max(FindingSourceLinkRecord.created_at)).where(
+                        FindingSourceLinkRecord.finding_id.in_(finding_ids)
+                    )
+                )
+            supported_ids = {finding_id for finding_id, _ in support_rows}
+            verified = [
+                finding for finding in findings if finding.status == "verified"
+            ]
+            verified_without_support = [
+                finding for finding in verified if finding.id not in supported_ids
+            ]
+            return {
+                "findings_total": len(findings),
+                "findings_with_support": len(supported_ids),
+                "verified_findings": len(verified),
+                "verified_findings_without_support": len(verified_without_support),
+                "verified_without_support_ids": [
+                    finding.id for finding in verified_without_support
+                ],
+                "terminal_findings": sum(
+                    1
+                    for finding in findings
+                    if finding.status in ("verified", "rejected", "superseded")
+                ),
+                "latest_finding_updated_at": max(
+                    (finding.updated_at for finding in findings),
+                    default=None,
+                ),
+                "evidence_link_count": evidence_link_count,
+                "latest_evidence_link_at": latest_evidence_link,
+                "source_link_count": source_link_count,
+                "latest_source_link_at": latest_source_link,
+            }

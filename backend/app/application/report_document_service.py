@@ -10,6 +10,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
+
 from app.core.errors import ApplicationError
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import (
@@ -22,7 +24,6 @@ from app.infrastructure.database.models import (
     SourcePostRecord,
 )
 from app.infrastructure.database.report_repository import ReportDocumentRepository
-from sqlalchemy import select
 
 _REPORT_STATUS_TRANSITIONS = {
     ("draft", "in_review"),
@@ -234,6 +235,34 @@ class ReportDocumentService:
         return updated
 
     # ---------------- publish gate（确定性） ----------------
+
+    async def validate_for_publish(
+        self, case_id: str, report_id: str
+    ) -> dict[str, object]:
+        """V3 §19: 只读 publish readiness 校验。
+
+        必须调用与 change_status(..., "published") 相同的底层
+        deterministic validator（_publish_gate），禁止复制第二套校验；
+        不得修改 report status / lock_version。
+        """
+        record = await self.get_for_case(case_id, report_id)
+        try:
+            await self._publish_gate(record)
+        except ApplicationError as exc:
+            problems = list(getattr(exc, "details", None) or [])
+            if not problems:
+                problems = [{"field": "report", "issue": str(exc)}]
+            return {"ok": False, "problems": problems}
+        return {"ok": True, "problems": []}
+
+    async def validate_citation_links(
+        self, case_id: str, citation_links: list[Any]
+    ) -> list[dict[str, str]]:
+        """V3 §18: citation 引用批量校验（Quality Provenance 维度复用入口）。
+
+        与 _validate_citations 共用同一 parser/validator，无第二套实现。
+        """
+        return await self._validate_citations(case_id, citation_links)
 
     async def _publish_gate(self, record: ReportDocumentRecord) -> None:
         problems: list[dict[str, str]] = []

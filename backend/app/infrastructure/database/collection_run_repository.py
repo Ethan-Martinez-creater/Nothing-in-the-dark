@@ -155,6 +155,71 @@ class CollectionRunRepository:
     ) -> Sequence[CollectionRunRecord]:
         return await self.list_for_case(case_id, active_only=True, limit=limit)
 
+    # ---------------- V3 §12.2: Quality Collection Coverage 查询 ----------------
+
+    async def latest_for_definition(
+        self,
+        case_id: str,
+        *,
+        definition_id: str,
+        definition_version: int | None = None,
+        statuses: Sequence[str] | None = None,
+    ) -> CollectionRunRecord | None:
+        """最近一条匹配 definition id/version（可选 status 过滤）的 run。
+
+        V3 Quality §14：terminal run 用 statuses=("completed",
+        "completed_with_errors", "failed", "cancelled")；in-progress 判断
+        用 statuses=("queued", "running")。按 updated_at 取最新。
+        """
+        conditions = [
+            CollectionRunRecord.case_id == case_id,
+            CollectionRunRecord.collection_definition_id == definition_id,
+        ]
+        if definition_version is not None:
+            conditions.append(
+                CollectionRunRecord.collection_definition_version
+                == definition_version
+            )
+        if statuses is not None:
+            conditions.append(CollectionRunRecord.status.in_(tuple(statuses)))
+        async with self._database.session_factory() as session:
+            return await session.scalar(
+                select(CollectionRunRecord)
+                .where(*conditions)
+                .order_by(
+                    CollectionRunRecord.updated_at.desc(),
+                    CollectionRunRecord.created_at.desc(),
+                )
+                .limit(1)
+            )
+
+    async def latest_terminal_for_definition(
+        self,
+        case_id: str,
+        definition_id: str,
+        definition_version: int | None = None,
+    ) -> CollectionRunRecord | None:
+        return await self.latest_for_definition(
+            case_id,
+            definition_id=definition_id,
+            definition_version=definition_version,
+            statuses=("completed", "completed_with_errors", "failed", "cancelled"),
+        )
+
+    async def has_active_for_definition(
+        self,
+        case_id: str,
+        definition_id: str,
+        definition_version: int | None = None,
+    ) -> bool:
+        record = await self.latest_for_definition(
+            case_id,
+            definition_id=definition_id,
+            definition_version=definition_version,
+            statuses=_ACTIVE_STATUSES,
+        )
+        return record is not None
+
     async def count_for_case(self, case_id: str) -> int:
         async with self._database.session_factory() as session:
             value = await session.scalar(
@@ -275,7 +340,7 @@ class CollectionRunRepository:
 
     async def request_cancel(self, run_id: str) -> CollectionRunRecord:
         """用户取消：非终态 run 记录取消请求；queued 直接置 cancelled。"""
-        record = await self.get(run_id)
+        await self.get(run_id)  # 不存在时 404
         async with self._database.session_factory() as session:
             current = await session.get(CollectionRunRecord, run_id)
             assert current is not None
