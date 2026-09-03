@@ -8,6 +8,7 @@ from app.api.routes import (
     cases,
     collection_runs,
     collections,
+    cross_investigation,
     debates,
     evaluation,
     evidence,
@@ -27,6 +28,7 @@ from app.api.routes import (
     projects,
     propagation,
     provenance,
+    quality,
     reports,
     resilience,
     reviews,
@@ -38,6 +40,7 @@ from app.api.routes import (
     tasks,
     uncertainty,
     workspace,
+    workspace_entities,
 )
 
 api_router = APIRouter()
@@ -110,3 +113,20 @@ api_router.include_router(signals.router, prefix="/signals", tags=["signals"])
 api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(reports.case_router, prefix="/cases", tags=["reports"])
+# V3 Intelligence（§23/§33/§43）：quality / workspace entities / cross-case。
+api_router.include_router(quality.router, prefix="/cases", tags=["quality"])
+api_router.include_router(quality.attention_router, tags=["quality"])
+api_router.include_router(
+    workspace_entities.entities_router, prefix="/intelligence", tags=["intelligence"]
+)
+api_router.include_router(
+    workspace_entities.case_router, prefix="/cases", tags=["intelligence"]
+)
+api_router.include_router(
+    cross_investigation.intelligence_router,
+    prefix="/intelligence",
+    tags=["intelligence"],
+)
+api_router.include_router(
+    cross_investigation.case_router, prefix="/cases", tags=["intelligence"]
+)

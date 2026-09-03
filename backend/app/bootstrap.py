@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.a2a import LocalAgentGateway, RemoteAgentGateway
+from app.application.agent_database_service import AgentDatabaseReadService
 from app.application.agent_service import AgentRunService
 from app.application.alignment_service import AlignmentService
 from app.application.analysis_job_worker import AnalysisJobWorker
@@ -15,12 +16,16 @@ from app.application.collection_run_worker import CollectionRunWorker
 from app.application.collection_service import CollectionDefinitionService
 from app.application.context_builder import ContextBuilder
 from app.application.conversation_summary import ConversationSummarizer
+from app.application.cross_investigation_service import CrossInvestigationService
 from app.application.debate_service import DebateService
 from app.application.evaluation_service import EvaluationService
 from app.application.finding_service import FindingService
 from app.application.goal_service import GoalService
 from app.application.graph_worker import GraphWorker
 from app.application.integrity_service import IntegrityService
+from app.application.investigation_quality_service import (
+    InvestigationQualityService,
+)
 from app.application.media_pipeline_worker import MediaPipelineWorker
 from app.application.memory_extraction import (
     CaseMemoryExtractor,
@@ -40,12 +45,13 @@ from app.application.resilience_service import ResilienceService
 from app.application.review_service import ReviewService
 from app.application.runner import AnalysisRunner
 from app.application.signal_service import SignalService
+from app.application.workspace_entity_service import WorkspaceEntityService
 from app.application.workspace_service import WorkspaceOverviewService
 from app.core.config import Settings
 from app.core.errors import ApplicationError
 from app.graphs.case_analysis import CaseAnalysisGraph
-from app.harness.egress_proxy import EgressProxy
 from app.harness.collection_platform_executor import CollectionPlatformExecutor
+from app.harness.egress_proxy import EgressProxy
 from app.harness.sandbox import (
     SandboxedToolExecutor,
     SecretProvider,
@@ -54,7 +60,6 @@ from app.harness.sandbox import (
     container_supported,
 )
 from app.harness.skills import SkillRegistry
-from app.application.agent_database_service import AgentDatabaseReadService
 from app.harness.tool_factory import build_tool_registry, register_mcp_tools
 from app.infrastructure.crawler import (
     DemoCrawlerAdapter,
@@ -65,8 +70,14 @@ from app.infrastructure.database import Database
 from app.infrastructure.database.alignment_repository import AlignmentRepository
 from app.infrastructure.database.analysis_job_repository import AnalysisJobRepository
 from app.infrastructure.database.collection_run_repository import CollectionRunRepository
+from app.infrastructure.database.cross_investigation_repository import (
+    CrossInvestigationRepository,
+)
 from app.infrastructure.database.finding_repository import FindingRepository
 from app.infrastructure.database.integrity_repository import IntegrityRepository
+from app.infrastructure.database.investigation_quality_repository import (
+    InvestigationQualityRepository,
+)
 from app.infrastructure.database.knowledge_repository import KnowledgeRepository
 from app.infrastructure.database.media_pipeline_repository import MediaPipelineRepository
 from app.infrastructure.database.monitor_repository import MonitorRepository
@@ -74,6 +85,9 @@ from app.infrastructure.database.report_repository import ReportDocumentReposito
 from app.infrastructure.database.resilience_repository import ResilienceRepository
 from app.infrastructure.database.social_repository import SocialRepository
 from app.infrastructure.database.uncertainty_repository import UncertaintyRepository
+from app.infrastructure.database.workspace_entity_repository import (
+    WorkspaceEntityRepository,
+)
 from app.infrastructure.embeddings import EmbeddingWorkerClient
 from app.infrastructure.llm import OpenAICompatibleGateway
 from app.infrastructure.media_fetch import MediaFetchService
@@ -494,6 +508,41 @@ class ApplicationContainer:
         self.review_service = ReviewService(self.repository)
         # M20: 评测运行与发布门禁。
         self.evaluation_service = EvaluationService(self.repository)
+        # V3 Intelligence（Part A/B/C）：确定性服务，无 LLM。
+        self.investigation_quality_repository = InvestigationQualityRepository(
+            self.database
+        )
+        self.investigation_quality = InvestigationQualityService(
+            repository=self.repository,
+            social_repository=self.social,
+            collection_run_repository=self.collection_run_repository,
+            finding_repository=self.finding_read_repository,
+            quality_repository=self.investigation_quality_repository,
+            report_document_service=self.report_document_service,
+            collection_definition_service=self.collection_service,
+            database=self.database,
+        )
+        self.workspace_entity_repository = WorkspaceEntityRepository(self.database)
+        self.workspace_entities = WorkspaceEntityService(
+            workspace_repository=self.workspace_entity_repository,
+            alignment_repository=self.alignment_repository,
+            application_repository=self.repository,
+            social_repository=self.social,
+            integrity_repository=self.integrity_repository,
+            database=self.database,
+        )
+        self.cross_investigation_repository = CrossInvestigationRepository(
+            self.database
+        )
+        self.cross_investigation = CrossInvestigationService(
+            cross_repository=self.cross_investigation_repository,
+            workspace_repository=self.workspace_entity_repository,
+            workspace_service=self.workspace_entities,
+            social_repository=self.social,
+            media_repository=self.media_repository,
+            application_repository=self.repository,
+            database=self.database,
+        )
         # M22: 故障隔离、降级与事故处置。
         self.resilience_repository = ResilienceRepository(self.database)
         self.resilience = ResilienceService(
