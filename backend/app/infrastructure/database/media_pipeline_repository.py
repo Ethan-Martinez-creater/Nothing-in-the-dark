@@ -52,6 +52,80 @@ class MediaPipelineRepository:
                 )
             ).all()
 
+    # ---- V3 §38: cross-case media batch matching ------------------------
+
+    async def list_case_media_hashes(
+        self, case_id: str, *, limit: int = 20000
+    ) -> list[tuple[str, str, str]]:
+        """anchor case 的 (asset_id, actual_sha256, media_type)。"""
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    MediaAssetRecord.id,
+                    MediaAssetRecord.actual_sha256,
+                    MediaAssetRecord.media_type,
+                )
+                .where(
+                    MediaAssetRecord.case_id == case_id,
+                    MediaAssetRecord.actual_sha256.isnot(None),
+                    MediaAssetRecord.actual_sha256 != "",
+                )
+                .limit(limit)
+            )
+            return [
+                (str(asset_id), str(sha256), str(media_type))
+                for asset_id, sha256, media_type in rows.all()
+            ]
+
+    async def find_cross_case_sha_matches(
+        self,
+        case_id: str,
+        sha256_values: Sequence[str],
+        limit: int = 2000,
+    ) -> Sequence[MediaAssetRecord]:
+        """§38 Exact：不同 case 相同 actual_sha256（一次 IN 查询）。"""
+        unique = sorted({value for value in sha256_values if value})
+        if not unique:
+            return []
+        async with self._database.session_factory() as session:
+            return (
+                await session.scalars(
+                    select(MediaAssetRecord)
+                    .where(
+                        MediaAssetRecord.case_id != case_id,
+                        MediaAssetRecord.actual_sha256.in_(tuple(unique)),
+                    )
+                    .order_by(MediaAssetRecord.case_id, MediaAssetRecord.id)
+                    .limit(limit)
+                )
+            ).all()
+
+    async def find_cross_case_phash_candidates(
+        self,
+        case_id: str,
+        block_keys: Sequence[str],
+        limit: int = 2000,
+    ) -> Sequence[MediaAssetRecord]:
+        """§38 Candidate：四段 phash blocking 的候选资产。
+
+        单次 bounded 查询取其它 case 中 phash 非空的资产，调用方在内存侧
+        复算 block key（f"{media_type}:{offset}:{phash[offset:offset+4]}"），
+        避免每 asset 全表扫描（双方言安全，不做 SQL substring）。
+        """
+        async with self._database.session_factory() as session:
+            return (
+                await session.scalars(
+                    select(MediaAssetRecord)
+                    .where(
+                        MediaAssetRecord.case_id != case_id,
+                        MediaAssetRecord.phash.isnot(None),
+                        MediaAssetRecord.phash != "",
+                    )
+                    .order_by(MediaAssetRecord.case_id, MediaAssetRecord.id)
+                    .limit(limit)
+                )
+            ).all()
+
     async def list_pending_assets(
         self,
         *,
