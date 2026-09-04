@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+from app.core.v3 import V3_INTELLIGENCE_VERSION
 from app.infrastructure.database.analysis_job_repository import AnalysisJobRepository
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ class AnalysisJobWorker:
         *,
         alignment_service: Any | None = None,
         integrity_service: Any | None = None,
+        intelligence_service: Any | None = None,
         worker_id: str = "local-analysis-worker",
         poll_interval_seconds: float = 2.0,
         lease_seconds: int = 600,
@@ -26,6 +28,7 @@ class AnalysisJobWorker:
         self._repository = repository
         self._alignment = alignment_service
         self._integrity = integrity_service
+        self._intelligence = intelligence_service
         self._worker_id = worker_id
         self._poll_interval = poll_interval_seconds
         self._lease_seconds = lease_seconds
@@ -64,7 +67,8 @@ class AnalysisJobWorker:
         job = await self._repository.claim_job(self._worker_id, self._lease_seconds)
         if job is None:
             return None
-        run_task = asyncio.create_task(self._run(job.job_type, job.case_id))
+        job_type = job.job_type
+        run_task = asyncio.create_task(self._run(job_type, job.case_id))
         interval = max(0.1, self._lease_seconds / 3.0)
         try:
             while not run_task.done():
@@ -89,6 +93,10 @@ class AnalysisJobWorker:
                 job.id, self._worker_id, result or {}
             ):
                 logger.warning("analysis job %s completion rejected after lease loss", job.id)
+            else:
+                # §62.1：alignment/integrity 成功后 follow-up enqueue
+                # intelligence_refresh（绝不 enqueue 自己，绝不递归）。
+                await self._maybe_enqueue_intelligence_refresh(job.id, job.case_id, job_type)
         except asyncio.CancelledError:
             run_task.cancel()
             await asyncio.gather(run_task, return_exceptions=True)
@@ -101,9 +109,30 @@ class AnalysisJobWorker:
             )
         return job.id
 
+    async def _maybe_enqueue_intelligence_refresh(
+        self, job_id: str, case_id: str, job_type: str
+    ) -> None:
+        if self._intelligence is None or job_type not in ("alignment", "integrity"):
+            return
+        try:
+            await self._intelligence.enqueue(
+                case_id,
+                source_key=(
+                    f"v3:intel:{job_type}:{job_id}:{V3_INTELLIGENCE_VERSION}"
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "intelligence_refresh follow-up enqueue failed for job %s",
+                job_id,
+                exc_info=True,
+            )
+
     async def _run(self, job_type: str, case_id: str) -> dict[str, Any]:
         if job_type == "alignment" and self._alignment is not None:
             return await self._alignment.analyze_case(case_id)
         if job_type == "integrity" and self._integrity is not None:
             return await self._integrity.analyze_case(case_id)
+        if job_type == "intelligence_refresh" and self._intelligence is not None:
+            return await self._intelligence.refresh_case(case_id)
         raise ValueError(f"unknown job_type {job_type}")

@@ -40,12 +40,15 @@ from app.infrastructure.database.models import (
     CorrectionEventRecord,
     CorrectionImpactAnalysisRecord,
     CostSummaryRecord,
+    CrossInvestigationLinkRecord,
     DatasetExampleRecord,
     DatasetManifestRecord,
     DebateMessageRecord,
     DebateRecord,
     DebateVoteRecord,
     DeliveryAttemptRecord,
+    DerivedSignalCaseLinkRecord,
+    DerivedSignalRecord,
     EgressAuditEventRecord,
     EmbeddingVersionRecord,
     EntityMentionRecord,
@@ -61,6 +64,7 @@ from app.infrastructure.database.models import (
     FindingSourceLinkRecord,
     GoalRecord,
     GuardrailDecisionRecord,
+    InvestigationQualityRecord,
     KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
     LexiconEntryRecord,
@@ -111,6 +115,9 @@ from app.infrastructure.database.models import (
     SubscriptionRecord,
     TaskEventRecord,
     ToolCallRecord,
+    WorkspaceEntityCaseLinkRecord,
+    WorkspaceEntityRecord,
+    WorkspaceEntityRelationRecord,
 )
 from app.schemas.cases import CreateCaseRequest
 from app.schemas.tasks import StartAnalysisRequest
@@ -197,6 +204,15 @@ class ApplicationRepository:
         async with self._database.session_factory() as session:
             # 按最近活跃排序：对话（add_turn）会 touch updated_at。
             query = select(CaseRecord).order_by(CaseRecord.updated_at.desc())
+            result = await session.scalars(query)
+            return result.all()
+
+    async def list_cases_ordered_by_creation(self) -> Sequence[CaseRecord]:
+        """V3 §66：backfill 按 created_at ASC + id ASC。"""
+        async with self._database.session_factory() as session:
+            query = select(CaseRecord).order_by(
+                CaseRecord.created_at.asc(), CaseRecord.id.asc()
+            )
             result = await session.scalars(query)
             return result.all()
 
@@ -665,6 +681,77 @@ class ApplicationRepository:
                     ConversationTurnRecord.case_id == case_id
                 )
             )
+            # ---- V3 cleanup（§67，删除 CaseRecord 之前，同一事务） ----
+            # 1. Investigation Quality（UNIQUE(case_id)）
+            await session.execute(
+                delete(InvestigationQualityRecord).where(
+                    InvestigationQualityRecord.case_id == case_id
+                )
+            )
+            # 2. Workspace Entity Relation（可撤销 same_as 证据）
+            await session.execute(
+                delete(WorkspaceEntityRelationRecord).where(
+                    WorkspaceEntityRelationRecord.source_case_id == case_id
+                )
+            )
+            # 3. Workspace Entity Case Links
+            await session.execute(
+                delete(WorkspaceEntityCaseLinkRecord).where(
+                    WorkspaceEntityCaseLinkRecord.case_id == case_id
+                )
+            )
+            # 4. Cross Investigation Links（left OR right）
+            await session.execute(
+                delete(CrossInvestigationLinkRecord).where(
+                    or_(
+                        CrossInvestigationLinkRecord.left_case_id == case_id,
+                        CrossInvestigationLinkRecord.right_case_id == case_id,
+                    )
+                )
+            )
+            # 5. Derived Signal Case Links（filter 表）
+            await session.execute(
+                delete(DerivedSignalCaseLinkRecord).where(
+                    DerivedSignalCaseLinkRecord.case_id == case_id
+                )
+            )
+            # 6. Derived Signal（primary case）
+            await session.execute(
+                delete(DerivedSignalRecord).where(
+                    DerivedSignalRecord.case_id == case_id
+                )
+            )
+            # 7. 孤儿 Derived Signal（零 case links）
+            orphan_signals = select(DerivedSignalRecord.id).where(
+                ~DerivedSignalRecord.id.in_(
+                    select(DerivedSignalCaseLinkRecord.signal_id).distinct()
+                )
+            )
+            await session.execute(
+                delete(DerivedSignalRecord).where(DerivedSignalRecord.id.in_(orphan_signals))
+            )
+            # 8. 孤儿 Workspace Entity（零 case links AND 零 active relations）
+            orphan_entities = select(WorkspaceEntityRecord.id).where(
+                ~WorkspaceEntityRecord.id.in_(
+                    select(WorkspaceEntityCaseLinkRecord.entity_id).distinct()
+                ),
+                ~WorkspaceEntityRecord.id.in_(
+                    select(WorkspaceEntityRelationRecord.left_entity_id).where(
+                        WorkspaceEntityRelationRecord.status == "active"
+                    )
+                ),
+                ~WorkspaceEntityRecord.id.in_(
+                    select(WorkspaceEntityRelationRecord.right_entity_id).where(
+                        WorkspaceEntityRelationRecord.status == "active"
+                    )
+                ),
+            )
+            await session.execute(
+                delete(WorkspaceEntityRecord).where(
+                    WorkspaceEntityRecord.id.in_(orphan_entities)
+                )
+            )
+            # 删除 CaseRecord 本身
             case = await session.get(CaseRecord, case_id)
             if case is not None:
                 await session.delete(case)

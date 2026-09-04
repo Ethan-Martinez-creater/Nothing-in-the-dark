@@ -383,6 +383,12 @@ class AdvancedSignalDetectorService:
             "coordination_cluster", signals, expected, list(case_ids)
         )
 
+    async def refresh_case(self, case_id: str) -> dict[str, Any]:
+        """§61：单 Case 的 Derived Signal 刷新（coordination scope = 该 case）。"""
+        return {
+            "coordination_cluster": await self.refresh_coordination([case_id]),
+        }
+
     async def refresh_actor_recurrence(self) -> dict[str, int]:
         """§53 actor_recurrence（全局 identity component）。"""
         signals, expected, scope_cases = await self._detect_actor_recurrence()

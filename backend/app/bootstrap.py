@@ -24,6 +24,7 @@ from app.application.finding_service import FindingService
 from app.application.goal_service import GoalService
 from app.application.graph_worker import GraphWorker
 from app.application.integrity_service import IntegrityService
+from app.application.intelligence_refresh_service import IntelligenceRefreshService
 from app.application.investigation_quality_service import (
     InvestigationQualityService,
 )
@@ -565,6 +566,18 @@ class ApplicationContainer:
             media_repository=self.media_repository,
             application_repository=self.repository,
         )
+        # V3 §61：Intelligence Refresh 编排（固定顺序 quality→entities→cross→signals）。
+        self.intelligence_refresh_service = IntelligenceRefreshService(
+            analysis_job_repository=self.analysis_job_repository,
+            quality_service=self.investigation_quality,
+            workspace_entity_service=self.workspace_entities,
+            cross_investigation_service=self.cross_investigation,
+            advanced_signal_service=self.advanced_signals,
+        )
+        # §62.1/§63：alignment/integrity 完成后与 collection terminal 后
+        # 的 follow-up enqueue（worker 早于 V3 区创建，此处后置注入）。
+        self.analysis_job_worker._intelligence = self.intelligence_refresh_service
+        self.collection_run_worker._analysis_jobs = self.analysis_job_repository
         # M22: 故障隔离、降级与事故处置。
         self.resilience_repository = ResilienceRepository(self.database)
         self.resilience = ResilienceService(

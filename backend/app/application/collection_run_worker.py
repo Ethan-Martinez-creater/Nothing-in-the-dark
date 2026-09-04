@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from app.application.ports.crawler import CrawlRequest
+from app.core.v3 import V3_INTELLIGENCE_VERSION
 from app.harness.collection_platform_executor import CollectionPlatformExecutor
 from app.infrastructure.database.collection_run_repository import CollectionRunRepository
 from app.infrastructure.database.social_repository import SocialRepository
@@ -60,6 +61,7 @@ class CollectionRunWorker:
         telemetry: Any | None = None,
         output_root: Path | None = None,
         live_progress_interval_seconds: float = 2.0,
+        analysis_jobs: Any | None = None,
     ) -> None:
         self._repository = repository
         self._executor = platform_executor
@@ -75,6 +77,7 @@ class CollectionRunWorker:
         self._telemetry = telemetry
         self._output_root = output_root
         self._live_progress_interval = max(0.5, live_progress_interval_seconds)
+        self._analysis_jobs = analysis_jobs
         self._stopping = False
         self._task: asyncio.Task[None] | None = None
         self._active: set[asyncio.Task[Any]] = set()
@@ -649,6 +652,47 @@ class CollectionRunWorker:
             await self._repository.mark_failed_if_owner(
                 run_id, self._worker_id, result
             )
+        # §63：completed / completed_with_errors 后 best-effort enqueue
+        # alignment + integrity（失败只 log warning，不影响 terminal status）。
+        if terminal in ("completed", "completed_with_errors"):
+            await self._enqueue_analysis_dependencies(run_id, result)
+
+    async def _enqueue_analysis_dependencies(
+        self, run_id: str, result: dict[str, Any]
+    ) -> None:
+        if self._analysis_jobs is None:
+            return
+        case_id = result.get("case_id") or (result.get("run") or {}).get("case_id")
+        if not case_id:
+            try:
+                record = await self._repository.get(run_id)
+                case_id = record.case_id
+            except Exception:
+                logger.warning(
+                    "collection run %s case lookup failed; skip analysis enqueue",
+                    run_id,
+                    exc_info=True,
+                )
+                return
+        if not case_id:
+            logger.warning("collection run %s has no case_id; skip analysis enqueue", run_id)
+            return
+        for job_type in ("alignment", "integrity"):
+            try:
+                await self._analysis_jobs.create_job(
+                    case_id=case_id,
+                    job_type=job_type,
+                    idempotency_key=(
+                        f"v3:{job_type}:{run_id}:{V3_INTELLIGENCE_VERSION}"
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "analysis job enqueue failed for run %s (%s)",
+                    run_id,
+                    job_type,
+                    exc_info=True,
+                )
 
     # ---------------- telemetry ----------------
 
