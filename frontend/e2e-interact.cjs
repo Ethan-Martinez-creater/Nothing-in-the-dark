@@ -488,6 +488,31 @@ function runSeed() {
   } catch (e) { checkC('Scenario F Signals', false, String(e).slice(0, 200)); }
 
   // ======================================================================
+  // V3 Intelligence UI（§90/§45/§59）——Overview Quality Card、
+  // /intelligence 双 Tab、Signals V3 Source filter。
+  // ======================================================================
+  try {
+    await page.goto(BASE_UI + '/investigations/' + cid + '/overview', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.iqcard', { timeout: 20000 });
+    checkC('V1: Overview Quality Card 渲染（6 维度）', await page.evaluate(() => {
+      const dims = document.querySelectorAll('.iqcard__dim');
+      return dims.length === 6 && !!document.querySelector('.iqcard__score-value');
+    }), 'dims=' + await page.evaluate(() => document.querySelectorAll('.iqcard__dim').length));
+    const ovText = await textOf();
+    checkC('V2: Quality Card 展示 grade + disclaimer', ovText.includes('Quality Score 表示调查完整度与准备度') && (ovText.includes('强') || ovText.includes('可接受') || ovText.includes('需关注') || ovText.includes('弱') || ovText.includes('数据不足')), '');
+
+    await page.goto(BASE_UI + '/intelligence', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.intelview__tab', { timeout: 15000 });
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('.intelview__tab')].map((el) => el.textContent.trim()));
+    checkC('V3: /intelligence 双 Tab（关联/实体）', tabs.includes('关联') && tabs.includes('实体'), 'tabs=' + tabs.join(','));
+
+    await page.goto(BASE_UI + '/signals', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.sigview__filter', { timeout: 15000 });
+    const sourceOptions = await page.evaluate(() => [...document.querySelectorAll('.sigview__filter')].at(-1).options ? [...document.querySelectorAll('.sigview__filter')].at(-1).options.length : 0);
+    checkC('V4: Signals Source filter 存在', sourceOptions >= 6, 'options=' + sourceOptions);
+  } catch (e) { checkC('V3 Intelligence UI', false, String(e).slice(0, 200)); }
+
+  // ======================================================================
   // Console 卫生检查：Scenario C 的 invalid publish 400 是设计内的负路径
   // （后端 gate 拒绝，浏览器必然记录一条资源错误），与预期能对上的资源错误
   // 不算失败；真正的 JS 错误（pageerror/其他 console error）与任何非预期的
