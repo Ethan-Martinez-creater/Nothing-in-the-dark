@@ -18,6 +18,12 @@ const primaryNav = [
   { path: '/', label: '首页', match: (p: string) => p === '/' },
   { path: '/signals', label: '信号', match: (p: string) => p.startsWith('/signals') },
   {
+    // V3 §45：一级导航顺序 Home / Signals / Intelligence / Investigations / Reports。
+    path: '/intelligence',
+    label: '情报',
+    match: (p: string) => p.startsWith('/intelligence'),
+  },
+  {
     path: '/investigations',
     label: '调查',
     match: (p: string) => p.startsWith('/investigations') || p.startsWith('/cases'),

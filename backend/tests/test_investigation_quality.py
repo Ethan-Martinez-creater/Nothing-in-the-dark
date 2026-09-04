@@ -549,3 +549,62 @@ async def test_q18_quality_wording_not_truth_score() -> None:
     assert payload["disclaimer"] == QUALITY_DISCLAIMER
     assert "不代表事实真实性" in payload["disclaimer"]
     await env.db.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Q19: Home workspace overview aggregate（V3 §44）
+# ---------------------------------------------------------------------------
+
+
+async def test_q19_home_overview_aggregates_quality_attention() -> None:
+    """Home 只读持久化 Quality：attention 列表带 Case title，
+    无 QualityRecord 的 Case 计入 quality_unassessed_count。"""
+    from app.application.signal_service import SignalService
+    from app.application.workspace_service import WorkspaceOverviewService
+    from app.infrastructure.database.monitor_repository import MonitorRepository
+
+    env = await _setup()
+    case_b = await _make_case(env, ["weibo"])
+    case_c = await _make_case(env, ["weibo"])
+    now = datetime.now(UTC)
+    await env.quality_repo.upsert(
+        case_id=env.case.id,
+        overall_score=91.0,
+        grade="strong",
+        dimensions={},
+        metrics={},
+        gaps=[],
+        warnings=[],
+        input_fingerprint="fp-strong",
+        algorithm_version="quality-1.0.0",
+        computed_at=now,
+    )
+    await env.quality_repo.upsert(
+        case_id=case_b.id,
+        overall_score=42.0,
+        grade="weak",
+        dimensions={},
+        metrics={},
+        gaps=[],
+        warnings=[],
+        input_fingerprint="fp-weak",
+        algorithm_version="quality-1.0.0",
+        computed_at=now,
+    )
+
+    overview_service = WorkspaceOverviewService(
+        env.db,
+        SignalService(env.db, MonitorRepository(env.db)),
+        quality_repository=env.quality_repo,
+    )
+    payload = await overview_service.overview()
+
+    attention = payload.investigations_needing_attention
+    assert [entry.case_id for entry in attention] == [case_b.id]
+    assert attention[0].grade == "weak"
+    assert attention[0].overall_score == 42.0
+    # title 来自 Case join，而不是 case_id 兜底
+    assert attention[0].title == case_b.title
+    # case_c 完全未评估 → unassessed=1（strong/weak 已评估）
+    assert payload.quality_unassessed_count == 1
+    await env.db.dispose()

@@ -52,6 +52,15 @@ export interface WorkspaceOverview {
     title: string
     created_at: string
   }>
+  // V3 §44：Home Quality 聚合（只读持久化 Quality，前端不逐 Case 重算）。
+  investigations_needing_attention: Array<{
+    case_id: string
+    title: string
+    grade: string
+    overall_score: number | null
+    computed_at: string
+  }>
+  quality_unassessed_count: number
 }
 
 export const signalApi = {

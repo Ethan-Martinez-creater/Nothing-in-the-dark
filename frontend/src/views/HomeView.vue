@@ -40,6 +40,19 @@ const severityLabels: Record<string, string> = {
   info: '提示',
 }
 
+const gradeLabels: Record<string, string> = {
+  needs_attention: '需关注',
+  weak: '弱',
+}
+
+function openIntelligence() {
+  router.push('/intelligence')
+}
+
+function formatGradeTime(value: string): string {
+  return new Date(value).toLocaleDateString('zh-CN')
+}
+
 async function load() {
   loading.value = true
   error.value = null
@@ -130,6 +143,51 @@ onMounted(load)
           <span class="home-view__kpi-value">{{ overview.counts.running_runs }}</span>
           <span class="home-view__kpi-label">运行中的 Agent</span>
         </div>
+        <!-- V3 §44：未评估 Count（不能把「尚未评估」显示成「质量正常」） -->
+        <button
+          class="home-view__kpi home-view__kpi--link"
+          :class="{ 'home-view__kpi--warn': overview.quality_unassessed_count > 0 }"
+          @click="openIntelligence"
+        >
+          <span class="home-view__kpi-value">{{ overview.quality_unassessed_count }}</span>
+          <span class="home-view__kpi-label">待评估质量</span>
+        </button>
+      </section>
+
+      <!-- V3 §44：需要关注的调查（持久化 Quality，≤5，显示 computed_at） -->
+      <section
+        v-if="overview.investigations_needing_attention.length"
+        class="home-view__panel"
+        aria-label="质量需关注"
+      >
+        <div class="home-view__panel-head">
+          <h2>质量需关注</h2>
+          <button type="button" class="home-view__more" @click="openIntelligence">
+            情报中心
+          </button>
+        </div>
+        <ul class="home-view__attention-list">
+          <li v-for="item in overview.investigations_needing_attention" :key="item.case_id">
+            <button
+              type="button"
+              class="home-view__attention"
+              @click="openInvestigation(item.case_id)"
+            >
+              <span class="home-view__attention-grade" :data-grade="item.grade">
+                {{ gradeLabels[item.grade] ?? item.grade }}
+              </span>
+              <span class="home-view__attention-body">
+                <span class="home-view__attention-title">{{ item.title }}</span>
+                <span class="home-view__attention-meta">
+                  评估于 {{ formatGradeTime(item.computed_at) }}
+                  <template v-if="item.overall_score != null">
+                    · {{ item.overall_score.toFixed(1) }} 分
+                  </template>
+                </span>
+              </span>
+            </button>
+          </li>
+        </ul>
       </section>
 
       <div class="home-view__columns">
@@ -326,6 +384,10 @@ button.home-view__kpi:hover {
   border-color: var(--accent);
 }
 
+.home-view__kpi--warn .home-view__kpi-value {
+  color: #b45309;
+}
+
 .home-view__kpi-value {
   font-size: 24px;
   font-weight: 700;
@@ -396,13 +458,68 @@ button.home-view__kpi:hover {
 
 .home-view__signal-list,
 .home-view__case-list,
-.home-view__report-list {
+.home-view__report-list,
+.home-view__attention-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.home-view__attention {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.home-view__attention:hover {
+  border-color: var(--accent);
+}
+
+.home-view__attention-grade {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.home-view__attention-grade[data-grade='needs_attention'] {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.home-view__attention-grade[data-grade='weak'] {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--red);
+}
+
+.home-view__attention-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-view__attention-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.home-view__attention-meta {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .home-view__signal,

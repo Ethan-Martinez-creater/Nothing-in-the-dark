@@ -7,6 +7,7 @@ import GlobalSidebar from '@/components/shell/GlobalSidebar.vue'
 const routes = [
   { path: '/', component: { template: '<div />' } },
   { path: '/signals', component: { template: '<div />' } },
+  { path: '/intelligence', component: { template: '<div />' } },
   { path: '/investigations', component: { template: '<div />' } },
   { path: '/investigations/:caseId/overview', component: { template: '<div />' } },
   { path: '/reports', component: { template: '<div />' } },
@@ -35,10 +36,10 @@ async function mountSidebar(initialPath = '/') {
 }
 
 describe('GlobalSidebar', () => {
-  it('renders the four primary nav entries', async () => {
+  it('renders the five primary nav entries', async () => {
     const { wrapper } = await mountSidebar()
     const labels = wrapper.findAll('.gsidebar__nav-item').map((node) => node.text())
-    expect(labels).toEqual(['首页', '信号', '调查', '报告'])
+    expect(labels).toEqual(['首页', '信号', '情报', '调查', '报告'])
   })
 
   it('keeps administration collapsed by default and expands on demand', async () => {
@@ -66,5 +67,14 @@ describe('GlobalSidebar', () => {
     const items = wrapper.findAll('.gsidebar__nav-item')
     const investigations = items.find((node) => node.text() === '调查')!
     expect(investigations.classes()).toContain('gsidebar__nav-item--active')
+  })
+
+  it('marks the intelligence nav item active on /intelligence', async () => {
+    const { wrapper, router } = await mountSidebar('/')
+    await router.push('/intelligence')
+    await flushPromises()
+    const items = wrapper.findAll('.gsidebar__nav-item')
+    const intelligence = items.find((node) => node.text() === '情报')!
+    expect(intelligence.classes()).toContain('gsidebar__nav-item--active')
   })
 })

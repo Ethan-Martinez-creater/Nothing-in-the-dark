@@ -441,8 +441,13 @@ class ApplicationContainer:
         self.monitor_repository = MonitorRepository(self.database)
         # M6: Global Signals（Alert adapter）与 Home 聚合端点。
         self.signal_service = SignalService(self.database, self.monitor_repository)
+        # V3 §44：Home 聚合需要只读 Quality（needs-attention/unassessed）。
+        self.investigation_quality_repository = InvestigationQualityRepository(
+            self.database
+        )
         self.workspace_service = WorkspaceOverviewService(
-            self.database, self.signal_service
+            self.database, self.signal_service,
+            quality_repository=self.investigation_quality_repository,
         )
         # M7: 产品层报告发布流。
         self.report_document_service = ReportDocumentService(self.database)
@@ -509,9 +514,6 @@ class ApplicationContainer:
         # M20: 评测运行与发布门禁。
         self.evaluation_service = EvaluationService(self.repository)
         # V3 Intelligence（Part A/B/C）：确定性服务，无 LLM。
-        self.investigation_quality_repository = InvestigationQualityRepository(
-            self.database
-        )
         self.investigation_quality = InvestigationQualityService(
             repository=self.repository,
             social_repository=self.social,

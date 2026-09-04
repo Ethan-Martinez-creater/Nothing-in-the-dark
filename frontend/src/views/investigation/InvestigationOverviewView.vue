@@ -10,7 +10,10 @@ import { Pencil, X } from 'lucide-vue-next'
 import CollectionDefinitionCard from '@/components/collection/CollectionDefinitionCard.vue'
 import CollectionRunCard from '@/components/collection/CollectionRunCard.vue'
 import GoalPlanPanel from '@/components/goals/GoalPlanPanel.vue'
+import InvestigationQualityCard from '@/components/intelligence/InvestigationQualityCard.vue'
+import RelatedInvestigationsCard from '@/components/intelligence/RelatedInvestigationsCard.vue'
 import { collectionRunApi, isActiveCollectionRun, type CollectionRun } from '@/services/api/collectionRuns'
+import { qualityApi, type InvestigationQuality } from '@/services/api/intelligence'
 import { api } from '@/services/api'
 import type { AgentRun, Artifact, CaseRecord } from '@/types/api'
 
@@ -30,6 +33,36 @@ const activeRuns = computed(() =>
 const collectionRuns = ref<CollectionRun[]>([])
 const runPollTimer = ref<number | null>(null)
 const analyzeNotice = ref('')
+
+// ---- V3 §43：调查质量 + 关联调查 ----
+const quality = ref<InvestigationQuality | null>(null)
+const qualityLoading = ref(true)
+const qualityError = ref('')
+const qualityRefreshing = ref(false)
+
+async function loadQuality() {
+  qualityLoading.value = true
+  qualityError.value = ''
+  try {
+    quality.value = await qualityApi.get(caseId.value)
+  } catch {
+    qualityError.value = '质量评估加载失败。'
+  } finally {
+    qualityLoading.value = false
+  }
+}
+
+async function refreshQuality() {
+  qualityRefreshing.value = true
+  qualityError.value = ''
+  try {
+    quality.value = await qualityApi.refresh(caseId.value)
+  } catch {
+    qualityError.value = '重新评估失败，请稍后重试。'
+  } finally {
+    qualityRefreshing.value = false
+  }
+}
 
 async function loadCollectionRuns() {
   try {
@@ -162,6 +195,7 @@ onMounted(async () => {
   }
   await loadCollectionRuns()
   startRunPolling()
+  void loadQuality()
 })
 
 onUnmounted(() => {
@@ -194,6 +228,17 @@ onUnmounted(() => {
           <span class="ioverview__stat-label">分析成果</span>
         </div>
       </section>
+
+      <div class="ioverview__intel">
+        <InvestigationQualityCard
+          :quality="quality"
+          :loading="qualityLoading"
+          :error="qualityError"
+          :refreshing="qualityRefreshing"
+          @refresh="refreshQuality"
+        />
+        <RelatedInvestigationsCard :case-id="caseId" />
+      </div>
 
       <CollectionDefinitionCard
         :case-id="caseId"
@@ -296,6 +341,13 @@ onUnmounted(() => {
 .ioverview__status {
   display: flex;
   gap: 12px;
+}
+
+.ioverview__intel {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+  align-items: start;
 }
 
 .ioverview__stat {
@@ -468,5 +520,11 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .ioverview__intel {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

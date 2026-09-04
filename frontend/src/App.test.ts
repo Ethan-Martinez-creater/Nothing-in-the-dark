@@ -43,6 +43,7 @@ async function mountApp(initialPath = '/') {
       },
       { path: '/investigations', component: { template: '<div>investigations</div>' } },
       { path: '/signals', component: { template: '<div>signals</div>' } },
+      { path: '/intelligence', component: { template: '<div>intelligence</div>' } },
       { path: '/reports', component: { template: '<div>reports</div>' } },
       {
         path: '/admin',

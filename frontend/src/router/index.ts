@@ -75,6 +75,12 @@ export const router = createRouter({
       component: () => import('@/views/SignalsView.vue'),
     },
     {
+      // V3 §45：全局情报工作台（跨调查关联 + Workspace 实体）。
+      path: '/intelligence',
+      name: 'intelligence',
+      component: () => import('@/views/IntelligenceView.vue'),
+    },
+    {
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),

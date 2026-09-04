@@ -7,6 +7,9 @@ from typing import Any
 from sqlalchemy import func, select
 
 from app.infrastructure.database.engine import Database
+from app.infrastructure.database.investigation_quality_repository import (
+    InvestigationQualityRepository,
+)
 from app.infrastructure.database.models import (
     AgentRunRecord,
     AlertOccurrenceRecord,
@@ -15,6 +18,7 @@ from app.infrastructure.database.models import (
     CaseRecord,
 )
 from app.schemas.workspace import (
+    QualityAttentionCase,
     RecentInvestigation,
     RecentReport,
     TopSignal,
@@ -26,9 +30,15 @@ _ACTIVE_RUN_STATUSES = ("pending", "running", "waiting_approval")
 
 
 class WorkspaceOverviewService:
-    def __init__(self, database: Database, signal_service: Any) -> None:
+    def __init__(
+        self,
+        database: Database,
+        signal_service: Any,
+        quality_repository: InvestigationQualityRepository,
+    ) -> None:
         self._database = database
         self._signals = signal_service
+        self._quality = quality_repository
 
     async def overview(self) -> WorkspaceOverviewResponse:
         async with self._database.session_factory() as session:
@@ -76,6 +86,23 @@ class WorkspaceOverviewService:
 
         top_signals = (await self._signals.list_signals(limit=5))[:5]
 
+        # V3 §44：Home 只读持久化 Quality，不为所有 Case 同步 recompute；
+        # 无 QualityRecord 的 Case 计入 quality_unassessed_count，避免把
+        # 「尚未评估」错误显示成「质量正常」。
+        attention_records = await self._quality.list_needing_attention(limit=5)
+        attention_titles: dict[str, str] = {}
+        if attention_records:
+            async with self._database.session_factory() as session:
+                rows = await session.execute(
+                    select(CaseRecord.id, CaseRecord.title).where(
+                        CaseRecord.id.in_([r.case_id for r in attention_records])
+                    )
+                )
+                attention_titles = {row_id: title for row_id, title in rows.all()}
+        unassessed_count = await self._quality.count_unassessed(
+            int(investigations or 0)
+        )
+
         return WorkspaceOverviewResponse(
             counts=WorkspaceCounts(
                 investigations=int(investigations or 0),
@@ -117,4 +144,17 @@ class WorkspaceOverviewService:
                 )
                 for artifact in recent_reports
             ],
+            investigations_needing_attention=[
+                QualityAttentionCase(
+                    case_id=record.case_id,
+                    title=attention_titles.get(record.case_id, record.case_id),
+                    grade=record.grade,
+                    overall_score=record.overall_score,
+                    computed_at=(
+                        record.computed_at.isoformat() if record.computed_at else ""
+                    ),
+                )
+                for record in attention_records
+            ],
+            quality_unassessed_count=int(unassessed_count),
         )

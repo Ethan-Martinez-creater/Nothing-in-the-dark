@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class WorkspaceCounts(BaseModel):
@@ -42,11 +42,23 @@ class RecentReport(BaseModel):
     created_at: str
 
 
+class QualityAttentionCase(BaseModel):
+    case_id: str
+    title: str
+    grade: str
+    overall_score: float | None = None
+    computed_at: str
+
+
 class WorkspaceOverviewResponse(BaseModel):
     counts: WorkspaceCounts
     recent_investigations: list[RecentInvestigation]
     top_signals: list[TopSignal]
     recent_reports: list[RecentReport]
+    investigations_needing_attention: list[QualityAttentionCase] = Field(
+        default_factory=list
+    )
+    quality_unassessed_count: int = 0
 
 
 def counts_payload(**kwargs: Any) -> WorkspaceCounts:
