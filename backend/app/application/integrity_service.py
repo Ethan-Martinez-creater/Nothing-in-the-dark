@@ -91,6 +91,7 @@ class IntegrityService:
                 assessments += 1
 
         clusters = 0
+        cluster_ids: list[str] = []
         by_author: dict[str, list[dict[str, Any]]] = {}
         for post in posts:
             author = f"{post.platform}:{post.author_id or post.author_name or 'unknown'}"
@@ -114,7 +115,7 @@ class IntegrityService:
                     f"{sorted(cluster['account_ids'])}|{algorithm_version}"
                 ).encode()
             ).hexdigest()[:32]
-            await self._repository.create_cluster(
+            record = await self._repository.create_cluster(
                 case_id=case_id,
                 size=cluster["size"],
                 score=cluster["score"],
@@ -134,9 +135,18 @@ class IntegrityService:
                     for account_id in cluster["account_ids"]
                 ],
             )
+            cluster_ids.append(record.id)
             clusters += 1
 
-        return {"assessments": assessments, "clusters": clusters}
+        # V3 §52：coordination_cluster detector 以最新 succeeded integrity job
+        # 的 result_json.cluster_ids 为 scope；window 用于展示检测窗口。
+        return {
+            "assessments": assessments,
+            "clusters": clusters,
+            "cluster_ids": cluster_ids,
+            "window_start": window_start.isoformat() if window_start else None,
+            "window_end": window_end.isoformat() if window_end else None,
+        }
 
     async def compute_views(self, case_id: str) -> dict[str, Any]:
         """原始/降权/排除三套关键指标（INT-P1-05）。

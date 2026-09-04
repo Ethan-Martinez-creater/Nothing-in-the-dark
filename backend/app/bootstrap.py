@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.a2a import LocalAgentGateway, RemoteAgentGateway
+from app.application.advanced_signal_service import AdvancedSignalDetectorService
 from app.application.agent_database_service import AgentDatabaseReadService
 from app.application.agent_service import AgentRunService
 from app.application.alignment_service import AlignmentService
@@ -72,6 +73,9 @@ from app.infrastructure.database.analysis_job_repository import AnalysisJobRepos
 from app.infrastructure.database.collection_run_repository import CollectionRunRepository
 from app.infrastructure.database.cross_investigation_repository import (
     CrossInvestigationRepository,
+)
+from app.infrastructure.database.derived_signal_repository import (
+    DerivedSignalRepository,
 )
 from app.infrastructure.database.finding_repository import FindingRepository
 from app.infrastructure.database.integrity_repository import IntegrityRepository
@@ -439,8 +443,14 @@ class ApplicationContainer:
         )
         self.media_capabilities = probe_capabilities()
         self.monitor_repository = MonitorRepository(self.database)
+        # V3 §50：Derived Signal 持久化（SignalService 合流 + Detector 服务共用）。
+        self.derived_signal_repository = DerivedSignalRepository(self.database)
         # M6: Global Signals（Alert adapter）与 Home 聚合端点。
-        self.signal_service = SignalService(self.database, self.monitor_repository)
+        self.signal_service = SignalService(
+            self.database,
+            self.monitor_repository,
+            derived_repository=self.derived_signal_repository,
+        )
         # V3 §44：Home 聚合需要只读 Quality（needs-attention/unassessed）。
         self.investigation_quality_repository = InvestigationQualityRepository(
             self.database
@@ -544,6 +554,16 @@ class ApplicationContainer:
             media_repository=self.media_repository,
             application_repository=self.repository,
             database=self.database,
+        )
+        # V3 Part E：Advanced Signal Detectors（§51-§56，确定性、无 LLM）。
+        self.advanced_signals = AdvancedSignalDetectorService(
+            derived_repository=self.derived_signal_repository,
+            integrity_repository=self.integrity_repository,
+            analysis_job_repository=self.analysis_job_repository,
+            workspace_service=self.workspace_entities,
+            cross_repository=self.cross_investigation_repository,
+            media_repository=self.media_repository,
+            application_repository=self.repository,
         )
         # M22: 故障隔离、降级与事故处置。
         self.resilience_repository = ResilienceRepository(self.database)

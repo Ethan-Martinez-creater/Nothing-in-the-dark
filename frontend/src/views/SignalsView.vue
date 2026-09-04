@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// Optimization V2 (M6.3)：全局 Signal Inbox。
+// Optimization V2 (M6.3) + V3 §59：全局 Signal Inbox。
 // 默认 open + acknowledged；服务端排序 critical 优先；动作委托 Alert 状态机。
+// V3：双源合流（Monitor Alert + Derived Signal），Source filter 与
+// detector 状态展示；inactive + resolved 显示「条件已消失」。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -13,6 +15,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const severityFilter = ref('')
 const statusFilter = ref('open,acknowledged')
+const sourceFilter = ref('')
 const selected = ref<Signal | null>(null)
 const acting = ref(false)
 
@@ -35,7 +38,22 @@ const signalTypeLabels: Record<string, string> = {
   anomaly: '异常活动',
   key_actor: '重点账号',
   narrative_shift: '叙事变化',
+  coordination_cluster: '协调行为',
+  actor_recurrence: '主体复现',
+  media_reuse: '媒体复用',
+  cross_case_overlap: '跨调查重叠',
 }
+
+// V3 §59 Source filter：All / Monitor / Coordination / Actor recurrence /
+// Media reuse / Cross-case overlap
+const SOURCE_OPTIONS = [
+  { value: '', label: '全部来源' },
+  { value: 'monitor_alert', label: 'Monitor' },
+  { value: 'coordination_cluster', label: 'Coordination' },
+  { value: 'actor_recurrence', label: 'Actor recurrence' },
+  { value: 'media_reuse', label: 'Media reuse' },
+  { value: 'cross_case_overlap', label: 'Cross-case overlap' },
+]
 
 const sorted = computed(() => {
   const order: Record<string, number> = { critical: 0, warning: 1, info: 2 }
@@ -53,12 +71,21 @@ async function load() {
     signals.value = await signalApi.list({
       status: statusFilter.value || undefined,
       severity: severityFilter.value || undefined,
+      source_type: sourceFilter.value || undefined,
     })
   } catch {
     error.value = '信号加载失败，请重试。'
   } finally {
     loading.value = false
   }
+}
+
+function detectorCondition(signal: Signal): string | null {
+  if (signal.detector_active === false) {
+    // §59：inactive + resolved 显示「条件已消失」
+    return signal.status === 'resolved' ? '条件已消失' : '检测条件当前不成立'
+  }
+  return null
 }
 
 async function act(signal: Signal, action: 'acknowledge' | 'resolve' | 'suppress') {
@@ -92,7 +119,7 @@ onMounted(load)
     <header class="sigview__head">
       <div>
         <h1 class="sigview__title">信号</h1>
-        <p class="sigview__subtitle">全局信号收件箱（监测告警）</p>
+        <p class="sigview__subtitle">全局情报信号收件箱</p>
       </div>
       <div class="sigview__filters">
         <select v-model="statusFilter" class="sigview__filter" @change="load">
@@ -106,6 +133,11 @@ onMounted(load)
           <option value="critical">严重</option>
           <option value="warning">警告</option>
           <option value="info">提示</option>
+        </select>
+        <select v-model="sourceFilter" class="sigview__filter" @change="load">
+          <option v-for="option in SOURCE_OPTIONS" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
         </select>
       </div>
     </header>
@@ -146,6 +178,9 @@ onMounted(load)
           {{ severityLabels[selected.severity] ?? selected.severity }}
         </span>
         <h2>{{ selected.title }}</h2>
+        <p v-if="detectorCondition(selected)" class="sigview__inactive">
+          {{ detectorCondition(selected) }}
+        </p>
         <p class="sigview__why">{{ selected.why_it_matters }}</p>
         <dl class="sigview__meta">
           <div>
@@ -157,12 +192,33 @@ onMounted(load)
             </dd>
           </div>
           <div><dt>类型</dt><dd>{{ signalTypeLabels[selected.signal_type] ?? selected.signal_type }}</dd></div>
+          <div><dt>来源</dt><dd>{{ selected.source_label }}</dd></div>
+          <div v-if="selected.confidence != null">
+            <dt>置信度</dt>
+            <dd>{{ selected.confidence.toFixed(2) }}</dd>
+          </div>
+          <div v-if="selected.detector_version">
+            <dt>检测器</dt>
+            <dd>{{ selected.detector_active ? 'active' : 'inactive' }} · {{ selected.detector_version }}</dd>
+          </div>
           <div><dt>触发次数</dt><dd>{{ selected.trigger_count }}</dd></div>
           <div>
             <dt>首次发现</dt>
             <dd>{{ new Date(selected.detected_at).toLocaleString('zh-CN') }}</dd>
           </div>
         </dl>
+        <div v-if="selected.related_case_ids.length" class="sigview__related">
+          <h3>关联调查</h3>
+          <button
+            v-for="caseId in selected.related_case_ids"
+            :key="caseId"
+            type="button"
+            class="sigview__link"
+            @click="router.push(`/investigations/${caseId}/overview`)"
+          >
+            {{ caseId }}
+          </button>
+        </div>
         <div class="sigview__actions">
           <button
             v-if="selected.status === 'open'"
@@ -351,6 +407,31 @@ onMounted(load)
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-muted);
+}
+
+.sigview__inactive {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.12);
+  align-self: flex-start;
+}
+
+.sigview__related {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.sigview__related h3 {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-soft);
 }
 
 .sigview__meta {

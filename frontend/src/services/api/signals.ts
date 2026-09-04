@@ -18,6 +18,11 @@ export interface Signal {
   first_seen_at: string | null
   detected_at: string
   updated_at: string
+  // V3 §57 additive 字段（Monitor 信号为默认值）
+  related_case_ids: string[]
+  source_label: string
+  detector_version: string | null
+  detector_active: boolean | null
 }
 
 export interface WorkspaceOverview {
@@ -69,6 +74,8 @@ export const signalApi = {
     severity?: string
     case_id?: string
     signal_type?: string
+    source_type?: string
+    detector_active?: boolean
     limit?: number
   }): Promise<Signal[]> {
     const { data } = await http.get<Signal[]>('/signals', {
@@ -77,6 +84,10 @@ export const signalApi = {
         ...(params?.severity ? { severity: params.severity } : {}),
         ...(params?.case_id ? { case_id: params.case_id } : {}),
         ...(params?.signal_type ? { signal_type: params.signal_type } : {}),
+        ...(params?.source_type ? { source_type: params.source_type } : {}),
+        ...(params?.detector_active !== undefined
+          ? { detector_active: params.detector_active }
+          : {}),
         limit: params?.limit ?? 100,
       },
     })

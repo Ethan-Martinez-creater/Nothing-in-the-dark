@@ -10,7 +10,7 @@ refresh_case 固定 13 步流程（§28）；identity_component 只沿 active sa
 
 from __future__ import annotations
 
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -279,6 +279,70 @@ class WorkspaceEntityService:
             "entity_ids": component_ids,
             "component_key": min(component_ids),
         }
+
+    async def list_components_with_cases(
+        self, *, max_entities: int = 5000
+    ) -> list[dict[str, Any]]:
+        """V3 §53：全局 identity component → 出现过的 Cases 聚合（actor_recurrence 输入）。
+
+        component 按 active same_as 边 BFS（运行时计算，component_key=min
+        entity_id）；每个 component 的 Cases 为全部 member entity 的 case
+        links 并集。硬保护：entity 上限 max_entities。
+        """
+        entities = await self._workspace.list(
+            entity_type="account", limit=max_entities, offset=0
+        )
+        if not entities:
+            return []
+        entity_ids = [entity.id for entity in entities]
+        entity_set = set(entity_ids)
+        relations = await self._workspace.list_active_relations_for_entities(
+            entity_ids
+        )
+        adjacency: dict[str, set[str]] = defaultdict(set)
+        for relation in relations:
+            for left, right in (
+                (relation.left_entity_id, relation.right_entity_id),
+                (relation.right_entity_id, relation.left_entity_id),
+            ):
+                if left in entity_set and right in entity_set:
+                    adjacency[left].add(right)
+
+        components: list[list[str]] = []
+        visited: set[str] = set()
+        for entity_id in entity_ids:
+            if entity_id in visited:
+                continue
+            stack = [entity_id]
+            component: list[str] = []
+            visited.add(entity_id)
+            while stack:
+                current = stack.pop()
+                component.append(current)
+                for neighbor in adjacency.get(current, ()):
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        stack.append(neighbor)
+            components.append(sorted(component))
+
+        links = await self._workspace.list_case_links_for_entities(entity_ids)
+        cases_by_entity: dict[str, set[str]] = defaultdict(set)
+        for link in links:
+            cases_by_entity[link.entity_id].add(link.case_id)
+
+        results: list[dict[str, Any]] = []
+        for component in components:
+            component_cases: set[str] = set()
+            for entity_id in component:
+                component_cases |= cases_by_entity.get(entity_id, set())
+            results.append(
+                {
+                    "component_key": min(component),
+                    "entity_ids": component,
+                    "cases": sorted(component_cases),
+                }
+            )
+        return results
 
     async def _component_ids(self, entity_id: str) -> list[str]:
         visited: set[str] = {entity_id}

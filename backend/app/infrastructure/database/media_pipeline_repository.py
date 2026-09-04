@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import ResourceNotFoundError
@@ -76,6 +76,51 @@ class MediaPipelineRepository:
                 (str(asset_id), str(sha256), str(media_type))
                 for asset_id, sha256, media_type in rows.all()
             ]
+
+    async def list_sha_case_counts(self, *, limit: int = 5000) -> list[dict[str, Any]]:
+        """V3 §54：全局 exact SHA → 出现过的 Case 列表（media_reuse 输入）。
+
+        只统计出现在 >=2 个 Case 的 SHA（单 Case 的 SHA 不进高级告警流）。
+        两次查询（先聚合哈希，再取 case 分布），跨方言安全。
+        """
+        async with self._database.session_factory() as session:
+            rows = await session.execute(
+                select(
+                    MediaAssetRecord.actual_sha256,
+                    func.count(func.distinct(MediaAssetRecord.case_id)).label(
+                        "case_count"
+                    ),
+                )
+                .where(
+                    MediaAssetRecord.actual_sha256.isnot(None),
+                    MediaAssetRecord.actual_sha256 != "",
+                )
+                .group_by(MediaAssetRecord.actual_sha256)
+                .having(func.count(func.distinct(MediaAssetRecord.case_id)) >= 2)
+                .order_by(func.count(func.distinct(MediaAssetRecord.case_id)).desc())
+                .limit(limit)
+            )
+            candidates = [(str(sha), int(count)) for sha, count in rows.all()]
+            if not candidates:
+                return []
+            sha_values = [sha for sha, _ in candidates]
+            case_rows = await session.execute(
+                select(
+                    MediaAssetRecord.actual_sha256,
+                    MediaAssetRecord.case_id,
+                ).where(MediaAssetRecord.actual_sha256.in_(tuple(sha_values)))
+            )
+            cases_by_sha: dict[str, set[str]] = {sha: set() for sha, _ in candidates}
+            for sha, case_id in case_rows.all():
+                cases_by_sha[str(sha)].add(str(case_id))
+        return [
+            {
+                "sha256": sha,
+                "case_count": int(count),
+                "case_ids": sorted(cases_by_sha.get(sha, ())),
+            }
+            for sha, count in candidates
+        ]
 
     async def find_cross_case_sha_matches(
         self,

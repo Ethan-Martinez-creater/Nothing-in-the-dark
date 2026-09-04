@@ -17,6 +17,8 @@ async def list_signals(
     severity: str | None = None,
     case_id: str | None = None,
     signal_type: str | None = None,
+    source_type: str | None = None,
+    detector_active: bool | None = None,
     limit: int = 100,
     container: ApplicationContainer = Depends(get_container),
 ) -> list[SignalResponse]:
@@ -27,6 +29,8 @@ async def list_signals(
         severity=severity,
         case_id=case_id,
         signal_type=signal_type,
+        source_type=source_type,
+        detector_active=detector_active,
         limit=limit,
     )
 

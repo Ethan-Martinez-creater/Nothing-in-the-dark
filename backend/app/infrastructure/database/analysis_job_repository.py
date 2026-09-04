@@ -65,6 +65,23 @@ class AnalysisJobRepository:
                 raise ResourceNotFoundError("analysis job", job_id)
             return record
 
+    async def latest_succeeded(
+        self, case_id: str, job_type: str
+    ) -> AnalysisJobRecord | None:
+        """V3 §52：最新 succeeded AnalysisJob（coordination detector scope）。"""
+        query = (
+            select(AnalysisJobRecord)
+            .where(
+                AnalysisJobRecord.case_id == case_id,
+                AnalysisJobRecord.job_type == job_type,
+                AnalysisJobRecord.status == "succeeded",
+            )
+            .order_by(AnalysisJobRecord.created_at.desc())
+            .limit(1)
+        )
+        async with self._database.session_factory() as session:
+            return await session.scalar(query)
+
     async def list_jobs(
         self,
         case_id: str,
