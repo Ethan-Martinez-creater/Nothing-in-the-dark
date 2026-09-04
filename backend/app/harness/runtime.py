@@ -66,6 +66,12 @@ _CASE_SCOPED_TOOLS = frozenset(
         "query_review_items",
         "query_reports",
         "query_case_activity",
+        # V3 §70: Intelligence tools（case_id 由 runtime 注入）
+        "get_investigation_quality",
+        "query_related_investigations",
+        "query_workspace_entities",
+        "get_workspace_entity",
+        "query_signals",
     }
 )
 

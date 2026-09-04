@@ -54,6 +54,10 @@ from app.core.errors import ApplicationError
 from app.graphs.case_analysis import CaseAnalysisGraph
 from app.harness.collection_platform_executor import CollectionPlatformExecutor
 from app.harness.egress_proxy import EgressProxy
+from app.harness.intelligence_tools import (
+    IntelligenceToolReadService,
+    register_intelligence_tools,
+)
 from app.harness.sandbox import (
     SandboxedToolExecutor,
     SecretProvider,
@@ -578,6 +582,16 @@ class ApplicationContainer:
         # 的 follow-up enqueue（worker 早于 V3 区创建，此处后置注入）。
         self.analysis_job_worker._intelligence = self.intelligence_refresh_service
         self.collection_run_worker._analysis_jobs = self.analysis_job_repository
+        # V3 §69-§72：5 个只读 Intelligence Tool（case_id 由 runtime 注入）。
+        self.intelligence_tools_service = IntelligenceToolReadService(
+            quality_service=self.investigation_quality,
+            cross_service=self.cross_investigation,
+            workspace_service=self.workspace_entities,
+            signal_service=self.signal_service,
+            workspace_repository=self.workspace_entity_repository,
+            cross_repository=self.cross_investigation_repository,
+        )
+        register_intelligence_tools(self.tools, self.intelligence_tools_service)
         # M22: 故障隔离、降级与事故处置。
         self.resilience_repository = ResilienceRepository(self.database)
         self.resilience = ResilienceService(

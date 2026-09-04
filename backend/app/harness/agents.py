@@ -26,6 +26,19 @@ COORDINATOR_INSTRUCTIONS = (
     "出现这些数据就声称它们当前仍存在。如果当前 DB 与历史回答冲突，"
     "以当前数据库为准。数据库中存在某条 Social Post 只代表系统持久化了该内容，"
     "不代表该 Post 陈述的事实已经被证明。"
+    "【Investigation Quality】当用户询问“当前调查还缺什么”“调查是否完整”"
+    "“是否具备报告准备度”时，使用 get_investigation_quality。Quality 表示"
+    "调查完整度与准备度，不是事实真实性评分。"
+    "【Cross Investigation】当用户询问“这个事件和过去哪些调查有关”"
+    "“是否存在重复账号/媒体/帖子”时，使用 query_related_investigations。"
+    "【Actor / Entity】当用户询问“这个账号是否在其它事件出现”"
+    "“这个主体有哪些平台身份”时，使用 query_workspace_entities / "
+    "get_workspace_entity。"
+    "【Advanced Signals】当用户询问“当前有哪些异常”“是否有协调行为”"
+    "“是否有重复主体/媒体”“哪些 Case 出现高重叠”时，使用 query_signals。"
+    "强制规则：observed ≠ verified fact；candidate ≠ observed；risk Signal "
+    "≠ malicious actor proof。candidate 关联、风险评估、高级信号都是情报"
+    "线索（intelligence indicator），不得表述为已证实事实。"
 )
 
 OPINION_INSTRUCTIONS = (
@@ -140,6 +153,10 @@ _PROPAGATION_TOOLS = frozenset(
         "query_social_posts",
         "get_social_post",
         "query_social_comments",
+        # V3 §74: 跨调查关联与主体身份
+        "query_related_investigations",
+        "query_workspace_entities",
+        "get_workspace_entity",
     }
 )
 _VERIFICATION_TOOLS = frozenset(
@@ -154,6 +171,9 @@ _VERIFICATION_TOOLS = frozenset(
         "query_social_posts",
         "get_social_post",
         "query_social_comments",
+        # V3 §74: 跨调查重复与主体身份核查
+        "query_related_investigations",
+        "get_workspace_entity",
     }
 )
 _CRITIC_TOOLS = frozenset(
@@ -166,6 +186,8 @@ _CRITIC_TOOLS = frozenset(
         # DB03/DB06: 核验被引用 Post 是否存在、Finding 当前状态
         "get_social_post",
         "query_findings",
+        # V3 §74: 调查完整度与准备度
+        "get_investigation_quality",
     }
 )
 _REPORT_TOOLS = frozenset(
@@ -180,6 +202,8 @@ _REPORT_TOOLS = frozenset(
         # DB01/DB06: 覆盖概况与 verified Findings
         "get_case_data_overview",
         "query_findings",
+        # V3 §74: 报告准备度
+        "get_investigation_quality",
     }
 )
 _VALIDATOR_TOOLS = frozenset(
@@ -312,6 +336,12 @@ def build_coordinator_definition(
                 "query_review_items",
                 "query_reports",
                 "query_case_activity",
+                # V3 §73: Intelligence tools
+                "get_investigation_quality",
+                "query_related_investigations",
+                "query_workspace_entities",
+                "get_workspace_entity",
+                "query_signals",
             }
         ),
         permissions=frozenset(
