@@ -238,8 +238,11 @@ async def test_s07_coordination_below_threshold_no_signal() -> None:
 
 def _actor_env(env: SimpleNamespace, cases: list[str]) -> SimpleNamespace:
     workspace = SimpleNamespace(
-        list_components_with_cases=_async_return(
-            [{"component_key": "ent-1", "entity_ids": ["ent-1"], "cases": cases}]
+        list_components_with_cases_complete=_async_return(
+            (
+                [{"component_key": "ent-1", "entity_ids": ["ent-1"], "cases": cases}],
+                True,
+            )
         )
     )
     return _make_detector(env, workspace=workspace)
@@ -281,7 +284,7 @@ async def test_s10_actor_recurrence_below_three_cases_no_signal() -> None:
 
 
 def _media_env(env: SimpleNamespace, rows: list[dict[str, Any]]) -> SimpleNamespace:
-    media = SimpleNamespace(list_sha_case_counts=_async_return(rows))
+    media = SimpleNamespace(list_sha_case_counts_page=_async_return(rows))
     return _make_detector(env, media=media)
 
 
@@ -342,8 +345,10 @@ async def test_s13_media_reuse_single_case_no_signal() -> None:
 
 def _cross_link(left: str, right: str, etype: str, count: int, score: float = 1.0):
     """真实 Cross Link contract（Rework R2）：relation_type 用 shared_* 命名，
-    贡献量来自 link.evidence_count（不从 evidence_refs 推断）。"""
+    贡献量来自 link.evidence_count（不从 evidence_refs 推断）。带 keyset
+    分页 cursor 字段（id / updated_at）。"""
     return SimpleNamespace(
+        id=f"link-{left}-{right}-{etype}",
         left_case_id=left,
         right_case_id=right,
         relation_type=etype,
@@ -352,11 +357,12 @@ def _cross_link(left: str, right: str, etype: str, count: int, score: float = 1.
         score=score,
         evidence_count=count,
         evidence_refs_json=[{"type": etype}] * count,
+        updated_at=datetime.now(UTC),
     )
 
 
 def _overlap_env(env: SimpleNamespace, links: list[Any]) -> SimpleNamespace:
-    cross = SimpleNamespace(list_workspace=_async_return(links))
+    cross = SimpleNamespace(list_workspace_detector_page=_async_return(links))
     return _make_detector(env, cross=cross)
 
 
@@ -423,14 +429,17 @@ async def test_s17_reconcile_deactivates_stale_actor_signal() -> None:
         )
     )
     workspace = SimpleNamespace(
-        list_components_with_cases=_async_return(
-            [
-                {
-                    "component_key": "ent-1",
-                    "entity_ids": ["ent-1"],
-                    "cases": ["case-a", "case-b", "case-c"],
-                }
-            ]
+        list_components_with_cases_complete=_async_return(
+            (
+                [
+                    {
+                        "component_key": "ent-1",
+                        "entity_ids": ["ent-1"],
+                        "cases": ["case-a", "case-b", "case-c"],
+                    }
+                ],
+                True,
+            )
         )
     )
     detector = _make_detector(env, workspace=workspace)
@@ -440,14 +449,17 @@ async def test_s17_reconcile_deactivates_stale_actor_signal() -> None:
     assert record[0].detector_active is True  # 仍成立
 
     # 组件降到 2 个 Case → 不再满足 → detector_active=false + resolved
-    workspace.list_components_with_cases = _async_return(
-        [
-            {
-                "component_key": "ent-1",
-                "entity_ids": ["ent-1"],
-                "cases": ["case-a", "case-b"],
-            }
-        ]
+    workspace.list_components_with_cases_complete = _async_return(
+        (
+            [
+                {
+                    "component_key": "ent-1",
+                    "entity_ids": ["ent-1"],
+                    "cases": ["case-a", "case-b"],
+                }
+            ],
+            True,
+        )
     )
     summary = await detector.refresh_actor_recurrence()
     assert summary["stale_deactivated"] == 1
@@ -508,14 +520,17 @@ async def test_s19_reconcile_does_not_touch_other_detector() -> None:
         )
     )
     workspace = SimpleNamespace(
-        list_components_with_cases=_async_return(
-            [
-                {
-                    "component_key": "ent-1",
-                    "entity_ids": ["ent-1"],
-                    "cases": ["case-a", "case-b"],
-                }
-            ]
+        list_components_with_cases_complete=_async_return(
+            (
+                [
+                    {
+                        "component_key": "ent-1",
+                        "entity_ids": ["ent-1"],
+                        "cases": ["case-a", "case-b"],
+                    }
+                ],
+                True,
+            )
         )
     )
     detector = _make_detector(env, workspace=workspace)

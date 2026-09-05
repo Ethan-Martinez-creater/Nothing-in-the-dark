@@ -531,7 +531,9 @@ async def test_ir20_production_chain_runs_all_three_global_detectors() -> None:
     result = await worker._run("advanced_signal_refresh", env.case_a.id)
     assert set(result) == {"actor_recurrence", "media_reuse", "cross_case_overlap"}
     for stats in result.values():
-        assert set(stats) == {"upserted", "stale_deactivated"}
+        # FC1：global flush 返回含 scan_complete（AnalysisJob result 可见）
+        assert set(stats) == {"upserted", "stale_deactivated", "scan_complete"}
+        assert stats["scan_complete"] is True
 
     sha = "aa" * 32
     async with env.db.session_factory() as session:
