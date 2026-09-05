@@ -6,7 +6,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { signalApi, type Signal } from '@/services/api/signals'
+import {
+  signalApi,
+  sourceFilterParams,
+  type Signal,
+  type SignalSourceFilter,
+} from '@/services/api/signals'
 
 const router = useRouter()
 
@@ -15,7 +20,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const severityFilter = ref('')
 const statusFilter = ref('open,acknowledged')
-const sourceFilter = ref('')
+const sourceFilter = ref<SignalSourceFilter>('')
 const selected = ref<Signal | null>(null)
 const acting = ref(false)
 
@@ -45,8 +50,8 @@ const signalTypeLabels: Record<string, string> = {
 }
 
 // V3 §59 Source filter：All / Monitor / Coordination / Actor recurrence /
-// Media reuse / Cross-case overlap
-const SOURCE_OPTIONS = [
+// Media reuse / Cross-case overlap（API 参数映射统一走 sourceFilterParams）
+const SOURCE_OPTIONS: Array<{ value: SignalSourceFilter; label: string }> = [
   { value: '', label: '全部来源' },
   { value: 'monitor_alert', label: 'Monitor' },
   { value: 'coordination_cluster', label: 'Coordination' },
@@ -54,6 +59,54 @@ const SOURCE_OPTIONS = [
   { value: 'media_reuse', label: 'Media reuse' },
   { value: 'cross_case_overlap', label: 'Cross-case overlap' },
 ]
+
+// Rework R7：Derived Signal evidence 展示。优先展示业务语义键，
+// 其余未知键以只读 compact key/value 兜底（不静默丢弃）。
+const EVIDENCE_KEYS = [
+  'account_id',
+  'entity_id',
+  'sha256',
+  'relation_type',
+  'component_key',
+  'cluster_id',
+] as const
+
+interface EvidenceLine {
+  key: string
+  value: string
+}
+
+function evidenceItems(signal: Signal): Record<string, unknown>[] {
+  const items = (signal.evidence_refs as { items?: unknown } | null)?.items
+  if (!Array.isArray(items)) return []
+  return items.filter(
+    (item): item is Record<string, unknown> =>
+      !!item && typeof item === 'object' && !Array.isArray(item),
+  )
+}
+
+function formatEvidenceValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
+function evidenceLines(item: Record<string, unknown>): EvidenceLine[] {
+  const isEmpty = (value: unknown) =>
+    value === undefined || value === null || value === ''
+  const known = EVIDENCE_KEYS.filter((key) => !isEmpty(item[key]))
+  const rest = Object.keys(item).filter(
+    (key) =>
+      !(EVIDENCE_KEYS as readonly string[]).includes(key) && !isEmpty(item[key]),
+  )
+  return [...known, ...rest].map((key) => ({
+    key,
+    value: formatEvidenceValue(item[key]),
+  }))
+}
+
+const selectedEvidence = computed(() =>
+  selected.value ? evidenceItems(selected.value) : [],
+)
 
 const sorted = computed(() => {
   const order: Record<string, number> = { critical: 0, warning: 1, info: 2 }
@@ -71,7 +124,7 @@ async function load() {
     signals.value = await signalApi.list({
       status: statusFilter.value || undefined,
       severity: severityFilter.value || undefined,
-      source_type: sourceFilter.value || undefined,
+      ...sourceFilterParams(sourceFilter.value),
     })
   } catch {
     error.value = '信号加载失败，请重试。'
@@ -218,6 +271,21 @@ onMounted(load)
           >
             {{ caseId }}
           </button>
+        </div>
+        <!-- Rework R7：Evidence section —— 展示 Signal 的判定依据
+             （Identity / Cluster / SHA / Link / Evidence），未知结构兜底展示 -->
+        <div v-if="selectedEvidence.length" class="sigview__evidence" data-test="signal-evidence">
+          <h3>证据依据</h3>
+          <div
+            v-for="(item, index) in selectedEvidence"
+            :key="index"
+            class="sigview__evidence-item"
+          >
+            <span v-for="line in evidenceLines(item)" :key="line.key" class="sigview__evidence-line">
+              <b>{{ line.key }}</b>
+              <code>{{ line.value }}</code>
+            </span>
+          </div>
         </div>
         <div class="sigview__actions">
           <button
@@ -428,10 +496,49 @@ onMounted(load)
   border-top: 1px solid var(--border);
 }
 
-.sigview__related h3 {
+.sigview__related h3,
+.sigview__evidence h3 {
   margin: 0;
   font-size: 12px;
   color: var(--text-soft);
+}
+
+.sigview__evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.sigview__evidence-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.sigview__evidence-line {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.sigview__evidence-line b {
+  color: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.sigview__evidence-line code {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .sigview__meta {

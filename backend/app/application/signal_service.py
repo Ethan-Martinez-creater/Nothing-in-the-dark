@@ -206,6 +206,9 @@ class SignalService:
             record, "first_seen_at", None
         )
         signal_type = str(getattr(record, "signal_type", ""))
+        # Rework R7：Derived Signal 的 evidence_refs 原样透传（截断到 50 条），
+        # 供前端 Evidence section 展示 entity_id / sha256 / relation_type 等。
+        evidence_items = list(getattr(record, "evidence_refs_json", None) or [])[:50]
         return SignalResponse(
             id=str(getattr(record, "id", "")),
             source_type=str(getattr(record, "source_type", "derived")),
@@ -218,7 +221,7 @@ class SignalService:
             title=str(getattr(record, "title", "")),
             why_it_matters=str(getattr(record, "why_it_matters", "")),
             confidence=getattr(record, "confidence", None),
-            evidence_refs={},
+            evidence_refs={"items": evidence_items},
             trigger_count=int(getattr(record, "occurrence_count", 1) or 1),
             first_seen_at=getattr(record, "first_seen_at", None),
             detected_at=detected,

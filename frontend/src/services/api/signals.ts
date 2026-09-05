@@ -25,8 +25,7 @@ export interface Signal {
   detector_active: boolean | null
 }
 
-export interface WorkspaceOverview {
-  counts: {
+export interface WorkspaceOverview {  counts: {
     investigations: number
     open_signals: number
     pending_approvals: number
@@ -66,6 +65,26 @@ export interface WorkspaceOverview {
     computed_at: string
   }>
   quality_unassessed_count: number
+}
+
+// V3 Rework R6：Source filter → API 参数统一映射。
+// derived 信号共用 source_type="derived"，具体 detector 用 signal_type 区分；
+// monitor 信号只用 source_type。禁止在调用处重复写多套判断。
+export type SignalSourceFilter =
+  | ''
+  | 'monitor_alert'
+  | 'coordination_cluster'
+  | 'actor_recurrence'
+  | 'media_reuse'
+  | 'cross_case_overlap'
+
+export function sourceFilterParams(filter: SignalSourceFilter): {
+  source_type?: string
+  signal_type?: string
+} {
+  if (!filter) return {}
+  if (filter === 'monitor_alert') return { source_type: 'monitor_alert' }
+  return { source_type: 'derived', signal_type: filter }
 }
 
 export const signalApi = {

@@ -11,9 +11,13 @@ const signalApiMock = vi.hoisted(() => ({
   resolve: vi.fn(),
   suppress: vi.fn(),
 }))
-vi.mock('@/services/api/signals', () => ({
-  signalApi: signalApiMock,
-}))
+// 保留 sourceFilterParams 的真实实现（Rework R6 映射 helper），
+// 只 mock 网络 API。
+vi.mock('@/services/api/signals', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/services/api/signals')>()
+  return { ...actual, signalApi: signalApiMock }
+})
 
 import SignalsView from './SignalsView.vue'
 import type { Signal } from '@/services/api/signals'
@@ -82,7 +86,25 @@ describe('SignalsView (V3 §59)', () => {
     expect(options).toContain('Cross-case overlap')
   })
 
-  it('passes source_type to the API when filtered', async () => {
+  it('maps Monitor filter to source_type=monitor_alert (F-S01)', async () => {
+    const wrapper = mount(SignalsView)
+    await flushPromises()
+    signalApiMock.list.mockClear()
+
+    const filters = wrapper.findAll('.sigview__filter')
+    await filters[2]!.setValue('monitor_alert')
+    await flushPromises()
+    expect(signalApiMock.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source_type: 'monitor_alert' }),
+    )
+    expect(signalApiMock.list).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ signal_type: expect.anything() }),
+    )
+  })
+
+  // Rework R6：derived 信号共用 source_type="derived"，detector 用
+  // signal_type 区分（不再把 filter 值直接当 source_type）。
+  it('maps Actor recurrence filter to derived + signal_type (F-S02)', async () => {
     const wrapper = mount(SignalsView)
     await flushPromises()
     signalApiMock.list.mockClear()
@@ -91,8 +113,85 @@ describe('SignalsView (V3 §59)', () => {
     await filters[2]!.setValue('actor_recurrence')
     await flushPromises()
     expect(signalApiMock.list).toHaveBeenLastCalledWith(
-      expect.objectContaining({ source_type: 'actor_recurrence' }),
+      expect.objectContaining({
+        source_type: 'derived',
+        signal_type: 'actor_recurrence',
+      }),
     )
+  })
+
+  it('maps Media reuse filter to derived + signal_type (F-S03)', async () => {
+    const wrapper = mount(SignalsView)
+    await flushPromises()
+    signalApiMock.list.mockClear()
+
+    const filters = wrapper.findAll('.sigview__filter')
+    await filters[2]!.setValue('media_reuse')
+    await flushPromises()
+    expect(signalApiMock.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        source_type: 'derived',
+        signal_type: 'media_reuse',
+      }),
+    )
+  })
+
+  it('maps Cross-case overlap filter to derived + signal_type (E2E-P)', async () => {
+    const wrapper = mount(SignalsView)
+    await flushPromises()
+    signalApiMock.list.mockClear()
+
+    const filters = wrapper.findAll('.sigview__filter')
+    await filters[2]!.setValue('cross_case_overlap')
+    await flushPromises()
+    expect(signalApiMock.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        source_type: 'derived',
+        signal_type: 'cross_case_overlap',
+      }),
+    )
+  })
+
+  it('renders the Evidence section for derived signals (F-S04)', async () => {
+    signalApiMock.list.mockResolvedValue([
+      makeSignal({
+        signal_type: 'media_reuse',
+        evidence_refs: {
+          items: [{ sha256: 'a'.repeat(64) }, { account_id: 'weibo:123' }],
+        },
+      }),
+    ])
+    const wrapper = mount(SignalsView)
+    await flushPromises()
+
+    await wrapper.find('.sigview__card').trigger('click')
+    const evidence = wrapper.find('[data-test="signal-evidence"]')
+    expect(evidence.exists()).toBe(true)
+    expect(evidence.text()).toContain('sha256')
+    expect(evidence.text()).toContain('a'.repeat(64))
+    expect(evidence.text()).toContain('account_id')
+    expect(evidence.text()).toContain('weibo:123')
+  })
+
+  it('still shows unknown evidence dicts in compact form (F-S05)', async () => {
+    signalApiMock.list.mockResolvedValue([
+      makeSignal({
+        signal_type: 'coordination_cluster',
+        evidence_refs: {
+          items: [{ custom_metric: 3, nested: { a: 1 } }],
+        },
+      }),
+    ])
+    const wrapper = mount(SignalsView)
+    await flushPromises()
+
+    await wrapper.find('.sigview__card').trigger('click')
+    const evidence = wrapper.find('[data-test="signal-evidence"]')
+    expect(evidence.exists()).toBe(true)
+    expect(evidence.text()).toContain('custom_metric')
+    expect(evidence.text()).toContain('3')
+    expect(evidence.text()).toContain('nested')
+    expect(evidence.text()).toContain('{"a":1}')
   })
 
   it('renders derived signal detail with detector state and related cases', async () => {
