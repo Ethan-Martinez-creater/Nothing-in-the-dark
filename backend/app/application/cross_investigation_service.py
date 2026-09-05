@@ -143,42 +143,28 @@ class CrossInvestigationService:
         entities = await self._workspace.list_entities_for_case(case_id)
         if not entities:
             return []
-        entity_ids = [entity.id for entity in entities]
-        relations = await self._workspace.list_active_relations_for_entities(
-            entity_ids
+        # Rework R3：以 WorkspaceEntityService.identity_component 为唯一
+        # identity 传播单位（active same_as 边，500 节点硬保护由 service
+        # 保证，本服务不得绕过）；component 内全部实体（含其它 Case 的）
+        # 的 Case appearance 必须参与聚合。
+        components_by_key: dict[str, list[str]] = {}
+        for entity in entities:
+            component = await self._workspace_service.identity_component(entity.id)
+            components_by_key.setdefault(
+                component["component_key"], component["entity_ids"]
+            )
+        all_entity_ids = sorted(
+            {eid for ids in components_by_key.values() for eid in ids}
         )
-        # 构造 identity components（BFS，bounded 由 entity service 保证）
-        adjacency: dict[str, set[str]] = defaultdict(set)
-        for relation in relations:
-            adjacency[relation.left_entity_id].add(relation.right_entity_id)
-            adjacency[relation.right_entity_id].add(relation.left_entity_id)
-        visited: set[str] = set()
-        components: list[list[str]] = []
-        for entity_id in entity_ids:
-            if entity_id in visited:
-                continue
-            stack = [entity_id]
-            component: list[str] = []
-            visited.add(entity_id)
-            while stack:
-                current = stack.pop()
-                component.append(current)
-                for neighbor in adjacency.get(current, ()):
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        stack.append(neighbor)
-            components.append(sorted(component))
-        # 单节点 component 也是 identity unit
-        links = await self._workspace.list_case_links_for_entities(entity_ids)
+        links = await self._workspace.list_case_links_for_entities(all_entity_ids)
         links_by_entity: dict[str, set[str]] = defaultdict(set)
         for link in links:
             links_by_entity[link.entity_id].add(link.case_id)
 
         shared_pairs: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-        for component in components:
-            component_key = component[0]
+        for component_key, entity_ids in sorted(components_by_key.items()):
             component_cases: set[str] = set()
-            for entity_id in component:
+            for entity_id in entity_ids:
                 component_cases |= links_by_entity.get(entity_id, set())
             for other_case in component_cases:
                 if other_case == case_id:
@@ -187,7 +173,7 @@ class CrossInvestigationService:
                 shared_pairs[(left, right)].append(
                     {
                         "component_key": component_key,
-                        "entity_ids": component,
+                        "entity_ids": entity_ids,
                     }
                 )
         results: list[dict[str, Any]] = []
@@ -249,7 +235,10 @@ class CrossInvestigationService:
     # ---------------- shared_media（§38：SHA observed / phash candidate） ----
 
     async def _detect_shared_media(self, case_id: str) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
+        # Rework R5：同一 Case Pair 先聚合再输出唯一 payload——有 exact SHA
+        # 即 observed score=1.0（candidate 只作辅助信息，不降级）；只有
+        # phash 才输出 candidate（score=max similarity）。禁止同 Pair 两条。
+        observed_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
         anchor_assets = await self._media.list_case_media_hashes(case_id)
         sha_values = [sha for _, sha, _ in anchor_assets]
         if sha_values:
@@ -262,8 +251,14 @@ class CrossInvestigationService:
             shared_pairs: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(
                 list
             )
+            seen_matches: set[tuple[str, str]] = set()
             for match in matches:
                 left, right = sorted((case_id, match.case_id))
+                # exact distinct media match：同 (SHA, other asset) 只计一次
+                dedupe_key = (str(match.actual_sha256), str(match.id))
+                if dedupe_key in seen_matches:
+                    continue
+                seen_matches.add(dedupe_key)
                 shared_pairs[(left, right)].append(
                     {
                         "actual_sha256": match.actual_sha256,
@@ -275,20 +270,20 @@ class CrossInvestigationService:
                     }
                 )
             for (left, right), evidence in sorted(shared_pairs.items()):
-                results.append(
-                    {
-                        "left_case_id": left,
-                        "right_case_id": right,
-                        "status": "observed",
-                        "score": 1.0,
-                        "evidence_count": len(evidence),
-                        "evidence_refs": evidence[:_MAX_EVIDENCE_REFS],
-                        "feature_scores": {"sha256_exact": 1.0},
-                    }
-                )
+                observed_by_pair[(left, right)] = {
+                    "left_case_id": left,
+                    "right_case_id": right,
+                    "status": "observed",
+                    "score": 1.0,
+                    "evidence_count": len(evidence),
+                    "evidence_refs": evidence[:_MAX_EVIDENCE_REFS],
+                    "feature_scores": {"sha256_exact": 1.0},
+                }
 
         # phash candidate：复用四段 blocking + POSSIBLE_THRESHOLD（§38），
         # 不把 phash candidate 升级 observed。
+        candidate_support: dict[tuple[str, str], float] = {}
+        candidate_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
         phash_assets = await self._load_anchor_phash_assets(case_id)
         if phash_assets:
             block_keys = set()
@@ -344,27 +339,52 @@ class CrossInvestigationService:
                         if score < algo.POSSIBLE_THRESHOLD:
                             continue
                         left, right = sorted((case_id, other.case_id))
-                        results.append(
-                            {
+                        candidate_support[(left, right)] = max(
+                            candidate_support.get((left, right), 0.0), score
+                        )
+                        if (left, right) in observed_by_pair:
+                            # Rework R5：observed 已覆盖该 pair，phash 只作
+                            # 辅助信息，不得降级或产生第二条 payload。
+                            continue
+                        match_ref = {
+                            "anchor_asset_id": asset.id,
+                            "other_asset_id": other.id,
+                            "phash": asset.phash,
+                        }
+                        existing = candidate_by_pair.get((left, right))
+                        if existing is None or score > existing["score"]:
+                            candidate_by_pair[(left, right)] = {
                                 "left_case_id": left,
                                 "right_case_id": right,
                                 "status": "candidate",
                                 "score": score,
-                                "evidence_count": 1,
-                                "evidence_refs": [
-                                    {
-                                        "anchor_asset_id": asset.id,
-                                        "other_asset_id": other.id,
-                                        "phash": asset.phash,
-                                    }
-                                ][:_MAX_EVIDENCE_REFS],
+                                "evidence_refs": [match_ref],
                                 "feature_scores": {
                                     "phash_candidate": score,
                                     "threshold": algo.POSSIBLE_THRESHOLD,
                                 },
                             }
-                        )
+                        else:
+                            existing["evidence_refs"].append(match_ref)
                         break  # 每 anchor asset 命中一个候选即足够聚合
+        for pair, support in candidate_support.items():
+            if pair in observed_by_pair:
+                observed_by_pair[pair]["feature_scores"]["phash_candidate"] = support
+        results: list[dict[str, Any]] = []
+        for payload in observed_by_pair.values():
+            results.append(payload)
+        for payload in candidate_by_pair.values():
+            distinct_matches = {
+                (
+                    ref.get("anchor_asset_id", ""),
+                    ref.get("other_asset_id", ""),
+                )
+                for ref in payload["evidence_refs"]
+            }
+            payload["evidence_count"] = len(distinct_matches)
+            payload["evidence_refs"] = payload["evidence_refs"][:_MAX_EVIDENCE_REFS]
+            results.append(payload)
+        results.sort(key=lambda item: (item["left_case_id"], item["right_case_id"]))
         return results
 
     async def _load_anchor_phash_assets(self, case_id: str) -> list[Any]:
@@ -446,9 +466,13 @@ class CrossInvestigationService:
         for other, case_links in by_other.items():
             other_case = await self._application.get_case(other)
             relation_types = sorted({link.relation_type for link in case_links})
+            # Rework R9：每 Pair + relation_type 只有一条聚合 Link，共享对象
+            # 数量 = evidence_count 之和，不是 Link row 数。
             counts = {
                 relation_type: sum(
-                    1 for link in case_links if link.relation_type == relation_type
+                    int(link.evidence_count or 0)
+                    for link in case_links
+                    if link.relation_type == relation_type
                 )
                 for relation_type in relation_types
             }
