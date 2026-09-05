@@ -23,7 +23,79 @@ Rework Baseline：
 - **Implementation**：固定链路 alignment/integrity → intelligence_refresh（quality→entities→cross→coordination）→ best-effort enqueue advanced_signal_refresh → actor_recurrence/media_reuse/cross_case_overlap 三 detector。advanced job 成功后绝不 enqueue 自己或 intelligence_refresh（worker 分支只对 alignment/intelligence 触发 follow-up）
 - **Tests**：IR16（follow-up enqueue）、IR17（worker 分支调 refresh_global）、IR18（advanced job 不递归）、IR19（key 用 intelligence_job_id；64 字符截断后仍幂等稳定）、IR20（真实 AdvancedSignalDetectorService 全链 + 跨 case 同 SHA 媒体产出 media_reuse）、E2E-N（真实 AnalysisJobWorker 两次 tick 消费全链）
 - **Result**：通过（见本章节测试结果）
-- **Remaining limitation**：advanced_signal_refresh 失败不自动重试（与其它 AnalysisJob 一致，依赖 worker 下一轮 follow-up 链）；idempotency key 超 64 字符被仓库截断，但截断保留完整 job_id 前缀，IR19 验证幂等仍稳定
+- **Remaining limitation**：advanced_signal_refresh 的 follow-up enqueue 由上游 job 成功触发一次（idempotency key 不变，不因 retry 重复创建）；idempotency key 超 64 字符被仓库截断，但截断保留完整 job_id 前缀，IR19 验证幂等仍稳定。
+
+---
+
+## 0.1 V3 Final Closure（2026-09-05）
+
+Final Closure 审批基线 `c99cb6e9b45b6337fe8a42fc3809a8fa900ba13f`：R1-R10 全部
+通过代码级复核；剩余 FC1（P0）/ FC2（P1）/ FC3（P2）三个问题。唯一权威规范为
+`docs/Nothing-in-the-dark_V3_Final_Closure_Approval_and_Fix_Plan.md`。
+
+设计原则（FC1 固定）：**Incomplete scan → no destructive reconcile**。任何会执行
+stale reconciliation 的 detector，在 reconcile 前必须证明本轮 expected set 完整；
+safety cap / 截断 / 分页异常时只允许 partial upsert、跳过 reconcile，且不算
+AnalysisJob failure。
+
+### FC1 (P0) — Detector bounded input + global reconciliation
+
+- **Files changed**：
+  - `cross_investigation_repository.py`：新 `list_workspace_detector_page`（keyset `(updated_at, id)` ASC，page≤500，UI `list_workspace` 不变）
+  - `workspace_entity_repository.py`：新 `list_active_entity_ids_page`（id ASC，page≤1000）+ `list_entity_ids_for_case_page`（Case 内 id ASC，page≤500）
+  - `media_pipeline_repository.py`：新 `list_sha_case_counts_page`（sha ASC keyset，page≤1000，每页 sha 列表 + 一次 IN 查询 Python 聚合，禁止每 SHA 一个 SQL）+ `list_case_media_hashes_page`（asset id ASC，page≤1000）
+  - `social_repository.py`：新 `list_case_native_pairs_page` / `list_case_post_content_hashes_page`（SourcePost.id ASC，page≤1000）
+  - `workspace_entity_service.py`：新 `list_components_with_cases_complete(max_entities, page_size)`（分页 entity ids + chunked IN relations/links + BFS；500-node component guard 不变）
+  - `advanced_signal_service.py`：`DetectorScanResult(items, complete)` 统一结构；`_list_all_observed_cross_links` keyset 分页；三个 global detector 返回 `scan_complete`；`_flush_global_detector(..., scan_complete)` incomplete 时 `stale_deactivated=0` 并 warning
+  - `cross_investigation_service.py`：四个 case-scoped detector 全部分页/batch 化；`_flush_detector(..., scan_complete)` incomplete 时跳过 `reconcile_for_anchor`；summary 增加 `scan_complete`
+- **Scan strategy / safety caps**（常量显式）：
+  - cross_case_overlap：keyset 分页 page=500，`MAX_CROSS_LINK_SCAN=50_000`
+  - actor_recurrence：entity keyset 分页 page=1000，`MAX_ACTOR_ENTITY_SCAN=50_000`
+  - media_reuse：SHA keyset 分页 page=1000，`MAX_MEDIA_REUSE_SHA_SCAN=50_000`
+  - shared_actor：Case 实体分页 page=500，`MAX_CASE_ENTITY_SCAN=20_000`（links 分 chunk 500 IN）
+  - shared_post / shared_content：anchor 分页 page=1000，`MAX_CASE_POST_SCAN=50_000`；cross match 每 500 pairs/hashes 一批（`MAX_CROSS_MATCH_SCAN=50_000`，单批结果达到 limit=2000 视为可能截断 → 保守标 incomplete）
+  - shared_media：anchor 分页 page=1000，`MAX_CASE_MEDIA_SCAN=20_000`；SHA batch 500；phash candidates 单批 limit=2000，达到即 incomplete（`MAX_MEDIA_CANDIDATE_SCAN=50_000`）
+- **Complete semantics**：全 V3 detector 统一 bool `scan_complete`；incomplete 不是 failure（不 raise、不永久重试），warning log 带 detector 名 + cap + rows；真实 DB/分页异常照常抛出（AnalysisJob retry 接管），异常发生前绝不 reconcile
+- **Tests**：FC1-T01（202 links > 旧 limit 200，窗口外有效 Signal 保持 active + scan_complete=True）、T02（cap=10/rows=11 → no reconcile）、T03（actor cap=5/entities=6 incomplete + page_size=2 多页 complete）、T04（media cap + SHA 分页无重复无漏项）、T05/T06（shared_post/content partial scan 保留旧 link）、T07（shared_media 完整分页发现 + incomplete 不删）、T08（shared_actor partial entity scan）、T09（同 updated_at 多 id cursor 无重复无漏项）、T10（第 2 页抛异常 → detector 抛出、Signal 保持 active）
+- **Result**：全部通过
+- **Remaining limitation**：cross-match 批结果用 `len(rows) == limit` 保守判定（恰等于 limit 的整页数据会被保守标记 incomplete，安全方向无误删风险）
+
+### FC2 (P1) — Case / Project 删除后 Global Signal Refresh
+
+- **Files changed**：`intelligence_refresh_service.py`（新 `enqueue_after_scope_deletion(scope_key)` + `application_repository` 注入；Case Delete 与 Project Delete 复用同一 helper）、`app/api/routes/cases.py`（DELETE 后 best-effort follow-up + warning log）、`app/api/routes/projects.py`（Project 删除整个 scope 只 enqueue 一次）、`bootstrap.py`（注入 `application_repository`）
+- **Implementation**：`delete_case` / `delete_project` 提交后 → `list_cases_ordered_by_creation()` → 空（最后 Case）返回 None 不创建 job（无非法 FK）；否则以 remaining 首个 Case（created_at ASC + id ASC，deterministic）为 `AnalysisJob.case_id` anchor；idempotency key = `v3:advanced:case-delete:{scope_key}:{ADVANCED_SIGNAL_VERSION}`（Case delete 用 deleted_case_id、Project delete 用 project_id，64 字符截断保留 scope_key 前缀）；enqueue 失败仅 warning，不影响已提交删除
+- **Tests**：FC2-T01（3-case actor signal → 删除 Case → follow-up job（anchor=剩余首个）→ worker 消费 → resolved）、T02（media signal → 删除 → resolved 或 cleanup 删除，均不留 active）、T03（overlap → 删除 → 不保留 active）、T04（删最后一个 Case → 204、无 job、无 FK error、无 orphan）、T05（enqueue 抛异常 → DELETE 仍 204）、T06（3-Case Project 删除 → 恰 1 次 enqueue，anchor=Project 外剩余 Case）
+- **Result**：全部通过
+- **Remaining limitation**：`enqueue_after_scope_deletion` 为 best-effort，enqueue 失败时该次删除事件的 global refresh 需等下一次 intelligence/advanced refresh 或手动刷新兜底
+
+### FC3 (P2) — Delivery retry 描述修正
+
+- **Files changed**：`docs/v3-intelligence-depth-delivery.md`（本章节）
+- **Implementation**：Rework 章节 R1 的 Remaining limitation 已修正为实际机制：advanced_signal_refresh 使用既有 AnalysisJob retry（失败 → `retry_wait`，`next_retry_at = now + 2**attempt` 秒，最多 3 次 attempt，最终 `failed_terminal`）；不再声称"不自动重试"
+- **Result**：完成
+
+### Final Closure 测试结果
+
+- 新增测试：`test_v3_fc_detector_scan.py`（FC1-T01~T10，10 passed）、`test_v3_fc_deletion.py`（FC2-T01~T06 + FC-E2E-01~03，9 passed）
+- Targeted + Adjacent 回归：**18 个测试文件 216 passed / 0 failed**（2850s；advanced_signals / cross_investigation / v3_cross_signal_integration / v3_refresh / v3_case_deletion / v3_e2e / workspace_entities + 2 个 FC 新文件 + analysis_jobs / intelligence_api / intelligence_tools / signals / alignment / integrity / collection_runs / report_documents / report_publish_refs；唯一一次失败为 IR20 对新增 `scan_complete` 字段的旧断言，修正后全绿）
+- Frontend：本轮无前端代码修改，typecheck + build 通过
+- Full Backend Regression 升级条件：未触发（未改 AnalysisJob retry 语义 / Database engine / Alignment reconcile 语义 / Integrity algorithm / Monitor transition / Report publish gate / Review/Finding 状态机 / AgentRuntime / ToolRegistry；detector 分页为 read path + guard 层）
+
+### Final Closure Approval Readiness
+
+1. **哪些 detector 改为分页完整扫描？** cross_case_overlap（Cross Link keyset）、actor_recurrence（Workspace entity keyset + chunked relations/links）、media_reuse（SHA keyset）、shared_actor（Case entity keyset + chunked links）、shared_post（SourcePost keyset + batch match）、shared_content（SourcePost keyset + batch match）、shared_media（asset keyset + SHA batch + phash batch）——全部 7 个 authoritative detector 输入均有 complete 语义。
+2. **每个 detector safety cap？** overlap links 50_000、actor entities 50_000、media SHA 50_000、case entity 20_000、case post 50_000、cross match 50_000、case media 20_000、phash candidates 50_000。
+3. **scan_complete=false 是否保证不 reconcile？** 是——global reconcile 与 anchor reconcile 均被 `scan_complete` 守卫（stale_deactivated 固定 0），FC1-T02/T03/T04/T05/T06/T07/T08/T10 + FC-E2E-02 验证。
+4. **Case delete 后如何触发 global refresh？** DELETE /cases 路由在删除提交后 best-effort 调用 `enqueue_after_scope_deletion(deleted_case_id)`；anchor = remaining cases 首个（created_at ASC + id ASC）；worker 消费 `advanced_signal_refresh` 执行三类 global detector。
+5. **Project delete 是否只触发一次 refresh？** 是——整个 Project 删除共用一个 scope_key（project_id），恰一个 job；FC2-T06 验证。
+6. **最后一条 Case 删除是否不会创建非法 FK job？** 是——remaining 为空时 helper 返回 None，不创建 job；FC2-T04 验证（204、无 job、无 orphan）。
+7. **FC1-T01~T10 是否通过？** 全部通过（test_v3_fc_detector_scan.py）。
+8. **FC2-T01~T06 是否通过？** 全部通过（test_v3_fc_deletion.py）。
+9. **FC-E2E-01~03 是否通过？** 全部通过（真实 Repository/DetectorService/Worker：多页完整扫描、incomplete fail-safe、delete → follow-up → worker → resolved）。
+10. **targeted + adjacent regression 结果？** 见回归章节（18 文件全绿）。
+11. **是否触发 Full Regression 升级条件？** 否。
+12. **是否还有已知 V3 correctness blocker？** 无——剩余仅为上述保守 complete 判定与 best-effort enqueue 两条已记录 limitation。
+
 
 ### R2 (P0) — cross_case_overlap 改用真实 Cross Link contract
 
