@@ -15,8 +15,10 @@ detector_active=false 并按 §11.2 生命周期处理（P0 requirement）。
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.application.workspace_entity_service import WorkspaceEntityService
@@ -33,6 +35,8 @@ from app.infrastructure.database.media_pipeline_repository import (
     MediaPipelineRepository,
 )
 
+logger = logging.getLogger(__name__)
+
 # §52.1 coordination 阈值（固定，不得自行调整）
 _COORDINATION_MIN_SIZE = 3
 _COORDINATION_MIN_SCORE = 0.75
@@ -48,6 +52,30 @@ _MEDIA_REUSE_CRITICAL_CASES = 4
 _OVERLAP_MIN_SCORE = 0.60
 _OVERLAP_MIN_RELATION_TYPES = 2
 _OVERLAP_CRITICAL_SCORE = 0.85
+
+# FC1 safety caps：达到 cap 时 scan_complete=false，detector 只做 partial
+# upsert、禁止 destructive reconcile（Incomplete scan → no reconcile）。
+MAX_CROSS_LINK_SCAN = 50_000
+MAX_ACTOR_ENTITY_SCAN = 50_000
+MAX_MEDIA_REUSE_SHA_SCAN = 50_000
+
+_CROSS_LINK_PAGE_SIZE = 500
+_ACTOR_ENTITY_PAGE_SIZE = 1000
+_MEDIA_SHA_PAGE_SIZE = 1000
+
+
+@dataclass(slots=True)
+class DetectorScanResult:
+    """FC1 统一 scan 契约：items + complete。
+
+    所有 detector 使用同一种 complete 语义：complete=True 表示本轮输入
+    覆盖 authoritative domain 全量（可执行 stale reconcile）；
+    complete=False（safety cap / 分页异常结束）表示 partial（禁止
+    reconcile，只允许 partial upsert）。
+    """
+
+    items: list[Any] = field(default_factory=list)
+    complete: bool = True
 
 
 def _fingerprint(*parts: str) -> str:
@@ -159,10 +187,13 @@ class AdvancedSignalDetectorService:
 
     async def _detect_actor_recurrence(
         self,
-    ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-        components = await self._workspace.list_components_with_cases()
-        scope_cases = sorted(
-            {case_id for component in components for case_id in component["cases"]}
+    ) -> tuple[list[dict[str, Any]], list[str], bool]:
+        # FC1：Workspace 全量分页扫描（keyset + safety cap）；cap 达到时
+        # complete=False，refresh 只 upsert、禁止 global reconcile。
+        components, scan_complete = (
+            await self._workspace.list_components_with_cases_complete(
+                max_entities=MAX_ACTOR_ENTITY_SCAN
+            )
         )
         signals: list[dict[str, Any]] = []
         expected: list[str] = []
@@ -206,15 +237,36 @@ class AdvancedSignalDetectorService:
                 }
             )
             expected.append(signals[-1]["fingerprint"])
-        return signals, expected, scope_cases
+        return signals, expected, scan_complete
 
     async def _detect_media_reuse(
         self,
-    ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-        rows = await self._media.list_sha_case_counts()
-        scope_cases = sorted(
-            {case_id for row in rows for case_id in (row.get("case_ids") or [])}
-        )
+    ) -> tuple[list[dict[str, Any]], list[str], bool]:
+        # FC1：SHA counts keyset 分页（sha ASC，page=1000，cap 50_000），
+        # 不再把前 5000 个 SHA 当完整 Workspace。
+        rows: list[dict[str, Any]] = []
+        scan_complete = True
+        after_sha: str | None = None
+        while True:
+            page = await self._media.list_sha_case_counts_page(
+                after_sha=after_sha, limit=_MEDIA_SHA_PAGE_SIZE
+            )
+            if not page:
+                break
+            rows.extend(page)
+            if len(rows) >= MAX_MEDIA_REUSE_SHA_SCAN:
+                scan_complete = False
+                rows = rows[:MAX_MEDIA_REUSE_SHA_SCAN]
+                logger.warning(
+                    "media_reuse detector scan reached safety cap "
+                    "%s (rows=%s); global reconcile skipped",
+                    MAX_MEDIA_REUSE_SHA_SCAN,
+                    len(rows),
+                )
+                break
+            after_sha = str(page[-1]["sha256"])
+            if len(page) < _MEDIA_SHA_PAGE_SIZE:
+                break
         signals: list[dict[str, Any]] = []
         expected: list[str] = []
         for row in rows:
@@ -255,27 +307,61 @@ class AdvancedSignalDetectorService:
                 }
             )
             expected.append(signals[-1]["fingerprint"])
-        return signals, expected, scope_cases
+        return signals, expected, scan_complete
 
     # ------------------------------------------------------------------
     # §55 cross_case_overlap（全局 active links 特征公式）
     # ------------------------------------------------------------------
 
+    async def _list_all_observed_cross_links(self) -> DetectorScanResult:
+        """FC1：cross_case_overlap 的 authoritative 输入——keyset 分页完整
+        扫描 observed active links（page=500，safety cap 50_000）。
+
+        complete=False 时调用方禁止 global stale reconcile。
+        """
+        items: list[Any] = []
+        after_updated_at: Any = None
+        after_id: str | None = None
+        while True:
+            rows = await self._cross.list_workspace_detector_page(
+                status="observed",
+                after_updated_at=after_updated_at,
+                after_id=after_id,
+                limit=_CROSS_LINK_PAGE_SIZE,
+            )
+            if not rows:
+                break
+            items.extend(rows)
+            if len(items) >= MAX_CROSS_LINK_SCAN:
+                logger.warning(
+                    "cross_case_overlap detector scan reached safety cap "
+                    "%s (rows=%s); global reconcile skipped",
+                    MAX_CROSS_LINK_SCAN,
+                    len(items),
+                )
+                return DetectorScanResult(
+                    items=items[:MAX_CROSS_LINK_SCAN], complete=False
+                )
+            last = rows[-1]
+            after_updated_at = last.updated_at
+            after_id = str(last.id)
+            if len(rows) < _CROSS_LINK_PAGE_SIZE:
+                break
+        return DetectorScanResult(items=items, complete=True)
+
     async def _detect_cross_case_overlap(
         self,
-    ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-        # Rework R2：只统计 is_active AND status="observed" 的 Cross Link，
-        # 直接累计 link.evidence_count（candidate 不贡献 overlap score）。
-        links = await self._cross.list_workspace(status="observed", limit=200)
+    ) -> tuple[list[dict[str, Any]], list[str], bool]:
+        # FC1：不再用 limit=200 截断输入当作完整 truth set。分页扫描全部
+        # observed active links；candidate 不贡献；scan incomplete 时不做
+        # global reconcile（refresh 层守卫）。
+        scan = await self._list_all_observed_cross_links()
         by_pair: dict[tuple[str, str], list[Any]] = defaultdict(list)
-        for link in links:
+        for link in scan.items:
             if not link.is_active or link.status != "observed":
                 continue
             pair = (str(link.left_case_id), str(link.right_case_id))
             by_pair[pair].append(link)
-        scope_cases = sorted(
-            {case_id for pair in by_pair for case_id in pair}
-        )
         signals: list[dict[str, Any]] = []
         expected: list[str] = []
         for (left, right), pair_links in by_pair.items():
@@ -327,7 +413,7 @@ class AdvancedSignalDetectorService:
                 }
             )
             expected.append(signals[-1]["fingerprint"])
-        return signals, expected, scope_cases
+        return signals, expected, scan.complete
 
     # ------------------------------------------------------------------
     # 编排：case detector 与 global detector 分开 flush + reconcile（Rework R4）
@@ -358,22 +444,38 @@ class AdvancedSignalDetectorService:
         signal_type: str,
         signals: list[dict[str, Any]],
         expected: list[str],
-    ) -> dict[str, int]:
+        *,
+        scan_complete: bool,
+    ) -> dict[str, Any]:
         """Global flush（actor_recurrence / media_reuse / cross_case_overlap）。
 
-        全量对账（reconcile_detector_global）：主体完全消失后旧 Signal 仍
-        落入 scope，会被正确置 inactive（Rework R4，消除 scope 消失盲区）。
+        FC1：scan_complete=False 时只做 partial upsert、跳过 reconcile
+        （stale_deactivated=0），绝不把未扫描到的 Signal 误判 stale。
+        返回 dict（含 scan_complete，供 AnalysisJob result_json / debug）。
         """
         upserted = 0
         for payload in signals:
             await self._upsert_payload(payload)
             upserted += 1
-        stale = await self._derived.reconcile_detector_global(
-            signal_type=signal_type,
-            detector_version=self._version,
-            expected_fingerprints=expected,
-        )
-        return {"upserted": upserted, "stale_deactivated": stale}
+        stale = 0
+        if scan_complete:
+            stale = await self._derived.reconcile_detector_global(
+                signal_type=signal_type,
+                detector_version=self._version,
+                expected_fingerprints=expected,
+            )
+        else:
+            logger.warning(
+                "%s detector scan incomplete; global stale reconciliation "
+                "skipped (upserted=%s)",
+                signal_type,
+                upserted,
+            )
+        return {
+            "upserted": upserted,
+            "stale_deactivated": stale,
+            "scan_complete": scan_complete,
+        }
 
     async def _upsert_payload(self, payload: dict[str, Any]) -> None:
         await self._derived.upsert_observed_signal(
@@ -415,23 +517,34 @@ class AdvancedSignalDetectorService:
             "coordination_cluster": await self.refresh_coordination([case_id]),
         }
 
-    async def refresh_actor_recurrence(self) -> dict[str, int]:
-        """§53 actor_recurrence（全局 identity component，global reconcile）。"""
-        signals, expected, _ = await self._detect_actor_recurrence()
+    async def refresh_actor_recurrence(self) -> dict[str, Any]:
+        """§53 actor_recurrence（全局 identity component 分页扫描）。
+
+        FC1：scan_complete=True 才 global reconcile；incomplete 只 partial upsert。
+        """
+        signals, expected, scan_complete = await self._detect_actor_recurrence()
         return await self._flush_global_detector(
-            "actor_recurrence", signals, expected
+            "actor_recurrence",
+            signals,
+            expected,
+            scan_complete=scan_complete,
         )
 
-    async def refresh_media_reuse(self) -> dict[str, int]:
-        """§54 media_reuse（全局 exact SHA，global reconcile）。"""
-        signals, expected, _ = await self._detect_media_reuse()
-        return await self._flush_global_detector("media_reuse", signals, expected)
-
-    async def refresh_cross_case_overlap(self) -> dict[str, int]:
-        """§55 cross_case_overlap（全局 active links 特征公式，global reconcile）。"""
-        signals, expected, _ = await self._detect_cross_case_overlap()
+    async def refresh_media_reuse(self) -> dict[str, Any]:
+        """§54 media_reuse（全局 exact SHA keyset 分页扫描）。"""
+        signals, expected, scan_complete = await self._detect_media_reuse()
         return await self._flush_global_detector(
-            "cross_case_overlap", signals, expected
+            "media_reuse", signals, expected, scan_complete=scan_complete
+        )
+
+    async def refresh_cross_case_overlap(self) -> dict[str, Any]:
+        """§55 cross_case_overlap（全局 observed links keyset 分页扫描）。"""
+        signals, expected, scan_complete = await self._detect_cross_case_overlap()
+        return await self._flush_global_detector(
+            "cross_case_overlap",
+            signals,
+            expected,
+            scan_complete=scan_complete,
         )
 
     async def refresh_global(self) -> dict[str, Any]:

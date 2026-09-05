@@ -344,6 +344,100 @@ class WorkspaceEntityService:
             )
         return results
 
+    async def list_components_with_cases_complete(
+        self,
+        *,
+        max_entities: int = 50_000,
+        page_size: int = 1000,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """FC1：Workspace 全量 identity component 扫描，带 completeness flag。
+
+        与 list_components_with_cases 的区别：entity id 通过 keyset 分页
+        获取（page=page_size），relations / case links 分 chunk IN 查询，
+        不依赖单次 limit 结果作为完整 Workspace。达到 max_entities safety
+        cap 时返回 complete=False（调用方禁止 destructive reconcile）。
+        500-node component guard（MAX_COMPONENT_NODES）不变，两者不是
+        同一约束。page_size 可注入（测试用小页验证多页聚合）。
+        """
+        entity_ids: list[str] = []
+        after_id: str | None = None
+        complete = True
+        while True:
+            page = await self._workspace.list_active_entity_ids_page(
+                after_id=after_id, limit=page_size
+            )
+            if not page:
+                break
+            entity_ids.extend(page)
+            if len(entity_ids) >= max_entities:
+                complete = False
+                entity_ids = entity_ids[:max_entities]
+                break
+            after_id = page[-1]
+            if len(page) < page_size:
+                break
+        if not entity_ids:
+            return [], complete
+
+        def _chunked_ids(ids: list[str], size: int = 1000):
+            for start in range(0, len(ids), size):
+                yield ids[start : start + size]
+
+        relations = []
+        for chunk in _chunked_ids(entity_ids):
+            relations.extend(
+                await self._workspace.list_active_relations_for_entities(chunk)
+            )
+        adjacency: dict[str, set[str]] = defaultdict(set)
+        entity_set = set(entity_ids)
+        for relation in relations:
+            for left, right in (
+                (relation.left_entity_id, relation.right_entity_id),
+                (relation.right_entity_id, relation.left_entity_id),
+            ):
+                if left in entity_set and right in entity_set:
+                    adjacency[left].add(right)
+
+        links = []
+        for chunk in _chunked_ids(entity_ids):
+            links.extend(
+                await self._workspace.list_case_links_for_entities(chunk)
+            )
+        cases_by_entity: dict[str, set[str]] = defaultdict(set)
+        for link in links:
+            cases_by_entity[link.entity_id].add(link.case_id)
+
+        components: list[list[str]] = []
+        visited: set[str] = set()
+        for entity_id in entity_ids:
+            if entity_id in visited:
+                continue
+            stack = [entity_id]
+            component: list[str] = []
+            visited.add(entity_id)
+            while stack:
+                current = stack.pop()
+                component.append(current)
+                for neighbor in adjacency.get(current, ()):
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        stack.append(neighbor)
+            components.append(sorted(component))
+
+        results: list[dict[str, Any]] = []
+        for component in components:
+            component_cases: set[str] = set()
+            for entity_id in component:
+                component_cases |= cases_by_entity.get(entity_id, set())
+            results.append(
+                {
+                    "component_key": min(component),
+                    "entity_ids": component,
+                    "cases": sorted(component_cases),
+                }
+            )
+        return results, complete
+
     async def _component_ids(self, entity_id: str) -> list[str]:
         visited: set[str] = {entity_id}
         queue: deque[str] = deque([entity_id])
