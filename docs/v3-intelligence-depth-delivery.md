@@ -3,6 +3,116 @@
 > 执行依据：`docs/Nothing-in-the-dark_V3_Intelligence_Depth_Execution_Plan_Reviewed_Final.md`（审阅修订版，唯一权威规范）
 > 本文档随实施进度持续更新。
 
+## 0. V3 Approval Rework（2026-09-05）
+
+审批基线 `04869a9d1c5b0d1ae40f4edb614d3ed83a3a5402`（V3-1~V3-12 全部推送后）收到
+**Needs Changes / 暂不批准 V3 Done**，共 10 项（R1-R10）。返工唯一权威规范为
+`docs/Nothing-in-the-dark_V3_Approval_Rework_Plan.md`；本章节逐项记录修复实施。
+
+Rework Baseline：
+
+| 项 | 值 |
+|---|---|
+| Rework Baseline HEAD | `04869a9d1c5b0d1ae40f4edb614d3ed83a3a5402` |
+| git status | clean（返工计划文档为 untracked） |
+| 边界遵守 | 未新增 Agent/Signal 类型/relation type；未改 AgentRuntime core / ToolRegistry core / Review / Finding / Monitor Alert / CollectionRun lifecycle / Alignment / Integrity threshold / Report publish acceptance |
+
+### R1 (P0) — Production Refresh 补齐 advanced_signal_refresh
+
+- **Files changed**：`analysis_job_worker.py`（`advanced_signal_service` 构造参数 + `intelligence_refresh` 成功后 best-effort `enqueue_advanced_signal_refresh` + `_run` 新增 `advanced_signal_refresh` 分支）、`intelligence_refresh_service.py`（新 `enqueue_advanced_signal_refresh(job_id, case_id)`，idempotency key `v3:advanced:{intelligence_job_id}:{ADVANCED_SIGNAL_VERSION}`，不用分钟 key）、`advanced_signal_service.py`（新 `refresh_global()` 聚合三类 global detector）、`bootstrap.py`（worker 注入 `_advanced_signals`）
+- **Implementation**：固定链路 alignment/integrity → intelligence_refresh（quality→entities→cross→coordination）→ best-effort enqueue advanced_signal_refresh → actor_recurrence/media_reuse/cross_case_overlap 三 detector。advanced job 成功后绝不 enqueue 自己或 intelligence_refresh（worker 分支只对 alignment/intelligence 触发 follow-up）
+- **Tests**：IR16（follow-up enqueue）、IR17（worker 分支调 refresh_global）、IR18（advanced job 不递归）、IR19（key 用 intelligence_job_id；64 字符截断后仍幂等稳定）、IR20（真实 AdvancedSignalDetectorService 全链 + 跨 case 同 SHA 媒体产出 media_reuse）、E2E-N（真实 AnalysisJobWorker 两次 tick 消费全链）
+- **Result**：通过（见本章节测试结果）
+- **Remaining limitation**：advanced_signal_refresh 失败不自动重试（与其它 AnalysisJob 一致，依赖 worker 下一轮 follow-up 链）；idempotency key 超 64 字符被仓库截断，但截断保留完整 job_id 前缀，IR19 验证幂等仍稳定
+
+### R2 (P0) — cross_case_overlap 改用真实 Cross Link contract
+
+- **Files changed**：`advanced_signal_service.py`（`_detect_cross_case_overlap` 重写；删除 `_evidence_type`/`_evidence_counts`）
+- **Implementation**：不再从 `evidence_refs_json[*].type` 推断；只统计 `is_active AND status="observed"` 的 link，直接累计 `link.evidence_count`（shared_actor/3×0.40 + shared_media/2×0.30 + shared_content/5×0.20 + shared_post/5×0.10）；触发条件 score≥0.60 AND ≥2 observed active relation types；candidate 不贡献
+- **Tests**：S14/S15/S16 修正为真实 relation_type + evidence_count 契约；CS01（真实 Service/Repo 链路 score=0.70 warning）、CS02（candidate media 不进 overlap）
+- **Result**：通过
+- **Remaining limitation**：`list_workspace(limit=200)` 上限不变（与 §55 原约束一致），超过 200 条 link 的 workspace 只对最新 updated_at 的 200 条对账
+
+### R3 (P0) — shared_actor 使用完整 Identity Component
+
+- **Files changed**：`cross_investigation_service.py`（`_detect_shared_actor` 重写）
+- **Implementation**：anchor entities → 逐个 `WorkspaceEntityService.identity_component(entity.id)` → 按 `component_key` 去重 → 汇总全部 entity_ids → 一次批量 `list_case_links_for_entities(all_ids)` → 按 component 聚合 cases。500 节点硬保护由 entity service 的 `identity_component` 保证（cross service 不绕过）
+- **Tests**：C01/C12（既有真实链路回归）、CS06（跨平台 X/Y 经 Case C canonical mentions 传播 → A-B shared_actor observed；retract 后 inactive）
+- **Result**：通过
+- **Remaining limitation**：`identity_component` 为逐 entity 调用（N 次 BFS）；anchor case 实体数受限（account 维度），与计划伪代码一致
+
+### R4 (P0) — Global Signal stale reconciliation 改为全局对账
+
+- **Files changed**：`derived_signal_repository.py`（新 `reconcile_detector_global`，范围 = signal_type + detector_version + detector_active=true，不按 case 过滤）、`advanced_signal_service.py`（拆 `_flush_detector` case-scoped / `_flush_global_detector` global；coordination→case，其余三 detector→global）
+- **Implementation**：不在 expected set 的 active signal → detector_active=false，生命周期 open/acknowledged→resolved、suppressed 保持（§11.2 不变）。消除"主体完全消失后旧 Signal 不落 scope"盲区
+- **Tests**：CS04（actor signal 主体消失 → inactive/resolved）、CS05（media signal 资产删除 → inactive/resolved）、E2E-I 既有生命周期回归
+- **Result**：通过
+- **Remaining limitation**：coordination_cluster 保持 case-scoped（计划明确）
+
+### R5 (P1) — shared_media observed 优先于 candidate
+
+- **Files changed**：`cross_investigation_service.py`（`_detect_shared_media` 重写为按 Pair 聚合）
+- **Implementation**：同 Case Pair 输出唯一 payload：有 exact SHA → observed score=1.0（evidence_count 只统计 exact distinct match，按 (SHA, other_asset_id) 去重），phash candidate 仅作为 feature_scores 辅助信息，不降级；只有 phash → candidate score=max similarity，evidence_count=distinct candidate match 数
+- **Tests**：CS03（同 Pair exact SHA + phash candidate → 单条 observed score=1.0）、C13 既有回归
+- **Result**：通过
+- **Remaining limitation**：candidate 辅助信息记录在 feature_scores（`phash_candidate`），不追加 evidence_refs（避免挤占 observed evidence 名额）
+
+### R6 (P1) — Signals Source Filter 参数语义修复
+
+- **Files changed**：`frontend/src/services/api/signals.ts`（新 `sourceFilterParams(filter)` 统一映射 helper + `SignalSourceFilter` 类型）、`frontend/src/views/SignalsView.vue`（load() 改用 helper，SOURCE_OPTIONS 类型化）
+- **Implementation**：All→(undefined,undefined)；Monitor→(monitor_alert,undefined)；Coordination/Actor recurrence/Media reuse/Cross-case overlap→(derived, signal_type)。后端沿用现有 source_type+signal_type 参数，未新增 filter API
+- **Tests**：SignalsView.test.ts 修正错误预期（原断言 actor_recurrence→source_type=actor_recurrence）+ F-S01~F-S03 + E2E-P 映射用例（cross_case_overlap）
+- **Result**：通过
+- **Remaining limitation**：浏览器实机 filter 切换依赖 VITE_E2E 环境（见 E2E-P 说明）
+
+### R7 (P1) — Derived Signal Evidence 透传并展示
+
+- **Files changed**：`backend/app/application/signal_service.py`（`_to_derived_signal` 的 evidence_refs 改为 `{"items": list(record.evidence_refs_json)[:50]}`）、`frontend/src/views/SignalsView.vue`（detail 新增 Evidence section）
+- **Implementation**：前端读 `selected.evidence_refs.items`，优先展示 account_id/entity_id/sha256/relation_type/component_key/cluster_id 业务键，未知 dict 键以只读 compact key/value 兜底（不静默丢弃），嵌套值 JSON.stringify
+- **Tests**：S23（items 非空且含原文键值）、E2E-O（真实 detector 产出 media_reuse → get_signal items 含 sha256）、F-S04（Evidence section 渲染）、F-S05（unknown dict 可见）
+- **Result**：通过
+- **Remaining limitation**：Monitor Alert 的 evidence_refs 维持原样（不经过 derived 路径）；items 截断 50 条与 MAX_LINK_EVIDENCE_REFS 一致
+
+### R8 (P1) — Report Provenance checked_refs 分母修复
+
+- **Files changed**：`report_document_service.py`（新公共只读 `inspect_citation_links(case_id, citation_links) -> {"checked_refs", "problems"}`；`_validate_citations` 改为其薄封装，单一 parser 实现）、`investigation_quality_service.py`（provenance 维度改用 inspection）
+- **Implementation**：复用 `normalize_citation_refs` + `_citation_ref_problem`，未新写 parser。分母 = 全部 refs（valid+invalid+unknown shape），分子 = problems；unknown citation shape：checked_refs+=1 且 problems+=1（fail-closed）。修复前 dangling 被同时计入分子分母（9 valid + 1 invalid → 0%）
+- **Tests**：Q20（10 refs / 9 valid / 1 invalid → checked_refs=10、dangling=1、score=90，并直接断言 inspection 返回）、Q09-Q11 既有回归
+- **Result**：通过
+- **Remaining limitation**：inspect 为逐 ref 查询（与原 _validate_citations 相同复杂度），未做批量 IN 优化
+
+### R9 (P1) — Related Investigation shared_* count 使用 evidence_count
+
+- **Files changed**：`cross_investigation_service.py`（`related_investigations` counts 改为 sum(link.evidence_count)）
+- **Implementation**：每 Pair+relation_type 只有一条聚合 Link，共享对象数量 = evidence_count 之和；relation_count 仍为 distinct relation type 数。`query_related_investigations` Tool 复用同一 DTO（intelligence_tools 无独立计算）
+- **Tests**：C17（3 actors + 2 media → shared_actor_count=3、shared_media_count=2、relation_count=2）
+- **Result**：通过
+- **Remaining limitation**：无
+
+### R10 (P2) — unresolved_local_risk 收窄
+
+- **Files changed**：`workspace_entity_service.py`（`_risk_for_component` 增加 entity_names/component_platforms 归属条件；`get_profile` 构造 component 名字与 platform 集合）
+- **Implementation**：unresolved 只保留 subject_id 非 exact platform_account 且 platform 与 component 某 platform_account key 一致且 subject name 与 canonical_name/aliases strip+casefold 精确相等的 assessment；无法可靠归属直接忽略；禁止 fuzzy/embedding/LLM
+- **Tests**：E13（既有：精确匹配仍进 unresolved）、E15（新增负例：platform 不一致 → 忽略；前缀 fuzzy → 忽略；strip+casefold 精确 → 保留）
+- **Result**：通过
+- **Remaining limitation**：多冒号 subject_id 取第一个冒号分段（platform:rest），与现有 name-only subject 生成约定一致
+
+### Rework E2E 补充说明
+
+- **E2E-J（Cross → Cross Link → overlap Signal）**：由 CS01/CS02 补齐——真实 CrossInvestigationService 由真实 workspace 数据产出 Cross Link，真实 AdvancedSignalDetectorService 消费并产出 overlap Signal，全程无 fake evidence contract。
+- **E2E-N**：新增（test_v3_e2e.py），真实 AnalysisJobWorker 两次 tick 消费 intelligence_refresh → advanced_signal_refresh 全链。期间发现并修复一个真实链路 bug：quality `_response` 的 `computed_at` 为 datetime，导致 worker result_json 序列化失败、follow-up enqueue 被跳过（demo 环境掩盖）。现已 ISO 字符串化（API 层 pydantic 解析回 datetime，接口契约不变）。
+- **E2E-O**：新增（test_v3_e2e.py），真实 detector 产出 media_reuse 后 `get_signal` 返回 `evidence_refs.items` 含 sha256；前端侧由 F-S04/F-S05 组件测试覆盖。
+- **E2E-P（浏览器 Source filter）**：参数映射由组件测试（F-S01~F-S03 + cross_case_overlap 映射用例）验证；`VITE_E2E=true` 的浏览器实机切换未在本环境执行，不声称"已实跑"。
+
+### Rework 测试结果
+
+- 新增/修正测试：IR16-IR20（test_v3_refresh.py，IR01-IR20 全绿）、S14-S16 契约修正 + S23-S25（test_advanced_signals.py 全绿）、C17（test_cross_investigation.py C01-C17 全绿）、CS01-CS06（新 test_v3_cross_signal_integration.py 全过，真实 Service/Repo 无 fake contract）、Q20（test_investigation_quality.py 全绿）、E15（test_workspace_entities.py E01-E15 全绿）、E2E-N/O（test_v3_e2e.py 10/10）、F-S01~F-S05 + 错误预期修正（SignalsView.test.ts 13 tests 全绿）
+- **V3 targeted + Adjacent 后端回归**：20 个测试文件 **274 passed / 0 failed**（3362s；含 test_investigation_quality / workspace_entities / cross_investigation / advanced_signals / v3_refresh / intelligence_tools / intelligence_api / v3_case_deletion / v3_e2e / v3_cross_signal_integration + analysis_jobs / alignment / integrity / signals / monitoring / report_documents / report_publish_refs / collection_runs / agent_database_tools / expert_agents）
+- **前端四项门**：typecheck ✓、lint ✓（--max-warnings=0）、test **202/202**（首跑 2 个 flaky 为后台回归并发负载，重跑全绿）、build ✓
+- Full Backend Regression：未触发升级条件（未改 AgentRuntime/ToolRegistry core、CollectionRun terminal、Alignment materialize/retract、Integrity threshold、Monitor Alert transition、Report publish gate、Finding/Review 状态机、Database engine）——quality `_response` computed_at 序列化修复属于 payload 序列化层，API 契约不变（pydantic ISO→datetime）。
+
+
+
 ## 1. Baseline
 
 | 项 | 值 |
