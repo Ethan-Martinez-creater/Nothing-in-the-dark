@@ -14,6 +14,7 @@ from typing import Any
 
 from app.application.advanced_signal_service import AdvancedSignalDetectorService
 from app.application.alignment_service import AlignmentService
+from app.application.analysis_job_worker import AnalysisJobWorker
 from app.application.collection_service import CollectionDefinitionService
 from app.application.cross_investigation_service import CrossInvestigationService
 from app.application.integrity_service import IntegrityService
@@ -529,4 +530,102 @@ async def test_e2e_m_delete_case_cleans_v3_data() -> None:
     for signal in signals:
         links = await env.derived_repo.list_case_links(signal.id)
         assert case_a.id not in links  # §67：不得残留 case appearance
+    await env.db.dispose()
+
+
+# ---------------------------------------------------------------------------
+# E2E-N / E2E-O: Production Refresh → Advanced Signals + Signal evidence 面
+# （V3 Approval Rework R1/R7）
+# ---------------------------------------------------------------------------
+
+
+async def test_e2e_n_production_refresh_enqueues_and_runs_global_detectors() -> None:
+    """真实 worker 链路：intelligence_refresh 完成 → 自动 enqueue
+    advanced_signal_refresh → worker 消费 → 三类 global detector 执行，
+    共享 SHA 媒体产出 media_reuse Signal。"""
+    env = await _setup()
+    case_a = await _case(env, "E2E-N 案A")
+    case_b = await _case(env, "E2E-N 案B")
+    await _account(env, case_a.id, "weibo", "n1", "复现账号N")
+    await env.social.persist_batch(
+        case_id=case_b.id, posts=[_post("weibo", "nb1", "n1")]
+    )
+    for sha in ("ab01" * 16, "cd02" * 16):
+        for case_id in (case_a.id, case_b.id):
+            async with env.db.session_factory() as session:
+                session.add(
+                    MediaAssetRecord(
+                        case_id=case_id,
+                        platform="weibo",
+                        media_type="image",
+                        url=f"https://example.com/media/{sha}-{case_id[:4]}",
+                        normalized_url=f"https://example.com/media/{sha}",
+                        actual_sha256=sha,
+                    )
+                )
+                await session.commit()
+
+    worker = AnalysisJobWorker(
+        env.jobs_repo,
+        intelligence_service=env.refresh,
+        advanced_signal_service=env.signals,
+        enabled=False,
+    )
+    await env.refresh.enqueue(case_a.id, source_key=f"e2e-n:intel:{case_a.id}")
+    # 第一次 tick：消费 intelligence_refresh → 成功后自动 enqueue advanced
+    await worker.tick()
+    advanced_jobs = await env.jobs_repo.list_jobs(
+        case_a.id, job_type="advanced_signal_refresh"
+    )
+    assert len(advanced_jobs) == 1
+    assert advanced_jobs[0].idempotency_key.startswith("v3:advanced:")
+    # 第二次 tick：消费 advanced_signal_refresh → refresh_global
+    await worker.tick()
+    advanced_job = await env.jobs_repo.get_job(advanced_jobs[0].id)
+    assert advanced_job.status == "succeeded"
+    result = advanced_job.result_json
+    assert set(result) == {"actor_recurrence", "media_reuse", "cross_case_overlap"}
+
+    # media_reuse Signal 由 global detector 真实产出（每个共享 SHA 一条）
+    signals = await env.derived_repo.list()
+    media_signals = [s for s in signals if s.signal_type == "media_reuse"]
+    assert len(media_signals) == 2
+    for signal in media_signals:
+        assert signal.severity == "warning"
+        assert sorted(signal.related_case_ids_json) == sorted(
+            [case_a.id, case_b.id]
+        )
+    await env.db.dispose()
+
+
+async def test_e2e_o_signal_detail_exposes_sha256_evidence() -> None:
+    """真实 detector 产出 media_reuse → SignalService 单条读取返回
+    evidence_refs.items 且包含 sha256（Rework R7）。"""
+    env = await _setup()
+    case_a = await _case(env, "E2E-O 案A")
+    case_b = await _case(env, "E2E-O 案B")
+    sha = "ef03" * 16
+    for case_id in (case_a.id, case_b.id):
+        async with env.db.session_factory() as session:
+            session.add(
+                MediaAssetRecord(
+                    case_id=case_id,
+                    platform="weibo",
+                    media_type="image",
+                    url=f"https://example.com/media/{sha}-{case_id[:4]}",
+                    normalized_url=f"https://example.com/media/{sha}",
+                    actual_sha256=sha,
+                )
+            )
+            await session.commit()
+    await env.signals.refresh_media_reuse()
+
+    signals = await env.signal_service.list_signals(
+        source_type="derived", signal_type="media_reuse"
+    )
+    assert len(signals) == 1
+    detail = await env.signal_service.get_signal(signals[0].id)
+    items = detail.evidence_refs.get("items")
+    assert isinstance(items, list) and items
+    assert any(item.get("sha256") == sha for item in items)
     await env.db.dispose()
