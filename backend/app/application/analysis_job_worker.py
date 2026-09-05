@@ -20,6 +20,7 @@ class AnalysisJobWorker:
         alignment_service: Any | None = None,
         integrity_service: Any | None = None,
         intelligence_service: Any | None = None,
+        advanced_signal_service: Any | None = None,
         worker_id: str = "local-analysis-worker",
         poll_interval_seconds: float = 2.0,
         lease_seconds: int = 600,
@@ -29,6 +30,7 @@ class AnalysisJobWorker:
         self._alignment = alignment_service
         self._integrity = integrity_service
         self._intelligence = intelligence_service
+        self._advanced_signals = advanced_signal_service
         self._worker_id = worker_id
         self._poll_interval = poll_interval_seconds
         self._lease_seconds = lease_seconds
@@ -112,7 +114,23 @@ class AnalysisJobWorker:
     async def _maybe_enqueue_intelligence_refresh(
         self, job_id: str, case_id: str, job_type: str
     ) -> None:
-        if self._intelligence is None or job_type not in ("alignment", "integrity"):
+        if self._intelligence is None:
+            return
+        if job_type == "intelligence_refresh":
+            # Rework R1：intelligence_refresh 成功后 best-effort enqueue
+            # advanced_signal_refresh（绝不 enqueue 自己，绝不递归）。
+            try:
+                await self._intelligence.enqueue_advanced_signal_refresh(
+                    job_id=job_id, case_id=case_id
+                )
+            except Exception:
+                logger.warning(
+                    "advanced_signal_refresh follow-up enqueue failed for job %s",
+                    job_id,
+                    exc_info=True,
+                )
+            return
+        if job_type not in ("alignment", "integrity"):
             return
         try:
             await self._intelligence.enqueue(
@@ -135,4 +153,6 @@ class AnalysisJobWorker:
             return await self._integrity.analyze_case(case_id)
         if job_type == "intelligence_refresh" and self._intelligence is not None:
             return await self._intelligence.refresh_case(case_id)
+        if job_type == "advanced_signal_refresh" and self._advanced_signals is not None:
+            return await self._advanced_signals.refresh_global()
         raise ValueError(f"unknown job_type {job_type}")

@@ -54,17 +54,14 @@ def _fingerprint(*parts: str) -> str:
     return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
 
 
-def _evidence_type(item: Any) -> str:
-    if isinstance(item, dict):
-        return str(item.get("type") or item.get("relation_type") or "other")
-    return "other"
-
-
-def _evidence_counts(evidence_refs: Sequence[Any]) -> dict[str, int]:
-    counts: dict[str, int] = defaultdict(int)
-    for item in evidence_refs:
-        counts[_evidence_type(item)] += 1
-    return dict(counts)
+# §55 overlap 公式的特征容量（Rework R2：直接读取 link.relation_type +
+# link.evidence_count，不从 evidence_refs 推断 relation type）。
+_OVERLAP_RELATION_TYPES = (
+    "shared_actor",
+    "shared_media",
+    "shared_content",
+    "shared_post",
+)
 
 
 class AdvancedSignalDetectorService:
@@ -267,9 +264,13 @@ class AdvancedSignalDetectorService:
     async def _detect_cross_case_overlap(
         self,
     ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-        links = await self._cross.list_workspace(limit=200)
+        # Rework R2：只统计 is_active AND status="observed" 的 Cross Link，
+        # 直接累计 link.evidence_count（candidate 不贡献 overlap score）。
+        links = await self._cross.list_workspace(status="observed", limit=200)
         by_pair: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for link in links:
+            if not link.is_active or link.status != "observed":
+                continue
             pair = (str(link.left_case_id), str(link.right_case_id))
             by_pair[pair].append(link)
         scope_cases = sorted(
@@ -281,17 +282,16 @@ class AdvancedSignalDetectorService:
             counts: dict[str, int] = defaultdict(int)
             relation_types: set[str] = set()
             for link in pair_links:
+                if link.relation_type not in _OVERLAP_RELATION_TYPES:
+                    continue
                 relation_types.add(link.relation_type)
-                for etype, count in _evidence_counts(
-                    link.evidence_refs_json or []
-                ).items():
-                    counts[etype] += count
+                counts[link.relation_type] += int(link.evidence_count or 0)
             if len(relation_types) < _OVERLAP_MIN_RELATION_TYPES:
                 continue
-            actor = min(counts.get("actor", 0) / 3, 1.0)
-            media = min(counts.get("media", 0) / 2, 1.0)
-            content = min(counts.get("content", 0) / 5, 1.0)
-            post = min(counts.get("post", 0) / 5, 1.0)
+            actor = min(counts.get("shared_actor", 0) / 3, 1.0)
+            media = min(counts.get("shared_media", 0) / 2, 1.0)
+            content = min(counts.get("shared_content", 0) / 5, 1.0)
+            post = min(counts.get("shared_post", 0) / 5, 1.0)
             score = actor * 0.40 + media * 0.30 + content * 0.20 + post * 0.10
             if score < _OVERLAP_MIN_SCORE:
                 continue
@@ -330,7 +330,7 @@ class AdvancedSignalDetectorService:
         return signals, expected, scope_cases
 
     # ------------------------------------------------------------------
-    # 编排：detector 逐个 flush + reconcile（§56）
+    # 编排：case detector 与 global detector 分开 flush + reconcile（Rework R4）
     # ------------------------------------------------------------------
 
     async def _flush_detector(
@@ -340,26 +340,10 @@ class AdvancedSignalDetectorService:
         expected: list[str],
         case_ids: list[str],
     ) -> dict[str, int]:
+        """Case-scoped flush（coordination_cluster，§56 保持 case scope）。"""
         upserted = 0
         for payload in signals:
-            await self._derived.upsert_observed_signal(
-                fingerprint=payload["fingerprint"],
-                case_id=payload["case_id"],
-                source_type=payload["source_type"],
-                source_id=payload["source_id"],
-                signal_type=payload["signal_type"],
-                severity=payload["severity"],
-                title=payload["title"],
-                why_it_matters=payload["why_it_matters"],
-                confidence=payload.get("confidence"),
-                metric_snapshot=payload.get("metric_snapshot", {}),
-                evidence_refs=payload.get("evidence_refs", []),
-                related_case_ids=payload.get("related_case_ids", []),
-                detector_version=self._version,
-                case_links=payload.get("case_links") or payload.get(
-                    "related_case_ids", []
-                ),
-            )
+            await self._upsert_payload(payload)
             upserted += 1
         stale = await self._derived.reconcile_detector_scope(
             signal_type=signal_type,
@@ -368,6 +352,48 @@ class AdvancedSignalDetectorService:
             expected_fingerprints=expected,
         )
         return {"upserted": upserted, "stale_deactivated": stale}
+
+    async def _flush_global_detector(
+        self,
+        signal_type: str,
+        signals: list[dict[str, Any]],
+        expected: list[str],
+    ) -> dict[str, int]:
+        """Global flush（actor_recurrence / media_reuse / cross_case_overlap）。
+
+        全量对账（reconcile_detector_global）：主体完全消失后旧 Signal 仍
+        落入 scope，会被正确置 inactive（Rework R4，消除 scope 消失盲区）。
+        """
+        upserted = 0
+        for payload in signals:
+            await self._upsert_payload(payload)
+            upserted += 1
+        stale = await self._derived.reconcile_detector_global(
+            signal_type=signal_type,
+            detector_version=self._version,
+            expected_fingerprints=expected,
+        )
+        return {"upserted": upserted, "stale_deactivated": stale}
+
+    async def _upsert_payload(self, payload: dict[str, Any]) -> None:
+        await self._derived.upsert_observed_signal(
+            fingerprint=payload["fingerprint"],
+            case_id=payload["case_id"],
+            source_type=payload["source_type"],
+            source_id=payload["source_id"],
+            signal_type=payload["signal_type"],
+            severity=payload["severity"],
+            title=payload["title"],
+            why_it_matters=payload["why_it_matters"],
+            confidence=payload.get("confidence"),
+            metric_snapshot=payload.get("metric_snapshot", {}),
+            evidence_refs=payload.get("evidence_refs", []),
+            related_case_ids=payload.get("related_case_ids", []),
+            detector_version=self._version,
+            case_links=payload.get("case_links") or payload.get(
+                "related_case_ids", []
+            ),
+        )
 
     async def refresh_coordination(self, case_ids: Sequence[str]) -> dict[str, int]:
         """§52 coordination_cluster（per case，scope = 最新 succeeded integrity job）。"""
@@ -390,25 +416,31 @@ class AdvancedSignalDetectorService:
         }
 
     async def refresh_actor_recurrence(self) -> dict[str, int]:
-        """§53 actor_recurrence（全局 identity component）。"""
-        signals, expected, scope_cases = await self._detect_actor_recurrence()
-        return await self._flush_detector(
-            "actor_recurrence", signals, expected, scope_cases
+        """§53 actor_recurrence（全局 identity component，global reconcile）。"""
+        signals, expected, _ = await self._detect_actor_recurrence()
+        return await self._flush_global_detector(
+            "actor_recurrence", signals, expected
         )
 
     async def refresh_media_reuse(self) -> dict[str, int]:
-        """§54 media_reuse（全局 exact SHA）。"""
-        signals, expected, scope_cases = await self._detect_media_reuse()
-        return await self._flush_detector(
-            "media_reuse", signals, expected, scope_cases
-        )
+        """§54 media_reuse（全局 exact SHA，global reconcile）。"""
+        signals, expected, _ = await self._detect_media_reuse()
+        return await self._flush_global_detector("media_reuse", signals, expected)
 
     async def refresh_cross_case_overlap(self) -> dict[str, int]:
-        """§55 cross_case_overlap（全局 active links 特征公式）。"""
-        signals, expected, scope_cases = await self._detect_cross_case_overlap()
-        return await self._flush_detector(
-            "cross_case_overlap", signals, expected, scope_cases
+        """§55 cross_case_overlap（全局 active links 特征公式，global reconcile）。"""
+        signals, expected, _ = await self._detect_cross_case_overlap()
+        return await self._flush_global_detector(
+            "cross_case_overlap", signals, expected
         )
+
+    async def refresh_global(self) -> dict[str, Any]:
+        """Rework R1：三个 Workspace-global detector 聚合刷新（advanced_signal_refresh job）。"""
+        return {
+            "actor_recurrence": await self.refresh_actor_recurrence(),
+            "media_reuse": await self.refresh_media_reuse(),
+            "cross_case_overlap": await self.refresh_cross_case_overlap(),
+        }
 
     async def refresh_all(self) -> dict[str, Any]:
         """全部 4 个 detector（全局 + 每 case coordination），逐 detector reconcile。"""
@@ -416,7 +448,5 @@ class AdvancedSignalDetectorService:
         case_ids = [case.id for case in cases]
         return {
             "coordination_cluster": await self.refresh_coordination(case_ids),
-            "actor_recurrence": await self.refresh_actor_recurrence(),
-            "media_reuse": await self.refresh_media_reuse(),
-            "cross_case_overlap": await self.refresh_cross_case_overlap(),
+            **await self.refresh_global(),
         }

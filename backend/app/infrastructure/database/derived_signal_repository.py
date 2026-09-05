@@ -152,6 +152,42 @@ class DerivedSignalRepository:
                 await session.commit()
             return deactivated
 
+    async def reconcile_detector_global(
+        self,
+        *,
+        signal_type: str,
+        detector_version: str,
+        expected_fingerprints: Sequence[str],
+    ) -> int:
+        """V3 Rework R4：Workspace-global detector 全量对账。
+
+        范围 = signal_type + detector_version + detector_active=true（不按
+        Case 过滤，避免「主体完全消失后旧 Signal 不再落入 scope」的盲区）；
+        不在 expected set 的 Signal → detector_active=false，生命周期继续
+        （open/acknowledged → resolved；suppressed 保持）。
+        """
+        expected = set(expected_fingerprints)
+        query = select(DerivedSignalRecord).where(
+            DerivedSignalRecord.signal_type == signal_type,
+            DerivedSignalRecord.detector_version == detector_version,
+            DerivedSignalRecord.detector_active.is_(True),
+        )
+        async with self._database.session_factory() as session:
+            records = (await session.scalars(query)).all()
+            now = _now()
+            deactivated = 0
+            for record in records:
+                if record.fingerprint in expected:
+                    continue
+                record.detector_active = False
+                if record.status in _AUTO_RESOLVE_STATUSES:
+                    record.status = "resolved"
+                    record.status_updated_at = now
+                deactivated += 1
+            if deactivated:
+                await session.commit()
+            return deactivated
+
     async def get(self, signal_id: str) -> DerivedSignalRecord | None:
         async with self._database.session_factory() as session:
             return await session.get(DerivedSignalRecord, signal_id)

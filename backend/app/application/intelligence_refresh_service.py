@@ -2,12 +2,16 @@
 
 refresh_case 固定顺序：quality → entities → cross_case → signals（§61
 execute）；enqueue 只创建 intelligence_refresh AnalysisJob（不递归）。
+
+V3 Approval Rework R1：intelligence_refresh 成功后由 worker best-effort
+enqueue advanced_signal_refresh（三个 Workspace-global detector）。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from app.core.v3 import ADVANCED_SIGNAL_VERSION
 from app.infrastructure.database.analysis_job_repository import AnalysisJobRepository
 
 
@@ -31,7 +35,8 @@ class IntelligenceRefreshService:
         """§61 execute：固定顺序 quality → entities → cross_case → signals。
 
         signals 为 Derived Signal coordination refresh（Advanced Signal
-        Detector 的全局 detector 由独立刷新覆盖，此处只做 case scope）。
+        Detector 的 global detector 由 advanced_signal_refresh job 覆盖，
+        Rework R1）。
         """
         quality = await self._quality.evaluate(case_id)
         entities = await self._workspace.refresh_case(case_id)
@@ -50,4 +55,20 @@ class IntelligenceRefreshService:
             case_id=case_id,
             job_type="intelligence_refresh",
             idempotency_key=source_key,
+        )
+
+    async def enqueue_advanced_signal_refresh(
+        self, *, job_id: str, case_id: str
+    ) -> Any:
+        """Rework R1：intelligence_refresh 成功后 enqueue advanced_signal_refresh。
+
+        idempotency key 固定 v3:advanced:{intelligence_job_id}:{version}
+        （不使用分钟 key；绝不递归 enqueue 自己）。
+        """
+        return await self._jobs.create_job(
+            case_id=case_id,
+            job_type="advanced_signal_refresh",
+            idempotency_key=(
+                f"v3:advanced:{job_id}:{ADVANCED_SIGNAL_VERSION}"
+            ),
         )

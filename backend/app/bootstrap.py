@@ -581,6 +581,8 @@ class ApplicationContainer:
         # §62.1/§63：alignment/integrity 完成后与 collection terminal 后
         # 的 follow-up enqueue（worker 早于 V3 区创建，此处后置注入）。
         self.analysis_job_worker._intelligence = self.intelligence_refresh_service
+        # Rework R1：advanced_signal_refresh job 由 worker 执行（后置注入）。
+        self.analysis_job_worker._advanced_signals = self.advanced_signals
         self.collection_run_worker._analysis_jobs = self.analysis_job_repository
         # V3 §69-§72：5 个只读 Intelligence Tool（case_id 由 runtime 注入）。
         self.intelligence_tools_service = IntelligenceToolReadService(

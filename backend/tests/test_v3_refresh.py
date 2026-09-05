@@ -1,12 +1,14 @@
-"""V3 §79: Intelligence Refresh tests (IR01-IR15).
+"""V3 §79: Intelligence Refresh tests (IR01-IR20).
 
 覆盖：refresh_case 固定顺序、enqueue、AnalysisJobWorker 分支与 follow-up、
-Collection terminal 触发、Manual Refresh API（全应用 TestClient）。
+Collection terminal 触发、Manual Refresh API（全应用 TestClient）、
+Rework R1 production advanced signal refresh chain（IR16-IR20）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -14,14 +16,31 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.application.advanced_signal_service import AdvancedSignalDetectorService
 from app.application.analysis_job_worker import AnalysisJobWorker
 from app.application.collection_run_worker import CollectionRunWorker
 from app.application.intelligence_refresh_service import IntelligenceRefreshService
 from app.application.repositories import ApplicationRepository
+from app.application.workspace_entity_service import WorkspaceEntityService
 from app.core.config import Settings
+from app.infrastructure.database.alignment_repository import AlignmentRepository
 from app.infrastructure.database.analysis_job_repository import AnalysisJobRepository
 from app.infrastructure.database.collection_run_repository import CollectionRunRepository
+from app.infrastructure.database.cross_investigation_repository import (
+    CrossInvestigationRepository,
+)
+from app.infrastructure.database.derived_signal_repository import (
+    DerivedSignalRepository,
+)
+from app.infrastructure.database.integrity_repository import IntegrityRepository
+from app.infrastructure.database.media_pipeline_repository import (
+    MediaPipelineRepository,
+)
+from app.infrastructure.database.models import MediaAssetRecord
 from app.infrastructure.database.social_repository import SocialRepository
+from app.infrastructure.database.workspace_entity_repository import (
+    WorkspaceEntityRepository,
+)
 from app.main import create_app
 from app.schemas.cases import CreateCaseRequest
 from tests.memory_db import MemoryDatabase
@@ -359,3 +378,177 @@ def test_ir13_refresh_api_does_not_enqueue_direct_refresh(tmp_path: Any) -> None
             )
         )
         assert refreshes == []  # follow-up 由 worker 完成时创建
+
+
+# ---------------------------------------------------------------------------
+# IR16-IR20: Rework R1 production advanced signal refresh chain
+# ---------------------------------------------------------------------------
+
+
+async def test_ir16_intelligence_refresh_enqueues_advanced_signal_refresh() -> None:
+    """IR16：intelligence_refresh 成功 → worker enqueue advanced_signal_refresh。"""
+    env = await _setup_refresh()
+    worker = AnalysisJobWorker(
+        env.jobs, intelligence_service=env.service, enabled=False
+    )
+    await worker._maybe_enqueue_intelligence_refresh(
+        "ir16-intelligence-job", env.case.id, "intelligence_refresh"
+    )
+    advanced = await env.jobs.list_jobs(
+        env.case.id, job_type="advanced_signal_refresh"
+    )
+    assert len(advanced) == 1
+    assert advanced[0].idempotency_key.startswith(
+        "v3:advanced:ir16-intelligence-job:"
+    )
+    # follow-up 链不回归：intelligence_refresh 自身不被再次 enqueue
+    refreshes = await env.jobs.list_jobs(env.case.id, job_type="intelligence_refresh")
+    assert refreshes == []
+    await env.db.dispose()
+
+
+async def test_ir17_advanced_signal_refresh_worker_branch_runs_refresh_global() -> None:
+    """IR17：advanced_signal_refresh worker 分支 → refresh_global()。"""
+    env = await _setup_refresh()
+    calls: list[str] = []
+
+    class _AdvancedStub:
+        async def refresh_global(self) -> dict[str, Any]:
+            calls.append("refresh_global")
+            return {
+                "actor_recurrence": {"upserted": 0, "stale_deactivated": 0},
+                "media_reuse": {"upserted": 0, "stale_deactivated": 0},
+                "cross_case_overlap": {"upserted": 0, "stale_deactivated": 0},
+            }
+
+    worker = AnalysisJobWorker(
+        env.jobs, advanced_signal_service=_AdvancedStub(), enabled=False
+    )
+    result = await worker._run("advanced_signal_refresh", env.case.id)
+    assert calls == ["refresh_global"]
+    assert set(result) == {"actor_recurrence", "media_reuse", "cross_case_overlap"}
+    await env.db.dispose()
+
+
+async def test_ir18_advanced_signal_refresh_does_not_recurse() -> None:
+    """IR18：advanced_signal_refresh 成功后绝不 enqueue 自己或 intelligence_refresh。"""
+    env = await _setup_refresh()
+    worker = AnalysisJobWorker(
+        env.jobs, intelligence_service=env.service, enabled=False
+    )
+    await worker._maybe_enqueue_intelligence_refresh(
+        "job-3", env.case.id, "advanced_signal_refresh"
+    )
+    assert await env.jobs.list_jobs(env.case.id, job_type="intelligence_refresh") == []
+    advanced = await env.jobs.list_jobs(
+        env.case.id, job_type="advanced_signal_refresh"
+    )
+    assert advanced == []
+    await env.db.dispose()
+
+
+async def test_ir19_advanced_job_idempotency_key_uses_intelligence_job_id() -> None:
+    """IR19：advanced job 幂等 key = v3:advanced:{intelligence_job_id}:{version}。"""
+    env = await _setup_refresh()
+    job = await env.service.enqueue_advanced_signal_refresh(
+        job_id="ir19-intelligence-job", case_id=env.case.id
+    )
+    assert job.job_type == "advanced_signal_refresh"
+    assert (
+        job.idempotency_key
+        == "v3:advanced:ir19-intelligence-job:advanced-signal-1.0.0"
+    )
+    # 同一 intelligence job_id 重复 enqueue → 幂等返回同一 job
+    again = await env.service.enqueue_advanced_signal_refresh(
+        job_id="ir19-intelligence-job", case_id=env.case.id
+    )
+    assert again.id == job.id
+    # 36 位 uuid job_id → key 超 64 字符被截断，但 job_id 前缀保留，幂等仍稳定
+    long_job_id = str(uuid.uuid4())
+    long_a = await env.service.enqueue_advanced_signal_refresh(
+        job_id=long_job_id, case_id=env.case.id
+    )
+    long_b = await env.service.enqueue_advanced_signal_refresh(
+        job_id=long_job_id, case_id=env.case.id
+    )
+    assert long_a.id == long_b.id
+    assert long_a.idempotency_key.startswith(f"v3:advanced:{long_job_id}:")
+    await env.db.dispose()
+
+
+async def _setup_advanced_detector() -> SimpleNamespace:
+    """IR20：真实 AdvancedSignalDetectorService（真实 repo，detector 不 mock）。"""
+    database = MemoryDatabase()
+    await database.create_schema()
+    app_repo = ApplicationRepository(database)
+    jobs = AnalysisJobRepository(database)
+    case_a = await app_repo.create_case(
+        CreateCaseRequest(topic="IR20 案A", platforms=["weibo"])
+    )
+    case_b = await app_repo.create_case(
+        CreateCaseRequest(topic="IR20 案B", platforms=["weibo"])
+    )
+    social = SocialRepository(database)
+    integrity = IntegrityRepository(database)
+    workspace = WorkspaceEntityService(
+        workspace_repository=WorkspaceEntityRepository(database),
+        alignment_repository=AlignmentRepository(database),
+        application_repository=app_repo,
+        social_repository=social,
+        integrity_repository=integrity,
+        database=database,
+    )
+    advanced = AdvancedSignalDetectorService(
+        derived_repository=DerivedSignalRepository(database),
+        integrity_repository=integrity,
+        analysis_job_repository=jobs,
+        workspace_service=workspace,
+        cross_repository=CrossInvestigationRepository(database),
+        media_repository=MediaPipelineRepository(database),
+        application_repository=app_repo,
+    )
+    return SimpleNamespace(
+        db=database,
+        app=app_repo,
+        jobs=jobs,
+        case_a=case_a,
+        case_b=case_b,
+        advanced=advanced,
+    )
+
+
+async def test_ir20_production_chain_runs_all_three_global_detectors() -> None:
+    """IR20：production chain 真实执行三类 global detector（真实 Service/Repo）。
+
+    空 workspace 时三类 detector 真实跑完（空 expected set → global
+    reconcile）；插入跨 case 同 SHA 媒体后 media_reuse 真实产出 Signal，
+    证明 production chain 覆盖了原来只刷 coordination 的缺口。
+    """
+    env = await _setup_advanced_detector()
+    worker = AnalysisJobWorker(
+        env.jobs, advanced_signal_service=env.advanced, enabled=False
+    )
+    result = await worker._run("advanced_signal_refresh", env.case_a.id)
+    assert set(result) == {"actor_recurrence", "media_reuse", "cross_case_overlap"}
+    for stats in result.values():
+        assert set(stats) == {"upserted", "stale_deactivated"}
+
+    sha = "aa" * 32
+    async with env.db.session_factory() as session:
+        for case_id in (env.case_a.id, env.case_b.id):
+            session.add(
+                MediaAssetRecord(
+                    case_id=case_id,
+                    platform="weibo",
+                    media_type="image",
+                    url=f"https://example.com/{case_id}/img.jpg",
+                    normalized_url=f"https://example.com/{case_id}/img.jpg",
+                    actual_sha256=sha,
+                )
+            )
+        await session.commit()
+    refreshed = await worker._run("advanced_signal_refresh", env.case_a.id)
+    assert refreshed["media_reuse"]["upserted"] == 1
+    assert isinstance(refreshed["actor_recurrence"]["stale_deactivated"], int)
+    assert isinstance(refreshed["cross_case_overlap"]["stale_deactivated"], int)
+    await env.db.dispose()
