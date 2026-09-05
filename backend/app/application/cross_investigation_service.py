@@ -13,6 +13,7 @@ shared_content 固定使用 SourcePost.content_hash 的 exact raw-content
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any
 
@@ -39,6 +40,21 @@ from app.services import alignment as algo
 
 ALGORITHM_VERSION = v3.CROSS_INTELLIGENCE_VERSION
 _MAX_EVIDENCE_REFS = v3.MAX_LINK_EVIDENCE_REFS
+
+logger = logging.getLogger(__name__)
+
+# FC1 safety caps：参与 expected set → reconcile 的输入必须完整扫描；
+# 达到 cap 时 scan_complete=False，禁止 reconcile_for_anchor。
+MAX_CASE_ENTITY_SCAN = 20_000
+MAX_CASE_POST_SCAN = 50_000
+MAX_CROSS_MATCH_SCAN = 50_000
+MAX_CASE_MEDIA_SCAN = 20_000
+MAX_MEDIA_CANDIDATE_SCAN = 50_000
+
+_CASE_ENTITY_PAGE_SIZE = 500
+_ANCHOR_PAGE_SIZE = 1000
+_CROSS_MATCH_BATCH_SIZE = 500
+_CROSS_MATCH_BATCH_LIMIT = 2000
 
 
 class CrossInvestigationService:
@@ -70,31 +86,50 @@ class CrossInvestigationService:
         summary: dict[str, Any] = {"case_id": case_id}
 
         # 每个 detector：expected set → upsert → reconcile（异常时不得
-        # reconcile 部分 expected set，§C15）
-        shared_actor = await self._detect_shared_actor(case_id)
+        # reconcile 部分 expected set，§C15）。FC1：scan incomplete 时
+        # 只 upsert 已计算结果、跳过 reconcile_for_anchor。
+        shared_actor_links, shared_actor_complete = (
+            await self._detect_shared_actor(case_id)
+        )
         summary["shared_actor"] = await self._flush_detector(
-            case_id, "shared_actor", shared_actor
+            case_id,
+            "shared_actor",
+            shared_actor_links,
+            scan_complete=shared_actor_complete,
         )
 
-        shared_post = await self._detect_shared_post(case_id)
+        shared_post_links, shared_post_complete = (
+            await self._detect_shared_post(case_id)
+        )
         shared_post_by_pair = {
             (link["left_case_id"], link["right_case_id"]): link
-            for link in shared_post
+            for link in shared_post_links
         }
         summary["shared_post"] = await self._flush_detector(
-            case_id, "shared_post", shared_post
+            case_id,
+            "shared_post",
+            shared_post_links,
+            scan_complete=shared_post_complete,
         )
 
-        shared_media = await self._detect_shared_media(case_id)
+        shared_media_links, shared_media_complete = (
+            await self._detect_shared_media(case_id)
+        )
         summary["shared_media"] = await self._flush_detector(
-            case_id, "shared_media", shared_media
+            case_id,
+            "shared_media",
+            shared_media_links,
+            scan_complete=shared_media_complete,
         )
 
-        shared_content = await self._detect_shared_content(
-            case_id, shared_post_by_pair
+        shared_content_links, shared_content_complete = (
+            await self._detect_shared_content(case_id, shared_post_by_pair)
         )
         summary["shared_content"] = await self._flush_detector(
-            case_id, "shared_content", shared_content
+            case_id,
+            "shared_content",
+            shared_content_links,
+            scan_complete=shared_content_complete,
         )
 
         return summary
@@ -104,10 +139,14 @@ class CrossInvestigationService:
         case_id: str,
         relation_type: str,
         links: list[dict[str, Any]],
-    ) -> dict[str, int]:
+        *,
+        scan_complete: bool,
+    ) -> dict[str, Any]:
         """upsert expected links；仅在 expected set 完整计算成功后 reconcile。
 
-        返回 {"upserted": N, "stale_deactivated": M}。
+        FC1：scan_complete=False（safety cap / batch 截断）时只保留本轮
+        已计算结果，禁止对 anchor 做 destructive reconcile。返回
+        {"upserted": N, "stale_deactivated": M, "scan_complete": bool}。
         """
         expected_fingerprints: set[str] = set()
         for link in links:
@@ -130,33 +169,77 @@ class CrossInvestigationService:
                 algorithm_version=ALGORITHM_VERSION,
                 max_evidence_refs=_MAX_EVIDENCE_REFS,
             )
-        stale = await self._cross.reconcile_for_anchor(
-            case_id, relation_type, ALGORITHM_VERSION, expected_fingerprints
-        )
-        return {"upserted": len(links), "stale_deactivated": stale}
+        stale = 0
+        if scan_complete:
+            stale = await self._cross.reconcile_for_anchor(
+                case_id, relation_type, ALGORITHM_VERSION, expected_fingerprints
+            )
+        else:
+            logger.warning(
+                "%s detector scan incomplete for case %s; anchor reconcile "
+                "skipped (upserted=%s)",
+                relation_type,
+                case_id,
+                len(links),
+            )
+        return {
+            "upserted": len(links),
+            "stale_deactivated": stale,
+            "scan_complete": scan_complete,
+        }
 
     # ---------------- shared_actor（§36，identity component 单位） ----------
 
     async def _detect_shared_actor(
         self, case_id: str
-    ) -> list[dict[str, Any]]:
-        entities = await self._workspace.list_entities_for_case(case_id)
-        if not entities:
-            return []
+    ) -> tuple[list[dict[str, Any]], bool]:
+        # FC1：anchor 实体 id keyset 分页（id ASC，page=500，cap 20_000），
+        # 不再把 list_entities_for_case(limit=2000) 的截断结果当完整输入。
+        entity_ids: list[str] = []
+        scan_complete = True
+        after_id: str | None = None
+        while True:
+            page = await self._workspace.list_entity_ids_for_case_page(
+                case_id, after_id=after_id, limit=_CASE_ENTITY_PAGE_SIZE
+            )
+            if not page:
+                break
+            entity_ids.extend(page)
+            if len(entity_ids) >= MAX_CASE_ENTITY_SCAN:
+                scan_complete = False
+                entity_ids = entity_ids[:MAX_CASE_ENTITY_SCAN]
+                logger.warning(
+                    "shared_actor anchor entity scan reached safety cap %s "
+                    "(case=%s); anchor reconcile will be skipped",
+                    MAX_CASE_ENTITY_SCAN,
+                    case_id,
+                )
+                break
+            after_id = page[-1]
+            if len(page) < _CASE_ENTITY_PAGE_SIZE:
+                break
+        if not entity_ids:
+            return [], scan_complete
         # Rework R3：以 WorkspaceEntityService.identity_component 为唯一
         # identity 传播单位（active same_as 边，500 节点硬保护由 service
         # 保证，本服务不得绕过）；component 内全部实体（含其它 Case 的）
         # 的 Case appearance 必须参与聚合。
         components_by_key: dict[str, list[str]] = {}
-        for entity in entities:
-            component = await self._workspace_service.identity_component(entity.id)
+        for entity_id in entity_ids:
+            component = await self._workspace_service.identity_component(entity_id)
             components_by_key.setdefault(
                 component["component_key"], component["entity_ids"]
             )
         all_entity_ids = sorted(
             {eid for ids in components_by_key.values() for eid in ids}
         )
-        links = await self._workspace.list_case_links_for_entities(all_entity_ids)
+        links: list[Any] = []
+        for start in range(0, len(all_entity_ids), _CROSS_MATCH_BATCH_SIZE):
+            links.extend(
+                await self._workspace.list_case_links_for_entities(
+                    all_entity_ids[start : start + _CROSS_MATCH_BATCH_SIZE]
+                )
+            )
         links_by_entity: dict[str, set[str]] = defaultdict(set)
         for link in links:
             links_by_entity[link.entity_id].add(link.case_id)
@@ -189,18 +272,74 @@ class CrossInvestigationService:
                     "feature_scores": {"identity_component": 1.0},
                 }
             )
-        return results
+        return results, scan_complete
 
     # ---------------- shared_post（§37，exact platform+native_id） ----------
 
-    async def _detect_shared_post(self, case_id: str) -> list[dict[str, Any]]:
-        native_pairs = await self._social.list_case_native_pairs(case_id)
-        if not native_pairs:
-            return []
-        pairs = [(platform, native_id) for _, platform, native_id in native_pairs]
-        matches = await self._social.find_cross_case_native_post_matches(
-            case_id, pairs
-        )
+    async def _detect_shared_post(
+        self, case_id: str
+    ) -> tuple[list[dict[str, Any]], bool]:
+        # FC1：anchor posts keyset 分页（SourcePost.id ASC，page=1000，
+        # cap 50_000）；cross match 按 500 pairs/批执行，单批结果达到
+        # batch limit 视为可能截断 → scan_complete=False（保守，不误删）。
+        anchor_pairs: list[tuple[str, str, str]] = []
+        scan_complete = True
+        after_id: str | None = None
+        while True:
+            page = await self._social.list_case_native_pairs_page(
+                case_id, after_id=after_id, limit=_ANCHOR_PAGE_SIZE
+            )
+            if not page:
+                break
+            anchor_pairs.extend(page)
+            if len(anchor_pairs) >= MAX_CASE_POST_SCAN:
+                scan_complete = False
+                anchor_pairs = anchor_pairs[:MAX_CASE_POST_SCAN]
+                logger.warning(
+                    "shared_post anchor scan reached safety cap %s (case=%s)",
+                    MAX_CASE_POST_SCAN,
+                    case_id,
+                )
+                break
+            after_id = page[-1][0]
+            if len(page) < _ANCHOR_PAGE_SIZE:
+                break
+        if not anchor_pairs:
+            return [], scan_complete
+        pairs = [(platform, native_id) for _, platform, native_id in anchor_pairs]
+        anchor_by_pair = {
+            (platform, native_id): post_id
+            for post_id, platform, native_id in anchor_pairs
+        }
+        matches: list[Any] = []
+        for start in range(0, len(pairs), _CROSS_MATCH_BATCH_SIZE):
+            batch = pairs[start : start + _CROSS_MATCH_BATCH_SIZE]
+            batch_rows = list(
+                await self._social.find_cross_case_native_post_matches(
+                    case_id, batch, limit=_CROSS_MATCH_BATCH_LIMIT
+                )
+            )
+            if len(batch_rows) >= _CROSS_MATCH_BATCH_LIMIT:
+                # 单批命中上限：可能仍有未取回的 match，标 incomplete。
+                scan_complete = False
+                logger.warning(
+                    "shared_post cross match batch hit limit %s (case=%s)",
+                    _CROSS_MATCH_BATCH_LIMIT,
+                    case_id,
+                )
+            if len(matches) + len(batch_rows) >= MAX_CROSS_MATCH_SCAN:
+                scan_complete = False
+                matches.extend(
+                    batch_rows[: max(0, MAX_CROSS_MATCH_SCAN - len(matches))]
+                )
+                logger.warning(
+                    "shared_post cross match scan reached safety cap %s "
+                    "(case=%s)",
+                    MAX_CROSS_MATCH_SCAN,
+                    case_id,
+                )
+                break
+            matches.extend(batch_rows)
         shared_pairs: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for match in matches:
             left, right = sorted((case_id, match.case_id))
@@ -208,11 +347,8 @@ class CrossInvestigationService:
                 {
                     "platform": match.platform,
                     "native_id": match.native_id,
-                    "anchor_post_id": next(
-                        post_id
-                        for post_id, platform, native_id in native_pairs
-                        if platform == match.platform
-                        and native_id == match.native_id
+                    "anchor_post_id": anchor_by_pair.get(
+                        (str(match.platform), str(match.native_id)), ""
                     ),
                     "other_post_id": match.id,
                 }
@@ -230,21 +366,72 @@ class CrossInvestigationService:
                     "feature_scores": {"platform_native_exact": 1.0},
                 }
             )
-        return results
+        return results, scan_complete
 
     # ---------------- shared_media（§38：SHA observed / phash candidate） ----
 
-    async def _detect_shared_media(self, case_id: str) -> list[dict[str, Any]]:
+    async def _detect_shared_media(
+        self, case_id: str
+    ) -> tuple[list[dict[str, Any]], bool]:
         # Rework R5：同一 Case Pair 先聚合再输出唯一 payload——有 exact SHA
         # 即 observed score=1.0（candidate 只作辅助信息，不降级）；只有
         # phash 才输出 candidate（score=max similarity）。禁止同 Pair 两条。
+        # FC1：anchor media keyset 分页（asset id ASC，page=1000，cap
+        # 20_000）；exact SHA match 按 500 SHA/批执行，批结果达到 limit
+        # 视为可能截断 → scan_complete=False（保守）。
+        anchor_assets: list[tuple[str, str, str]] = []
+        scan_complete = True
+        after_asset_id: str | None = None
+        while True:
+            page = await self._media.list_case_media_hashes_page(
+                case_id, after_id=after_asset_id, limit=_ANCHOR_PAGE_SIZE
+            )
+            if not page:
+                break
+            anchor_assets.extend(page)
+            if len(anchor_assets) >= MAX_CASE_MEDIA_SCAN:
+                scan_complete = False
+                anchor_assets = anchor_assets[:MAX_CASE_MEDIA_SCAN]
+                logger.warning(
+                    "shared_media anchor scan reached safety cap %s (case=%s)",
+                    MAX_CASE_MEDIA_SCAN,
+                    case_id,
+                )
+                break
+            after_asset_id = page[-1][0]
+            if len(page) < _ANCHOR_PAGE_SIZE:
+                break
         observed_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
-        anchor_assets = await self._media.list_case_media_hashes(case_id)
         sha_values = [sha for _, sha, _ in anchor_assets]
         if sha_values:
-            matches = await self._media.find_cross_case_sha_matches(
-                case_id, sha_values
-            )
+            matches: list[Any] = []
+            for start in range(0, len(sha_values), _CROSS_MATCH_BATCH_SIZE):
+                batch = sha_values[start : start + _CROSS_MATCH_BATCH_SIZE]
+                batch_rows = list(
+                    await self._media.find_cross_case_sha_matches(
+                        case_id, batch, limit=_CROSS_MATCH_BATCH_LIMIT
+                    )
+                )
+                if len(batch_rows) >= _CROSS_MATCH_BATCH_LIMIT:
+                    scan_complete = False
+                    logger.warning(
+                        "shared_media sha match batch hit limit %s (case=%s)",
+                        _CROSS_MATCH_BATCH_LIMIT,
+                        case_id,
+                    )
+                if len(matches) + len(batch_rows) >= MAX_CROSS_MATCH_SCAN:
+                    scan_complete = False
+                    matches.extend(
+                        batch_rows[: max(0, MAX_CROSS_MATCH_SCAN - len(matches))]
+                    )
+                    logger.warning(
+                        "shared_media cross match scan reached safety cap %s "
+                        "(case=%s)",
+                        MAX_CROSS_MATCH_SCAN,
+                        case_id,
+                    )
+                    break
+                matches.extend(batch_rows)
             sha_to_anchor: dict[str, list[str]] = defaultdict(list)
             for asset_id, sha, _ in anchor_assets:
                 sha_to_anchor[sha].append(asset_id)
@@ -293,9 +480,21 @@ class CrossInvestigationService:
                         f"{asset.media_type}:{offset}:"
                         f"{asset.phash[offset : offset + 4]}"
                     )
-            candidates = await self._media.find_cross_case_phash_candidates(
-                case_id, sorted(block_keys)
+            candidates = list(
+                await self._media.find_cross_case_phash_candidates(
+                    case_id,
+                    sorted(block_keys),
+                    limit=_CROSS_MATCH_BATCH_LIMIT,
+                )
             )
+            if len(candidates) >= _CROSS_MATCH_BATCH_LIMIT:
+                # 候选集达到上限：可能仍有未取回候选 → 保守标 incomplete。
+                scan_complete = False
+                logger.warning(
+                    "shared_media phash candidates hit limit %s (case=%s)",
+                    _CROSS_MATCH_BATCH_LIMIT,
+                    case_id,
+                )
             candidates_by_block: dict[str, list[MediaAssetRecord]] = defaultdict(
                 list
             )
@@ -385,7 +584,7 @@ class CrossInvestigationService:
             payload["evidence_refs"] = payload["evidence_refs"][:_MAX_EVIDENCE_REFS]
             results.append(payload)
         results.sort(key=lambda item: (item["left_case_id"], item["right_case_id"]))
-        return results
+        return results, scan_complete
 
     async def _load_anchor_phash_assets(self, case_id: str) -> list[Any]:
         async with self._database.session_factory() as session:
@@ -404,10 +603,34 @@ class CrossInvestigationService:
         self,
         case_id: str,
         shared_post_by_pair: dict[tuple[str, str], dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        anchor_hashes = await self._social.list_case_post_content_hashes(case_id)
+    ) -> tuple[list[dict[str, Any]], bool]:
+        # FC1：anchor hashes keyset 分页（SourcePost.id ASC，page=1000，
+        # cap 50_000）；cross match 按 500 hashes/批，批结果达到 limit
+        # 视为可能截断 → scan_complete=False。
+        anchor_hashes: list[tuple[str, str]] = []
+        scan_complete = True
+        after_id: str | None = None
+        while True:
+            page = await self._social.list_case_post_content_hashes_page(
+                case_id, after_id=after_id, limit=_ANCHOR_PAGE_SIZE
+            )
+            if not page:
+                break
+            anchor_hashes.extend(page)
+            if len(anchor_hashes) >= MAX_CASE_POST_SCAN:
+                scan_complete = False
+                anchor_hashes = anchor_hashes[:MAX_CASE_POST_SCAN]
+                logger.warning(
+                    "shared_content anchor scan reached safety cap %s (case=%s)",
+                    MAX_CASE_POST_SCAN,
+                    case_id,
+                )
+                break
+            after_id = page[-1][0]
+            if len(page) < _ANCHOR_PAGE_SIZE:
+                break
         if not anchor_hashes:
-            return []
+            return [], scan_complete
         # §39：如果 pair 已满足 shared_post，则不计入 shared_content evidence
         excluded_post_ids = set()
         for link in shared_post_by_pair.values():
@@ -416,9 +639,35 @@ class CrossInvestigationService:
         hash_to_post = {
             content_hash: post_id for post_id, content_hash in anchor_hashes
         }
-        matches = await self._social.find_cross_case_content_hash_matches(
-            case_id, list(hash_to_post)
-        )
+        hashes = list(hash_to_post)
+        matches: list[Any] = []
+        for start in range(0, len(hashes), _CROSS_MATCH_BATCH_SIZE):
+            batch = hashes[start : start + _CROSS_MATCH_BATCH_SIZE]
+            batch_rows = list(
+                await self._social.find_cross_case_content_hash_matches(
+                    case_id, batch, limit=_CROSS_MATCH_BATCH_LIMIT
+                )
+            )
+            if len(batch_rows) >= _CROSS_MATCH_BATCH_LIMIT:
+                scan_complete = False
+                logger.warning(
+                    "shared_content cross match batch hit limit %s (case=%s)",
+                    _CROSS_MATCH_BATCH_LIMIT,
+                    case_id,
+                )
+            if len(matches) + len(batch_rows) >= MAX_CROSS_MATCH_SCAN:
+                scan_complete = False
+                matches.extend(
+                    batch_rows[: max(0, MAX_CROSS_MATCH_SCAN - len(matches))]
+                )
+                logger.warning(
+                    "shared_content cross match scan reached safety cap %s "
+                    "(case=%s)",
+                    MAX_CROSS_MATCH_SCAN,
+                    case_id,
+                )
+                break
+            matches.extend(batch_rows)
         shared_pairs: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for match in matches:
             if match.id in excluded_post_ids:
@@ -444,7 +693,7 @@ class CrossInvestigationService:
                     "feature_scores": {"content_hash_exact": 1.0},
                 }
             )
-        return results
+        return results, scan_complete
 
     # ---------------- queries（§42/§43） ----------------
 
