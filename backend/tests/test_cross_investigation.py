@@ -507,3 +507,44 @@ async def test_c08_pair_ordering_in_upsert() -> None:
     assert link.left_case_id < link.right_case_id or link.left_case_id == left
     assert link.is_active is True
     await env.db.dispose()
+
+
+# ---------------------------------------------------------------------------
+# C17: Related DTO shared_* count 使用 evidence_count（Rework R9）
+# ---------------------------------------------------------------------------
+
+
+async def test_c17_related_counts_use_evidence_count() -> None:
+    """shared_actor evidence_count=3 / shared_media evidence_count=2
+    → Related DTO：shared_actor_count=3、shared_media_count=2、
+    relation_count=2（distinct relation type 数）。"""
+    env = await _setup()
+    for index in (1, 2, 3):
+        await env.app.upsert_account(
+            case_id=env.case_a.id,
+            platform="weibo",
+            native_id=f"r{index}",
+            name=f"主体r{index}",
+            normalized_name=f"主体r{index}",
+        )
+        await env.social.persist_batch(
+            case_id=env.case_b.id,
+            posts=[_post("weibo", f"b{index}", f"r{index}")],
+        )
+    await _asset(env, env.case_a.id, sha256="e1" * 32)
+    await _asset(env, env.case_b.id, sha256="e1" * 32)
+    await _asset(env, env.case_a.id, sha256="e2" * 32)
+    await _asset(env, env.case_b.id, sha256="e2" * 32)
+    await env.workspace_service.refresh_case(env.case_a.id)
+    await env.workspace_service.refresh_case(env.case_b.id)
+    await env.service.refresh_case(env.case_a.id)
+
+    related = await env.service.related_investigations(env.case_a.id)
+    assert len(related) == 1
+    entry = related[0]
+    assert entry["case_id"] == env.case_b.id
+    assert entry["shared_actor_count"] == 3
+    assert entry["shared_media_count"] == 2
+    assert entry["relation_count"] == 2
+    assert entry["relation_types"] == ["shared_actor", "shared_media"]
+    await env.db.dispose()

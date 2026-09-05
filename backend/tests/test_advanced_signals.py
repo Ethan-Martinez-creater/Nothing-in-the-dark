@@ -341,6 +341,8 @@ async def test_s13_media_reuse_single_case_no_signal() -> None:
 
 
 def _cross_link(left: str, right: str, etype: str, count: int, score: float = 1.0):
+    """真实 Cross Link contract（Rework R2）：relation_type 用 shared_* 命名，
+    贡献量来自 link.evidence_count（不从 evidence_refs 推断）。"""
     return SimpleNamespace(
         left_case_id=left,
         right_case_id=right,
@@ -348,6 +350,7 @@ def _cross_link(left: str, right: str, etype: str, count: int, score: float = 1.
         is_active=True,
         status="observed",
         score=score,
+        evidence_count=count,
         evidence_refs_json=[{"type": etype}] * count,
     )
 
@@ -359,13 +362,13 @@ def _overlap_env(env: SimpleNamespace, links: list[Any]) -> SimpleNamespace:
 
 async def test_s14_overlap_formula_and_warning() -> None:
     env = await _setup()
-    # actor 3（→1.0）+ media 2（→1.0）+ content 0 + post 0
+    # shared_actor 3（→1.0）+ shared_media 2（→1.0）+ content 0 + post 0
     # score = 0.40 + 0.30 = 0.70 >= 0.60，2 relation types → warning
     detector = _overlap_env(
         env,
         [
-            _cross_link("case-a", "case-b", "actor", 3),
-            _cross_link("case-a", "case-b", "media", 2),
+            _cross_link("case-a", "case-b", "shared_actor", 3),
+            _cross_link("case-a", "case-b", "shared_media", 2),
         ],
     )
     summary = await detector.refresh_cross_case_overlap()
@@ -379,14 +382,14 @@ async def test_s14_overlap_formula_and_warning() -> None:
 
 async def test_s15_overlap_critical_at_high_score() -> None:
     env = await _setup()
-    # actor 3 + media 2 + content 5（→1.0）
+    # shared_actor 3 + shared_media 2 + shared_content 5（→1.0）
     # score = 0.40 + 0.30 + 0.20 = 0.90 >= 0.85 → critical
     detector = _overlap_env(
         env,
         [
-            _cross_link("case-a", "case-b", "actor", 3),
-            _cross_link("case-a", "case-b", "media", 2),
-            _cross_link("case-a", "case-b", "content", 5),
+            _cross_link("case-a", "case-b", "shared_actor", 3),
+            _cross_link("case-a", "case-b", "shared_media", 2),
+            _cross_link("case-a", "case-b", "shared_content", 5),
         ],
     )
     await detector.refresh_cross_case_overlap()
@@ -397,7 +400,9 @@ async def test_s15_overlap_critical_at_high_score() -> None:
 
 async def test_s16_overlap_single_relation_type_no_signal() -> None:
     env = await _setup()
-    detector = _overlap_env(env, [_cross_link("case-a", "case-b", "actor", 10)])
+    detector = _overlap_env(
+        env, [_cross_link("case-a", "case-b", "shared_actor", 10)]
+    )
     summary = await detector.refresh_cross_case_overlap()
     # 单 relation type 不满足 >=2 类型，即使 actor 特征封顶 1.0 也不触发
     assert summary["upserted"] == 0
@@ -657,4 +662,76 @@ async def test_s22_change_status_routes_to_derived_and_unknown_404() -> None:
     resolved = await service.change_status("mon-1", "resolve")
     assert resolved.status == "resolved"
     assert resolved.source_type == "monitor_alert"
+    await env.db.dispose()
+
+
+# ---------------------------------------------------------------------------
+# S23-S25: Derived Signal evidence 透传 + source filter 语义（Rework R6/R7）
+# ---------------------------------------------------------------------------
+
+
+async def test_s23_derived_signal_exposes_evidence_refs_items() -> None:
+    """S23：GET 单条 derived signal 返回 evidence_refs.items（非空）。"""
+    env = await _setup()
+    service = SignalService(env.db, _FakeMonitorRepo(), derived_repository=env.derived)
+    record = await env.derived.upsert_observed_signal(
+        **_payload(
+            source_id="d-ev",
+            fingerprint="fp-dev",
+            signal_type="media_reuse",
+            evidence_refs=[{"sha256": "ab" * 32}, {"entity_id": "ent-1"}],
+        )
+    )
+    signal = await service.get_signal(record.id)
+    items = signal.evidence_refs.get("items")
+    assert isinstance(items, list) and len(items) == 2
+    assert {"sha256": "ab" * 32} in items
+    assert {"entity_id": "ent-1"} in items
+    await env.db.dispose()
+
+
+async def test_s24_source_type_derived_plus_signal_type_media_reuse() -> None:
+    """S24：source_type=derived + signal_type=media_reuse 过滤命中 media Signal。"""
+    env = await _setup()
+    monitors = _FakeMonitorRepo()
+    monitors.rows = [_monitor_row("mon-1", "warning", "open")]
+    service = SignalService(env.db, monitors, derived_repository=env.derived)
+    await env.derived.upsert_observed_signal(
+        **_payload(
+            source_id="d-media",
+            fingerprint="fp-dmedia",
+            signal_type="media_reuse",
+            title="同一媒体素材在多个调查中复用",
+        )
+    )
+    await env.derived.upsert_observed_signal(
+        **_payload(
+            source_id="d-actor",
+            fingerprint="fp-dactor",
+            signal_type="actor_recurrence",
+        )
+    )
+    media_signals = await service.list_signals(
+        source_type="derived", signal_type="media_reuse", limit=10
+    )
+    assert len(media_signals) == 1
+    assert media_signals[0].signal_type == "media_reuse"
+    assert media_signals[0].source_type == "derived"
+    await env.db.dispose()
+
+
+async def test_s25_source_type_monitor_alert_excludes_derived() -> None:
+    """S25：source_type=monitor_alert 不返回 derived 信号。"""
+    env = await _setup()
+    monitors = _FakeMonitorRepo()
+    monitors.rows = [_monitor_row("mon-1", "warning", "open")]
+    service = SignalService(env.db, monitors, derived_repository=env.derived)
+    await env.derived.upsert_observed_signal(
+        **_payload(source_id="d-media", fingerprint="fp-dmedia")
+    )
+    monitor_only = await service.list_signals(
+        source_type="monitor_alert", limit=10
+    )
+    assert len(monitor_only) == 1
+    assert all(s.source_type == "monitor_alert" for s in monitor_only)
     await env.db.dispose()
