@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, status
 
 from app.api.dependencies import get_container
@@ -11,6 +13,8 @@ from app.schemas.projects import (
     ProjectResponse,
     RenameProjectRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -47,4 +51,16 @@ async def delete_project(
     project_id: str,
     container: ApplicationContainer = Depends(get_container),
 ) -> None:
+    # repository.delete_project 内部逐 Case 删除；FC2 要求整个 Project
+    # 删除只 enqueue 一次 global advanced refresh（scope_key = project_id）。
     await container.repository.delete_project(project_id)
+    try:
+        await container.intelligence_refresh_service.enqueue_after_scope_deletion(
+            scope_key=project_id
+        )
+    except Exception:  # best-effort follow-up（FC2 §28）
+        logger.warning(
+            "advanced_signal_refresh enqueue after project delete %s failed",
+            project_id,
+            exc_info=True,
+        )

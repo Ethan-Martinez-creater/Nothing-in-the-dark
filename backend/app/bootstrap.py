@@ -573,6 +573,7 @@ class ApplicationContainer:
         # V3 §61：Intelligence Refresh 编排（固定顺序 quality→entities→cross→signals）。
         self.intelligence_refresh_service = IntelligenceRefreshService(
             analysis_job_repository=self.analysis_job_repository,
+            application_repository=self.repository,
             quality_service=self.investigation_quality,
             workspace_entity_service=self.workspace_entities,
             cross_investigation_service=self.cross_investigation,

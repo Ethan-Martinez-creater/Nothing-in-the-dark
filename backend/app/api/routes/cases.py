@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Response, status
 
 from app.api.dependencies import get_container
@@ -19,6 +21,8 @@ from app.schemas.domain import (
 )
 from app.schemas.runs import AgentRunResponse, CreateMessageRequest
 from app.schemas.tasks import ArtifactResponse, StartAnalysisRequest, TaskResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -53,6 +57,19 @@ async def delete_case(
     container: ApplicationContainer = Depends(get_container),
 ) -> None:
     await container.repository.delete_case(case_id)
+    # FC2：删除成功后 best-effort enqueue 一次 global advanced signal
+    # refresh（workspace 仍有剩余 Case 才会创建）。enqueue 失败不影响
+    # 已提交的删除。
+    try:
+        await container.intelligence_refresh_service.enqueue_after_scope_deletion(
+            scope_key=case_id
+        )
+    except Exception:  # best-effort follow-up（FC2 §28）
+        logger.warning(
+            "advanced_signal_refresh enqueue after case delete %s failed",
+            case_id,
+            exc_info=True,
+        )
 
 
 @router.get("", response_model=list[CaseResponse])

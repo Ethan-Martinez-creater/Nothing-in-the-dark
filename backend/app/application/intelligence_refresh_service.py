@@ -20,12 +20,14 @@ class IntelligenceRefreshService:
         self,
         *,
         analysis_job_repository: AnalysisJobRepository,
+        application_repository: Any = None,
         quality_service: Any,
         workspace_entity_service: Any,
         cross_investigation_service: Any,
         advanced_signal_service: Any,
     ) -> None:
         self._jobs = analysis_job_repository
+        self._application = application_repository
         self._quality = quality_service
         self._workspace = workspace_entity_service
         self._cross = cross_investigation_service
@@ -70,5 +72,32 @@ class IntelligenceRefreshService:
             job_type="advanced_signal_refresh",
             idempotency_key=(
                 f"v3:advanced:{job_id}:{ADVANCED_SIGNAL_VERSION}"
+            ),
+        )
+
+    async def enqueue_after_scope_deletion(
+        self, *, scope_key: str
+    ) -> Any | None:
+        """FC2：Case / Project 删除成功后 enqueue 一次 global advanced refresh。
+
+        - Workspace 已无剩余 Case → 返回 None（不创建 job，避免非法 FK）；
+        - 否则以 remaining Cases 中 created_at ASC + id ASC 的第一个 Case
+          作为 AnalysisJob.case_id anchor（deterministic，不引用已删除
+          Case）；
+        - idempotency key 使用 scope_key（Case delete = deleted case_id，
+          Project delete = project_id）区分删除事件；同 scope 只产生一个
+          refresh（64 字符截断保留 scope_key 全量前缀）。
+        """
+        if self._application is None:
+            return None
+        cases = await self._application.list_cases_ordered_by_creation()
+        if not cases:
+            return None
+        anchor = cases[0]
+        return await self._jobs.create_job(
+            case_id=anchor.id,
+            job_type="advanced_signal_refresh",
+            idempotency_key=(
+                f"v3:advanced:case-delete:{scope_key}:{ADVANCED_SIGNAL_VERSION}"
             ),
         )
