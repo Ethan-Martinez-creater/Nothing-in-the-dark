@@ -474,6 +474,59 @@ class WorkspaceEntityRepository:
         async with self._database.session_factory() as session:
             return (await session.scalars(query)).all()
 
+    async def list_active_entity_ids_page(
+        self,
+        *,
+        entity_type: str = "account",
+        after_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[str]:
+        """FC1：detector 专用 keyset 分页（id ASC），供 Workspace 全量扫描。
+
+        cursor = entity id；只含 status="active" 实体。
+        """
+        query = select(WorkspaceEntityRecord.id).where(
+            WorkspaceEntityRecord.status == "active",
+            WorkspaceEntityRecord.entity_type == entity_type,
+        )
+        if after_id:
+            query = query.where(WorkspaceEntityRecord.id > after_id)
+        query = query.order_by(WorkspaceEntityRecord.id.asc()).limit(
+            max(1, min(limit, 1000))
+        )
+        async with self._database.session_factory() as session:
+            return [str(row) for row in await session.scalars(query)]
+
+    async def list_entity_ids_for_case_page(
+        self,
+        case_id: str,
+        *,
+        entity_type: str = "account",
+        after_id: str | None = None,
+        limit: int = 500,
+    ) -> list[str]:
+        """FC1：Case 内实体 id ASC keyset 分页（shared_actor detector 输入）。"""
+        query = (
+            select(WorkspaceEntityRecord.id)
+            .join(
+                WorkspaceEntityCaseLinkRecord,
+                WorkspaceEntityCaseLinkRecord.entity_id == WorkspaceEntityRecord.id,
+            )
+            .where(
+                WorkspaceEntityCaseLinkRecord.case_id == case_id,
+                WorkspaceEntityRecord.status == "active",
+                WorkspaceEntityRecord.entity_type == entity_type,
+            )
+        )
+        if after_id:
+            query = query.where(WorkspaceEntityRecord.id > after_id)
+        query = (
+            query.order_by(WorkspaceEntityRecord.id.asc())
+            .limit(max(1, min(limit, 500)))
+        )
+        async with self._database.session_factory() as session:
+            return [str(row) for row in await session.scalars(query.distinct())]
+
     # ---------------- orphan cleanup（§9 / §67 step 8） ----------------
 
     async def delete_orphans(self) -> int:

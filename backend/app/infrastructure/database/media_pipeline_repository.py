@@ -77,6 +77,90 @@ class MediaPipelineRepository:
                 for asset_id, sha256, media_type in rows.all()
             ]
 
+    async def list_case_media_hashes_page(
+        self,
+        case_id: str,
+        *,
+        after_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[tuple[str, str, str]]:
+        """FC1：shared_media detector 专用 keyset 分页（asset id ASC）。
+
+        返回 (asset_id, actual_sha256, media_type)；cursor = MediaAssetRecord.id。
+        """
+        query = (
+            select(
+                MediaAssetRecord.id,
+                MediaAssetRecord.actual_sha256,
+                MediaAssetRecord.media_type,
+            )
+            .where(
+                MediaAssetRecord.case_id == case_id,
+                MediaAssetRecord.actual_sha256.isnot(None),
+                MediaAssetRecord.actual_sha256 != "",
+            )
+        )
+        if after_id:
+            query = query.where(MediaAssetRecord.id > after_id)
+        query = query.order_by(MediaAssetRecord.id.asc()).limit(
+            max(1, min(limit, 1000))
+        )
+        async with self._database.session_factory() as session:
+            rows = await session.execute(query)
+            return [
+                (str(asset_id), str(sha256), str(media_type))
+                for asset_id, sha256, media_type in rows.all()
+            ]
+
+    async def list_sha_case_counts_page(
+        self,
+        *,
+        after_sha: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """FC1：media_reuse detector 专用 keyset 分页（actual_sha256 ASC）。
+
+        只选择 COUNT(DISTINCT case_id) >= 2 的 SHA；每页先取 sha 列表，
+        再用一次 IN 查询取 (sha, case_id) 分布并在 Python 聚合（禁止每个
+        SHA 一个 SQL）。cursor = actual_sha256。
+        """
+        agg_query = (
+            select(MediaAssetRecord.actual_sha256)
+            .where(
+                MediaAssetRecord.actual_sha256.isnot(None),
+                MediaAssetRecord.actual_sha256 != "",
+            )
+        )
+        if after_sha:
+            agg_query = agg_query.where(MediaAssetRecord.actual_sha256 > after_sha)
+        agg_query = (
+            agg_query.group_by(MediaAssetRecord.actual_sha256)
+            .having(func.count(func.distinct(MediaAssetRecord.case_id)) >= 2)
+            .order_by(MediaAssetRecord.actual_sha256.asc())
+            .limit(max(1, min(limit, 1000)))
+        )
+        async with self._database.session_factory() as session:
+            shas = [str(row) for row in await session.scalars(agg_query)]
+            if not shas:
+                return []
+            case_rows = await session.execute(
+                select(
+                    MediaAssetRecord.actual_sha256,
+                    MediaAssetRecord.case_id,
+                ).where(MediaAssetRecord.actual_sha256.in_(tuple(shas)))
+            )
+            cases_by_sha: dict[str, set[str]] = {sha: set() for sha in shas}
+            for sha, case_id in case_rows.all():
+                cases_by_sha[str(sha)].add(str(case_id))
+        return [
+            {
+                "sha256": sha,
+                "case_count": len(cases_by_sha[sha]),
+                "case_ids": sorted(cases_by_sha[sha]),
+            }
+            for sha in shas
+        ]
+
     async def list_sha_case_counts(self, *, limit: int = 5000) -> list[dict[str, Any]]:
         """V3 §54：全局 exact SHA → 出现过的 Case 列表（media_reuse 输入）。
 

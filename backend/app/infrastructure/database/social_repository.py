@@ -635,6 +635,64 @@ class SocialRepository:
             )
             return [(str(post_id), str(content_hash)) for post_id, content_hash in rows.all()]
 
+    async def list_case_native_pairs_page(
+        self,
+        case_id: str,
+        *,
+        after_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[tuple[str, str, str]]:
+        """FC1：shared_post detector 专用 keyset 分页（SourcePost.id ASC）。
+
+        返回 (post_id, platform, native_id)；cursor = SourcePost.id。
+        """
+        query = select(
+            SourcePostRecord.id,
+            SourcePostRecord.platform,
+            SourcePostRecord.native_id,
+        ).where(SourcePostRecord.case_id == case_id)
+        if after_id:
+            query = query.where(SourcePostRecord.id > after_id)
+        query = query.order_by(SourcePostRecord.id.asc()).limit(
+            max(1, min(limit, 1000))
+        )
+        async with self._database.session_factory() as session:
+            rows = await session.execute(query)
+            return [
+                (str(post_id), str(platform), str(native_id))
+                for post_id, platform, native_id in rows.all()
+            ]
+
+    async def list_case_post_content_hashes_page(
+        self,
+        case_id: str,
+        *,
+        after_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[tuple[str, str]]:
+        """FC1：shared_content detector 专用 keyset 分页（SourcePost.id ASC）。
+
+        返回 (post_id, content_hash)；cursor = SourcePost.id。
+        """
+        query = (
+            select(SourcePostRecord.id, SourcePostRecord.content_hash)
+            .where(
+                SourcePostRecord.case_id == case_id,
+                SourcePostRecord.content_hash != "",
+            )
+        )
+        if after_id:
+            query = query.where(SourcePostRecord.id > after_id)
+        query = query.order_by(SourcePostRecord.id.asc()).limit(
+            max(1, min(limit, 1000))
+        )
+        async with self._database.session_factory() as session:
+            rows = await session.execute(query)
+            return [
+                (str(post_id), str(content_hash))
+                for post_id, content_hash in rows.all()
+            ]
+
     async def list_case_native_pairs(
         self, case_id: str, limit: int = 20000
     ) -> list[tuple[str, str, str]]:

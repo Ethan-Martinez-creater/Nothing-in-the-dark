@@ -215,6 +215,49 @@ class CrossInvestigationRepository:
         async with self._database.session_factory() as session:
             return (await session.scalars(query)).all()
 
+    async def list_workspace_detector_page(
+        self,
+        *,
+        status: str | None = None,
+        active_only: bool = True,
+        after_updated_at: datetime | None = None,
+        after_id: str | None = None,
+        limit: int = 500,
+    ) -> Sequence[CrossInvestigationLinkRecord]:
+        """FC1：detector 专用 keyset 分页（UI/ browse 的 list_workspace 不变）。
+
+        排序固定 updated_at ASC, id ASC；cursor = (updated_at, id)。
+        updated_at 为 NULL 的行不进入 detector 扫描（无法作为稳定 cursor；
+        正常 upsert 链路总会写入 updated_at）。
+        """
+        query = select(CrossInvestigationLinkRecord).where(
+            CrossInvestigationLinkRecord.updated_at.isnot(None)
+        )
+        if active_only:
+            query = query.where(CrossInvestigationLinkRecord.is_active.is_(True))
+        if status:
+            query = query.where(CrossInvestigationLinkRecord.status == status)
+        if after_updated_at is not None:
+            query = query.where(
+                or_(
+                    CrossInvestigationLinkRecord.updated_at > after_updated_at,
+                    and_(
+                        CrossInvestigationLinkRecord.updated_at
+                        == after_updated_at,
+                        CrossInvestigationLinkRecord.id > (after_id or ""),
+                    ),
+                )
+            )
+        query = (
+            query.order_by(
+                CrossInvestigationLinkRecord.updated_at.asc(),
+                CrossInvestigationLinkRecord.id.asc(),
+            )
+            .limit(max(1, min(limit, 500)))
+        )
+        async with self._database.session_factory() as session:
+            return (await session.scalars(query)).all()
+
     async def count_for_case(self, case_id: str, *, active_only: bool = True) -> int:
         query = select(func.count(CrossInvestigationLinkRecord.id)).where(
             or_(
