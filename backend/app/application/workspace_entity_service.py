@@ -623,11 +623,27 @@ class WorkspaceEntityService:
             identity_by_platform=identity_by_platform, case_ids=case_ids
         )
 
-        # §32.2 Integrity risk：只聚合精确匹配 platform_account key 的 assessment
+        # §32.2 Integrity risk：只聚合精确匹配 platform_account key 的 assessment；
+        # unresolved（name-only）按 Rework R10 收窄归属条件。
         exact_subject_ids = {
             k["key_value"] for k in platform_keys
         }
-        risk = await self._risk_for_component(case_ids, exact_subject_ids)
+        entity_names: set[str] = set()
+        for e in entities:
+            for name in [e.canonical_name, *(e.aliases_json or [])]:
+                if name and name.strip():
+                    entity_names.add(name.strip().casefold())
+        component_platforms = {
+            key_value.partition(":")[0]
+            for key_value in exact_subject_ids
+            if ":" in key_value
+        }
+        risk = await self._risk_for_component(
+            case_ids,
+            exact_subject_ids,
+            entity_names=entity_names,
+            component_platforms=component_platforms,
+        )
 
         # §32.3 coordination memberships（复用，不重算）
         memberships = await self._coordination_memberships(case_ids, exact_subject_ids)
@@ -661,8 +677,21 @@ class WorkspaceEntityService:
         }
 
     async def _risk_for_component(
-        self, case_ids: Sequence[str], exact_subject_ids: set[str]
+        self,
+        case_ids: Sequence[str],
+        exact_subject_ids: set[str],
+        *,
+        entity_names: set[str],
+        component_platforms: set[str],
     ) -> dict[str, Any]:
+        """Component 的 Integrity 风险聚合。
+
+        Rework R10：unresolved_local_risk 收窄——只有 name-only（如
+        ``platform:author_name``）assessment 同时满足「platform 与 component
+        某 platform_account key 一致」且「subject name 与 canonical_name /
+        aliases strip+casefold 精确相等」才进入 unresolved；无法可靠归属的
+        直接忽略（禁止 fuzzy / embedding / LLM matching）。
+        """
         assessments: list[dict[str, Any]] = []
         unresolved: list[dict[str, Any]] = []
         for case_id in case_ids:
@@ -678,8 +707,13 @@ class WorkspaceEntityService:
                 }
                 if subject_id in exact_subject_ids:
                     assessments.append(entry)
-                else:
-                    # name-only（platform:author_name）风险不跨 case 自动合并
+                    continue
+                platform, _, subject_name = subject_id.partition(":")
+                if (
+                    platform
+                    and platform in component_platforms
+                    and subject_name.strip().casefold() in entity_names
+                ):
                     unresolved.append(entry)
         return {"assessments": assessments, "unresolved_local_risk": unresolved}
 

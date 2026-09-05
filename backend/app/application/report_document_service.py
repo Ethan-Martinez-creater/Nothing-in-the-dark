@@ -286,15 +286,22 @@ class ReportDocumentService:
                 details=problems,
             )
 
-    async def _validate_citations(
+    async def inspect_citation_links(
         self, case_id: str, citation_links: list[Any]
-    ) -> list[dict[str, str]]:
-        """逐条解析 citation 引用（C3）：每个引用必须真实存在且属于当前 case。"""
+    ) -> dict[str, Any]:
+        """Rework R8：公共只读 citation 检查，返回分母 + 问题列表。
+
+        Quality Provenance 需要 checked_refs 作分母（9 valid + 1 invalid
+        必须是 10/1 → 90%，而不是把 dangling 同时计入分母与分子）。
+        复用 normalize_citation_refs / _citation_ref_problem，不新写 parser。
+        Unknown citation shape：checked_refs += 1 且 problems += 1（fail-closed）。
+        """
+        checked_refs = 0
         problems: list[dict[str, str]] = []
         for index, link in enumerate(citation_links):
             refs = normalize_citation_refs(link, index)
             if refs is None:
-                # unknown shape：没有任何可解析引用，fail closed
+                checked_refs += 1
                 problems.append(
                     {
                         "field": f"citation_links[{index}]",
@@ -303,10 +310,23 @@ class ReportDocumentService:
                 )
                 continue
             for ref_type, ref_id, path in refs:
-                problem = await self._citation_ref_problem(case_id, ref_type, ref_id)
+                checked_refs += 1
+                problem = await self._citation_ref_problem(
+                    case_id, ref_type, ref_id
+                )
                 if problem is not None:
                     problems.append({"field": path, "issue": problem})
-        return problems
+        return {"checked_refs": checked_refs, "problems": problems}
+
+    async def _validate_citations(
+        self, case_id: str, citation_links: list[Any]
+    ) -> list[dict[str, str]]:
+        """逐条解析 citation 引用（C3）：每个引用必须真实存在且属于当前 case。
+
+        单一实现位于 inspect_citation_links；publish gate 只取 problems。
+        """
+        inspection = await self.inspect_citation_links(case_id, citation_links)
+        return inspection["problems"]
 
     async def _citation_ref_problem(
         self, case_id: str, ref_type: str, ref_id: str

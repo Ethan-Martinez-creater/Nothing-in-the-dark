@@ -625,7 +625,9 @@ class InvestigationQualityService:
                 )
             )
 
-        # Report citation：复用 ReportDocumentService 的同一 parser/validator
+        # Report citation：复用 ReportDocumentService 的同一 parser/validator。
+        # Rework R8：checked_refs 用 inspection 分母（valid + invalid 全计），
+        # dangling 只计 problems，避免把 dangling 同时计入分子分母。
         report = await self._select_report(case_id)
         report_dangling = 0
         if report is not None:
@@ -633,11 +635,12 @@ class InvestigationQualityService:
                 report.content_json if isinstance(report.content_json, dict) else {}
             )
             citation_links = content.get("citation_links") or []
-            problems = await self._reports_service.validate_citation_links(
+            inspection = await self._reports_service.inspect_citation_links(
                 case_id, citation_links
             )
+            checked_refs += int(inspection["checked_refs"])
+            problems = inspection["problems"]
             report_dangling = len(problems)
-            checked_refs += report_dangling
             dangling_refs += report_dangling
             if report_dangling > 0:
                 severity = (
@@ -758,7 +761,12 @@ class InvestigationQualityService:
             "gaps": list(record.gaps_json or []),
             "warnings": list(record.warnings_json or []),
             "disclaimer": QUALITY_DISCLAIMER,
-            "computed_at": record.computed_at,
+            # computed_at 序列化为 ISO 字符串：payload 会进 AnalysisJob
+            # result_json（worker JSON 列），datetime 对象无法序列化；
+            # API 层 pydantic 会把 ISO 字符串解析回 datetime。
+            "computed_at": (
+                record.computed_at.isoformat() if record.computed_at else None
+            ),
             "algorithm_version": record.algorithm_version,
             "input_fingerprint": record.input_fingerprint,
         }
@@ -768,5 +776,7 @@ class InvestigationQualityService:
             "case_id": record.case_id,
             "overall_score": record.overall_score,
             "grade": record.grade,
-            "computed_at": record.computed_at,
+            "computed_at": (
+                record.computed_at.isoformat() if record.computed_at else None
+            ),
         }

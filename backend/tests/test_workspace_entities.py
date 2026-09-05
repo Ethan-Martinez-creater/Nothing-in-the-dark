@@ -459,3 +459,45 @@ async def test_e14_coordination_cluster_membership_reused() -> None:
     assert len(profile["coordination_memberships"]) == 1
     assert profile["coordination_memberships"][0]["cluster_id"] == cluster.id
     await env.db.dispose()
+
+
+async def test_e15_unresolvable_name_only_risk_ignored() -> None:
+    """Rework R10：name-only 风险只有 platform 一致且名字精确匹配才进
+    unresolved；无法可靠归属的 assessment 直接忽略。"""
+    env = await _setup()
+    await _account(env, env.case.id, "weibo", "w1", "精确名字")
+    await env.service.refresh_case(env.case.id)
+    entity = (await env.workspace.list(limit=50))[0]
+    # platform 不一致（bilibili vs weibo）→ 忽略
+    await env.integrity.upsert_risk_assessment(
+        case_id=env.case.id,
+        subject_type="account",
+        subject_id="bilibili:精确名字",
+        risk_type="automation",
+        score=0.8,
+        band="high",
+    )
+    # platform 一致但名字不精确（fuzzy 前缀不算命中）→ 忽略
+    await env.integrity.upsert_risk_assessment(
+        case_id=env.case.id,
+        subject_type="account",
+        subject_id="weibo:精确名字粉丝团",
+        risk_type="automation",
+        score=0.7,
+        band="high",
+    )
+    # platform 一致 + strip/casefold 精确相等（带空白）→ unresolved
+    await env.integrity.upsert_risk_assessment(
+        case_id=env.case.id,
+        subject_type="account",
+        subject_id="weibo: 精确名字 ",
+        risk_type="automation",
+        score=0.6,
+        band="high",
+    )
+    profile = await env.service.get_profile(entity.id)
+    assert profile["risk_assessments"] == []
+    unresolved = profile["unresolved_local_risk"]
+    assert len(unresolved) == 1
+    assert unresolved[0]["subject_id"] == "weibo: 精确名字 "
+    await env.db.dispose()

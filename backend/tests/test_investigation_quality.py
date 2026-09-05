@@ -608,3 +608,48 @@ async def test_q19_home_overview_aggregates_quality_attention() -> None:
     # case_c 完全未评估 → unassessed=1（strong/weak 已评估）
     assert payload.quality_unassessed_count == 1
     await env.db.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Q20: provenance checked_refs 分母修复（Rework R8）
+# ---------------------------------------------------------------------------
+
+
+async def test_q20_citation_inspection_keeps_valid_refs_in_denominator() -> None:
+    """10 refs / 9 valid / 1 invalid → checked_refs=10, dangling=1, score=90。
+
+    修复前 dangling 被同时计入分母与分子（checked=1, dangling=1 → 0%）。
+    """
+    env = await _setup()
+    case = await _make_case(env, ["weibo"])
+    citation_links = (
+        [{"ref": "aggregate_social_data:platform"}]
+        + [{"ref": "aggregate_social_data:day"}]
+        + [{"ref": "aggregate_social_data:content_type"}]
+        + [{"ref": "aggregate_social_data:platform"}]
+        + [{"ref": "aggregate_social_data:day"}]
+        + [{"ref": "aggregate_social_data:content_type"}]
+        + [{"ref": "aggregate_social_data:platform"}]
+        + [{"ref": "aggregate_social_data:day"}]
+        + [{"ref": "aggregate_social_data:content_type"}]
+        + [{"evidence_ids": ["ghost-evidence"]}]
+    )
+    assert len(citation_links) == 10
+    report = await _make_report(
+        env, case.id, status="draft", citation_links=citation_links
+    )
+    payload = await env.service.evaluate(case.id)
+    provenance = next(
+        d for d in payload["dimensions"] if d["key"] == "provenance_integrity"
+    )
+    assert provenance["metrics"]["checked_refs"] == 10
+    assert provenance["metrics"]["dangling_refs"] == 1
+    assert provenance["score"] == 90.0
+    # inspection 入口本身也返回一致结果
+    inspection = await env.report_service.inspect_citation_links(
+        case.id,
+        report.content_json["citation_links"],
+    )
+    assert inspection["checked_refs"] == 10
+    assert len(inspection["problems"]) == 1
+    await env.db.dispose()
