@@ -438,6 +438,28 @@ class ApplicationRepository:
                 delete(RawSocialRecord).where(RawSocialRecord.case_id == case_id)
             )
             # 其余 case 域表
+            # 辩论（FC2-01）：debates.finding_id FK → findings.id（PG 强制）。
+            # Debate 必须整体先于 Finding 删除，否则含 finding_challenge 的
+            # Case / Project 删除会因 FK 约束失败。先子表后父表。
+            debate_ids = (
+                await session.scalars(
+                    select(DebateRecord.id).where(DebateRecord.case_id == case_id)
+                )
+            ).all()
+            if debate_ids:
+                await session.execute(
+                    delete(DebateMessageRecord).where(
+                        DebateMessageRecord.debate_id.in_(debate_ids)
+                    )
+                )
+                await session.execute(
+                    delete(DebateVoteRecord).where(
+                        DebateVoteRecord.debate_id.in_(debate_ids)
+                    )
+                )
+                await session.execute(
+                    delete(DebateRecord).where(DebateRecord.case_id == case_id)
+                )
             # M3/M4 新增产品层表：Finding links（无 case_id，经 findings 中转）
             # → findings → collection_definitions，均在 artifacts 之前删除。
             finding_ids = (
@@ -648,26 +670,6 @@ class ApplicationRepository:
                     CostSummaryRecord.case_id == case_id
                 )
             )
-            # 辩论
-            debate_ids = (
-                await session.scalars(
-                    select(DebateRecord.id).where(DebateRecord.case_id == case_id)
-                )
-            ).all()
-            if debate_ids:
-                await session.execute(
-                    delete(DebateMessageRecord).where(
-                        DebateMessageRecord.debate_id.in_(debate_ids)
-                    )
-                )
-                await session.execute(
-                    delete(DebateVoteRecord).where(
-                        DebateVoteRecord.debate_id.in_(debate_ids)
-                    )
-                )
-                await session.execute(
-                    delete(DebateRecord).where(DebateRecord.case_id == case_id)
-                )
             # run 本身最后删（claims/artifacts 等已先清理）
             if run_ids:
                 await session.execute(
