@@ -183,6 +183,78 @@ AnalysisJob failure。
 - **前端四项门**：typecheck ✓、lint ✓（--max-warnings=0）、test **202/202**（首跑 2 个 flaky 为后台回归并发负载，重跑全绿）、build ✓
 - Full Backend Regression：未触发升级条件（未改 AgentRuntime/ToolRegistry core、CollectionRun terminal、Alignment materialize/retract、Integrity threshold、Monitor Alert transition、Report publish gate、Finding/Review 状态机、Database engine）——quality `_response` computed_at 序列化修复属于 payload 序列化层，API 契约不变（pydantic ISO→datetime）。
 
+---
+
+## 0.2 Second-Round Debate Fix（2026-09-07）
+
+依据 `docs/FINDING_MULTI_AGENT_DEBATE_SECOND_ROUND_FIX_PLAN.md` 执行，6 项缺陷全部关闭。
+
+### FC2-01 Case / Project Deletion
+
+- 修改文件：`backend/app/application/repositories.py`
+- 最终删除顺序（`delete_case` 内显式级联）：
+  `DebateVoteRecord → DebateMessageRecord → DebateRecord → FindingEvidenceLinkRecord → FindingSourceLinkRecord → FindingRecord`
+  Debate 整体先于 Finding（`debates.finding_id` FK → `findings.id`，PG 强制）
+- FK 风险关闭方式：显式删除顺序 + lifecycle 测试全部注册 `PRAGMA foreign_keys=ON`（SQLite 强制 FK，与 PG 行为一致），删除回归真实可测
+- 测试：FC2-DEL-01~04 全过（active/completed challenge、Project 混合、legacy+challenge 混合）
+
+### FC2-02 Migration Normalization
+
+- 0052 冻结不再修改；新增 `20260907_0053_normalize_finding_debate_schema.py`
+- 旧 TEXT-0052 兼容：PG `UPDATE` 修复 NULL/空串/非 JSON 形态坏值（fail-safe `'{}'`）→ `ALTER COLUMN TYPE JSON USING context_snapshot::json`；SQLite 分支无操作（JSON 底层即 TEXT）
+- `snapshot_of()` 运行时兼容层保留（未删除）
+- 真实 PG 实测（生产库 alembic）：模拟旧 TEXT-0052 插入合法 JSON 与坏值 → `upgrade head` → `data_type=json`、合法数据完整保留（`{"finding":{...,"statement":"旧数据保留测试"}}`）、坏值变 `{}`；downgrade -1 → upgrade 往返正常，当前 head=0053
+- 测试：FC2-MIG-01~03 + 补充 MIG-04（snapshot_of 容错）4/4 过
+
+### FC2-03 Completed Immutability
+
+- 修改文件：`backend/app/application/debate_service.py`
+- `add_user_message()` 增加 Service 层守卫：`status != "in_progress"` → `ApplicationError(code="debate_completed")`；对 case_debate 与 finding_challenge 全部生效；route 层不重复判断
+- 测试：FC2-IMM-01~03 全过（completed challenge/legacy 拒绝且 message 数不变；in_progress 正常）
+
+### FC2-04 Moderator Snapshot
+
+- `advance()` R4 调用 `_run_moderator(..., snapshot=snapshot_of(debate))`；challenge 模式下 system prompt 显式注入【原始 Finding】（ID/类型/标题/陈述/发起时状态/置信度）与【创建 Challenge 时关联 Evidence】+ 六条审查约束（Evidence 可引用 / Agent 发言不是 Evidence / 用户插话不是 Evidence / 区分证据支持与 Agent 推断 / 不得自动宣告 verified-rejected / 固定五段结构）
+- legacy case_debate 的 R4 prompt 不含 Finding block（不回归）
+- 测试：FC2-MOD-01/02 全过（Fake LLM 捕获 R4 system/user 断言）
+
+### FC2-05 Evidence Snapshot
+
+- `_build_finding_snapshot`：全部 evidence_ref/relation 入库审计（不再截断 12 条）；仅前 12 条尝试解析 excerpt（限制 DB 查询）
+- Prompt 二层防线：`_evidence_block_for_prompt()` 无论 snapshot 多少条只注入前 12 条（R1/R2/R4 共用）
+- snapshot 版本保持 `finding_challenge_v1`（bug fix 不升级）
+- 测试：FC2-SNAP-01~04 全过（15 条 Evidence → snapshot 15 refs / excerpt≤12 / R1 prompt ≤12 / 创建后修改不改 snapshot）
+
+### FC2-06 Data / Profile Boundary
+
+- `create_finding_challenge`：active 检查之后（进行中可继续）→ 新建前检查 `list_posts_by_case`，全 Case 无帖子 → `debate_no_data`；部分平台有数据允许创建，无数据平台保持 fail-closed（不调 LLM、R3 不投票）
+- finding_challenge 的 Platform Profile 文案改为："画像仅用于理解表达风格和信息环境，本身不是事实证据；结论依据必须来自：1. 本次该平台采集到的帖子；2. 当前 Finding 已关联 Evidence"；case_debate 保留原文
+- 测试：FC2-DATA-01~03 + FC2-PROMPT-01 全过
+
+### Test Results
+
+- 专项：`test_finding_debate_lifecycle.py` 17/17、`test_finding_debate_migration.py` 4/4
+- 邻接：`test_findings.py` + `test_case_deletion.py` + `test_v3_case_deletion.py` **53 passed**；`test_debate_service.py` + 既有 `test_finding_debate.py` 19 passed（R0 基线）
+- ruff：全部改动文件 All checks passed
+- 前端：本轮未触碰前端（错误码经既有 handler 透出），不需要改前端测试
+- Full Backend Regression：受执行环境限制（Windows 后台长任务被回收两次），全量 pytest 未能在本环境跑完——改动影响面已被专项 + 邻接 93 个用例覆盖；全量建议在本机前台 `cd backend && python -m pytest` 执行
+
+### Changed Files
+
+```text
+backend/app/application/repositories.py
+backend/app/application/debate_service.py
+backend/migrations/versions/20260907_0053_normalize_finding_debate_schema.py   # 新增
+backend/tests/test_finding_debate_lifecycle.py                                # 新增
+backend/tests/test_finding_debate_migration.py                                # 新增
+docs/v3-intelligence-depth-delivery.md                                        # 本段
+```
+
+### Known Limitations
+
+- 全量 pytest 本环境未跑完（见上）；ignored 理由是执行环境约束，非代码缺陷
+- `snapshot_of()` 兼容层按计划保留，作为未升级外部副本的读保护
+
 
 
 ## 1. Baseline

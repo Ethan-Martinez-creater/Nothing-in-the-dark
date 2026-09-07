@@ -199,6 +199,13 @@ class DebateService:
         )
         if active is not None:
             return active, False
+        # FC2-06：新建 Challenge 需要与 legacy 相同的事实约束——全 Case
+        # 至少一条采集帖子。已存在的进行中 Challenge 不受此限制（可继续）。
+        posts = await self._social.list_posts_by_case(case_id)
+        if not posts:
+            raise ApplicationError(
+                "case has no collected posts to debate", code="debate_no_data"
+            )
         snapshot = await self._build_finding_snapshot(case_id, finding_id)
         debate = await self._repository.create_debate(
             case_id,
@@ -220,25 +227,28 @@ class DebateService:
         detail = await self._finding_service.detail(case_id, finding_id)
         finding = detail["finding"]
         evidence_items: list[dict[str, object]] = []
-        for link in list(detail["evidence_links"])[:_SNAPSHOT_MAX_EVIDENCE]:
+        # FC2-05：snapshot 是审计关系，必须保存全部 evidence_ref/relation；
+        # 只对前 12 条尝试解析正文 excerpt（避免 N 次查询与超大 snapshot）。
+        for index, link in enumerate(detail["evidence_links"]):
             entry: dict[str, object] = {
                 "evidence_ref": link.evidence_ref,
                 "relation": link.relation,
             }
-            try:
-                record = await self._repository.get_evidence_for_case(
-                    case_id, link.evidence_ref
-                )
-                if record is not None:
-                    entry["excerpt"] = str(record.excerpt or "")[
-                        :_SNAPSHOT_EXCERPT_LIMIT
-                    ]
-            except Exception:
-                logger.warning(
-                    "evidence %s lookup failed during snapshot build",
-                    link.evidence_ref,
-                    exc_info=True,
-                )
+            if index < _SNAPSHOT_MAX_EVIDENCE:
+                try:
+                    record = await self._repository.get_evidence_for_case(
+                        case_id, link.evidence_ref
+                    )
+                    if record is not None:
+                        entry["excerpt"] = str(record.excerpt or "")[
+                            :_SNAPSHOT_EXCERPT_LIMIT
+                        ]
+                except Exception:
+                    logger.warning(
+                        "evidence %s lookup failed during snapshot build",
+                        link.evidence_ref,
+                        exc_info=True,
+                    )
             evidence_items.append(entry)
         sources = [
             {
@@ -264,6 +274,11 @@ class DebateService:
 
     async def add_user_message(self, debate_id: str, content: str) -> Any:
         debate = await self._repository.get_debate(debate_id)
+        # FC2-03：completed Debate 整体不可变（case_debate 同样生效）。
+        if debate.status != "in_progress":
+            raise ApplicationError(
+                "debate already completed", code="debate_completed"
+            )
         return await self._repository.add_debate_message(
             debate_id,
             role="user",
@@ -299,7 +314,12 @@ class DebateService:
 
             if current_round == 4:
                 await self._run_moderator(
-                    debate_id, case, history, votes, is_challenge
+                    debate_id,
+                    case,
+                    history,
+                    votes,
+                    is_challenge,
+                    snapshot=snapshot_of(debate),
                 )
             else:
                 await self._run_role_round(
@@ -484,12 +504,22 @@ class DebateService:
                     )
                     profile = None
                 if profile is not None:
-                    system += (
-                        "\n【平台画像记忆（跨案例累积观察）】\n"
-                        f"{profile.content}\n"
-                        "（以上画像可辅助你以该平台的表达习惯组织发言，"
-                        "但观点依据仍必须来自上方本次采集的帖子。）"
-                    )
+                    if is_challenge:
+                        # FC2-06：画像不是第三类事实来源；依据 = 帖子 + Evidence。
+                        system += (
+                            "\n【平台画像记忆（跨案例累积观察）】\n"
+                            f"{profile.content}\n"
+                            "（以上画像仅用于帮助你理解该平台常见表达风格和信息环境；"
+                            "它本身不是事实证据。你的结论依据仍必须来自："
+                            "1. 本次该平台采集到的帖子；2. 当前 Finding 已关联 Evidence。）"
+                        )
+                    else:
+                        system += (
+                            "\n【平台画像记忆（跨案例累积观察）】\n"
+                            f"{profile.content}\n"
+                            "（以上画像可辅助你以该平台的表达习惯组织发言，"
+                            "但观点依据仍必须来自上方本次采集的帖子。）"
+                        )
             content = await self._complete(
                 system,
                 f"{history_block}\n\n{instruction}",
@@ -542,21 +572,7 @@ class DebateService:
         已关联 Evidence + 本平台采集数据。"""
         payload = snapshot or {}
         finding = dict(payload.get("finding") or {})
-        evidence_items = list(payload.get("evidence") or [])
-        if evidence_items:
-            evidence_lines = []
-            for item in evidence_items:
-                excerpt = str(item.get("excerpt") or "").strip()
-                entry = (
-                    f"- ref={item.get('evidence_ref')} "
-                    f"relation={item.get('relation')}"
-                )
-                if excerpt:
-                    entry += f"\n  摘录：{excerpt}"
-                evidence_lines.append(entry)
-            evidence_block = "\n".join(evidence_lines)
-        else:
-            evidence_block = "（该 Finding 暂无已关联 Evidence）"
+        evidence_block = self._evidence_block_for_prompt(payload)
         return _CHALLENGE_SYSTEM_TEMPLATE.format(
             platform_label=platform_label,
             posts=posts_text,
@@ -570,6 +586,27 @@ class DebateService:
             evidence_block=evidence_block,
         )
 
+    def _evidence_block_for_prompt(
+        self, payload: dict[str, object]
+    ) -> str:
+        """渲染 Evidence 块（FC2-05：无论 snapshot 存多少条，最多取 12 条）。"""
+        evidence_items = list(payload.get("evidence") or [])[
+            :_SNAPSHOT_MAX_EVIDENCE
+        ]
+        if not evidence_items:
+            return "（该 Finding 暂无已关联 Evidence）"
+        lines = []
+        for item in evidence_items:
+            excerpt = str(item.get("excerpt") or "").strip()
+            entry = (
+                f"- ref={item.get('evidence_ref')} "
+                f"relation={item.get('relation')}"
+            )
+            if excerpt:
+                entry += f"\n  摘录：{excerpt}"
+            lines.append(entry)
+        return "\n".join(lines)
+
     async def _run_moderator(
         self,
         debate_id: str,
@@ -577,14 +614,37 @@ class DebateService:
         history: Sequence[Any],
         votes: Sequence[Any],
         is_challenge: bool = False,
+        *,
+        snapshot: dict[str, object] | None = None,
     ) -> None:
         history_block = self._history_block(
             history, votes, 4, is_challenge=is_challenge
         )
         if is_challenge:
+            # FC2-04：R4 必须直接看到 Challenge 创建时的原 Finding 与
+            # Evidence（不许只依赖 Agent 转述）；legacy 不注入。
+            payload = snapshot or {}
+            finding = dict(payload.get("finding") or {})
+            evidence_block = self._evidence_block_for_prompt(payload)
             system = (
                 "你是对抗性审查主持人，中立客观。"
-                "正在综合的是针对一条待审查命题（Finding）的多方审查结果。"
+                "正在综合的是针对一条待审查命题（Finding）的多方审查结果。\n"
+                "【原始 Finding】（Challenge 创建时快照）\n"
+                f"ID: {finding.get('id', '?')}\n"
+                f"类型: {finding.get('kind', '?')}\n"
+                f"标题: {finding.get('title', '?')}\n"
+                f"陈述: {finding.get('statement', '?')}\n"
+                f"发起时状态: {finding.get('status', '?')}\n"
+                f"发起时置信度: {finding.get('confidence', '?')}\n\n"
+                "【创建 Challenge 时关联 Evidence】\n"
+                f"{evidence_block}\n\n"
+                "审查约束：\n"
+                "1. Evidence 是可引用的事实依据；\n"
+                "2. 各角色发言属于分析，不是 Evidence；\n"
+                "3. 用户插话属于审查指令/观点，不是 Evidence；\n"
+                "4. 你必须区分“证据支持”和“Agent 推断”；\n"
+                "5. 不得自动宣告 Finding verified/rejected；\n"
+                "6. 输出仍保持固定五段结构。\n"
                 "你是综合者，不是终审裁判。"
             )
             instruction = _CHALLENGE_ROUND_INSTRUCTIONS[4]
