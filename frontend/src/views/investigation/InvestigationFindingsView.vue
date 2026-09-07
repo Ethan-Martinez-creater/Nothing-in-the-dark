@@ -1,13 +1,16 @@
 <script setup lang="ts">
 // Optimization V2 (M4.9)：Findings 工作区（左列表 + 右详情）。
 // 状态机：candidate→提交审核；verified/rejected 只来自 Review（不提供快捷按钮）。
-// 「挑战此结论」（M4.10）复用既有 Debate API，不恢复全 Case 辩论模式。
+// 「挑战此结论」（M5.5）改为 createFindingDebate → FindingDebateModal；
+// Finding 上下文由后端快照固化，前端不再自然语言拼接。
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { RefreshCw, ShieldQuestion } from 'lucide-vue-next'
+import { Gavel, RefreshCw } from 'lucide-vue-next'
 
 import { api } from '@/services/api'
+import FindingDebateModal from '@/components/debate/FindingDebateModal.vue'
+import type { Debate } from '@/types/api'
 import {
   findingApi,
   type Finding,
@@ -26,6 +29,13 @@ const notice = ref<string | null>(null)
 const statusFilter = ref<FindingStatus | ''>('')
 const syncing = ref(false)
 const challenging = ref(false)
+
+// 对抗性审查（M5.4）：该 Finding 的 challenge 历史 / 三态展示 / Modal。
+const challengeList = ref<Debate[]>([])
+const challengeLoading = ref(false)
+const challengeModalOpen = ref(false)
+const activeChallengeId = ref<string | null>(null)
+const challengeSummary = ref('')
 
 const statusLabels: Record<FindingStatus, string> = {
   candidate: '候选',
@@ -50,6 +60,15 @@ const filtered = computed(() =>
     : findings.value,
 )
 
+const activeChallenge = computed(
+  () =>
+    challengeList.value.find((item) => item.status === 'in_progress') ?? null,
+)
+
+const latestCompletedChallenge = computed(
+  () => challengeList.value.find((item) => item.status === 'completed') ?? null,
+)
+
 async function load() {
   loading.value = true
   error.value = null
@@ -62,10 +81,36 @@ async function load() {
   }
 }
 
+async function loadChallenges(findingId: string) {
+  challengeLoading.value = true
+  challengeSummary.value = ''
+  try {
+    challengeList.value = await api.listFindingDebates(
+      caseId.value,
+      findingId,
+    )
+    const latest = latestCompletedChallenge.value
+    if (latest) {
+      const detail = await api.getDebate(latest.id)
+      const moderator = detail.messages.find(
+        (message) => message.role === 'moderator' && message.round === 4,
+      )
+      challengeSummary.value = moderator
+        ? moderator.content.replace(/[#>\n]+/g, ' ').trim().slice(0, 160)
+        : ''
+    }
+  } catch {
+    challengeList.value = []
+  } finally {
+    challengeLoading.value = false
+  }
+}
+
 async function open(findingId: string) {
   error.value = null
   try {
     selected.value = await findingApi.get(caseId.value, findingId)
+    await loadChallenges(findingId)
   } catch {
     error.value = '结论详情加载失败。'
   }
@@ -96,30 +141,38 @@ async function syncHistory() {
   }
 }
 
-// M4.10：挑战此结论 — 创建 Debate 并以结论为第一轮上下文；结果不自动改状态。
-async function challenge(finding: Finding) {
+// M5.5：开始/继续挑战 — create-or-resume，返回现有 active 或新建 debate，
+// 直接进入 FindingDebateModal（debateId 隔离加载）。
+async function startChallenge(finding: Finding) {
   if (challenging.value) return
   challenging.value = true
   error.value = null
   try {
-    const debate = await api.createDebate(caseId.value, finding.title)
-    await api.addDebateMessage(
-      debate.id,
-      [
-        `请针对 Finding ${finding.id} 进行对抗性审查。`,
-        `结论：${finding.statement}`,
-        selected.value?.evidence_links.length
-          ? `证据引用：${selected.value.evidence_links.map((link) => link.evidence_ref).join('、')}`
-          : '当前无证据引用。',
-        '重点寻找：1. 过度推断 2. 反例 3. 替代解释。',
-      ].join('\n'),
-    )
-    notice.value = '已创建挑战辩论，可在辩论记录中查看。'
+    const debate = await api.createFindingDebate(caseId.value, finding.id)
+    activeChallengeId.value = debate.id
+    challengeModalOpen.value = true
+    await loadChallenges(finding.id)
   } catch {
-    error.value = '发起挑战失败，请确认该调查已采集数据。'
+    error.value = '发起挑战失败，请稍后重试。'
   } finally {
     challenging.value = false
   }
+}
+
+function continueChallenge() {
+  if (!activeChallenge.value || !selected.value) return
+  activeChallengeId.value = activeChallenge.value.id
+  challengeModalOpen.value = true
+}
+
+function viewLatestChallenge() {
+  if (!latestCompletedChallenge.value || !selected.value) return
+  activeChallengeId.value = latestCompletedChallenge.value.id
+  challengeModalOpen.value = true
+}
+
+function onChallengeCompleted() {
+  if (selected.value) void loadChallenges(selected.value.finding.id)
 }
 
 onMounted(load)
@@ -222,6 +275,60 @@ onMounted(load)
           </p>
         </section>
 
+        <!-- 对抗性审查（M5.4）：三态 — 未发起 / 进行中 / 已完成。 -->
+        <section class="ifind__section ifind__challenge">
+          <h4><Gavel :size="13" /> 对抗性审查</h4>
+          <p v-if="challengeLoading" class="ifind__hint">审查状态加载中…</p>
+          <template v-else>
+            <div v-if="!challengeList.length" class="ifind__challenge-row">
+              <p class="ifind__hint">尚未进行对抗性审查。</p>
+              <button
+                type="button"
+                class="ifind__btn"
+                :disabled="challenging"
+                @click="startChallenge(selected.finding)"
+              >
+                <Gavel :size="14" />
+                {{ challenging ? '发起中…' : '开始挑战' }}
+              </button>
+            </div>
+            <div v-else-if="activeChallenge" class="ifind__challenge-row">
+              <p class="ifind__hint">
+                对抗性审查：进行中 · 第 {{ activeChallenge.round }} 轮 / 4
+              </p>
+              <button
+                type="button"
+                class="ifind__btn"
+                @click="continueChallenge"
+              >
+                继续挑战
+              </button>
+            </div>
+            <div v-else class="ifind__challenge-row ifind__challenge-row--done">
+              <p class="ifind__hint">
+                最近一次挑战：已完成
+                <span v-if="challengeSummary"> — {{ challengeSummary }}…</span>
+              </p>
+              <div class="ifind__challenge-actions">
+                <button type="button" class="ifind__btn" @click="viewLatestChallenge">
+                  查看结果
+                </button>
+                <button
+                  type="button"
+                  class="ifind__btn"
+                  :disabled="challenging"
+                  @click="startChallenge(selected.finding)"
+                >
+                  {{ challenging ? '发起中…' : '发起新一轮挑战' }}
+                </button>
+              </div>
+              <p class="ifind__hint ifind__challenge-count">
+                历史挑战 {{ challengeList.length }} 次
+              </p>
+            </div>
+          </template>
+        </section>
+
         <div class="ifind__detail-actions">
           <button
             v-if="selected.finding.status === 'candidate'"
@@ -235,9 +342,9 @@ onMounted(load)
             type="button"
             class="ifind__btn"
             :disabled="challenging"
-            @click="challenge(selected.finding)"
+            @click="startChallenge(selected.finding)"
           >
-            <ShieldQuestion :size="14" />
+            <Gavel :size="14" />
             {{ challenging ? '发起中…' : '挑战此结论' }}
           </button>
         </div>
@@ -246,6 +353,17 @@ onMounted(load)
         <p class="ifind__hint">从左侧选择一条结论查看详情。</p>
       </section>
     </div>
+
+    <FindingDebateModal
+      v-if="selected && challengeModalOpen"
+      :case-id="caseId"
+      :finding-id="selected.finding.id"
+      :finding-title="selected.finding.title"
+      :finding-status="statusLabels[selected.finding.status]"
+      :debate-id="activeChallengeId"
+      @close="challengeModalOpen = false"
+      @completed="onChallengeCompleted"
+    />
   </div>
 </template>
 
@@ -473,5 +591,30 @@ onMounted(load)
   margin: 0;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.ifind__challenge h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ifind__challenge-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ifind__challenge-row--done {
+  gap: 6px;
+}
+
+.ifind__challenge-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ifind__challenge-count {
+  font-size: 11px;
 }
 </style>

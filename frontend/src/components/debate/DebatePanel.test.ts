@@ -123,3 +123,82 @@ it('offers a restart button after the debate completes', async () => {
   await flushPromises()
   expect(apiMock.createDebate).toHaveBeenCalledWith('case-1')
 })
+
+describe('DebatePanel · finding_challenge (M5.3/M5.7)', () => {
+  const makeChallenge = (overrides: Record<string, unknown> = {}) =>
+    makeDebate({
+      id: 'challenge-1',
+      title: '对抗性审查：泄洪致灾结论',
+      mode: 'finding_challenge',
+      finding_id: 'finding-1',
+      round: 3,
+      votes: [
+        {
+          id: 'v1',
+          debate_id: 'challenge-1',
+          platform: 'weibo',
+          choice: 'insufficient',
+          reason: '现有证据不足以支持因果判断',
+          created_at: '2026-08-01T00:00:00Z',
+        },
+      ],
+      ...overrides,
+    })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.listDebates.mockResolvedValue([])
+    apiMock.getDebate.mockResolvedValue(makeChallenge())
+  })
+
+  it('loads only the specified debate when debateId is set (M5.3)', async () => {
+    apiMock.listDebates.mockResolvedValue([makeDebate()])
+    const wrapper = mount(DebatePanel, {
+      props: { caseId: 'case-1', debateId: 'challenge-1' },
+    })
+    await flushPromises()
+    expect(apiMock.getDebate).toHaveBeenCalledWith('challenge-1')
+    expect(apiMock.listDebates).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('对抗性审查')
+    expect(wrapper.text()).toContain('结论投票')
+  })
+
+  it('renders finding verdict labels instead of platform votes (M5.7)', async () => {
+    const wrapper = mount(DebatePanel, {
+      props: { caseId: 'case-1', debateId: 'challenge-1' },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('第三轮结论投票')
+    expect(wrapper.text()).toContain('微博')
+    expect(wrapper.text()).toContain('证据不足')
+    expect(wrapper.text()).not.toContain('投给')
+  })
+
+  it('keeps a completed challenge read-only (M5.6)', async () => {
+    apiMock.getDebate.mockResolvedValue(
+      makeChallenge({ status: 'completed', round: 4 }),
+    )
+    const wrapper = mount(DebatePanel, {
+      props: { caseId: 'case-1', debateId: 'challenge-1' },
+    })
+    await flushPromises()
+    expect(wrapper.find('.debate-advance').exists()).toBe(false)
+    expect(wrapper.find('.chat-textarea').exists()).toBe(false)
+    expect(wrapper.find('.debate-restart').exists()).toBe(false)
+    expect(wrapper.text()).toContain('对抗性审查已完成')
+  })
+
+  it('emits completed when the last round finishes (M5.3)', async () => {
+    apiMock.getDebate.mockResolvedValue(makeChallenge({ round: 4 }))
+    apiMock.advanceDebate.mockResolvedValue(
+      makeChallenge({ status: 'completed', round: 4 }),
+    )
+    const wrapper = mount(DebatePanel, {
+      props: { caseId: 'case-1', debateId: 'challenge-1' },
+    })
+    await flushPromises()
+    await wrapper.find('.debate-advance').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('completed')).toBeTruthy()
+  })
+})

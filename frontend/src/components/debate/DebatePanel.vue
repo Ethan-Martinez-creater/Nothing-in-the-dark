@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Gavel, Loader2, MessageSquarePlus, Send, X } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { api } from '@/services/api'
 import type { Debate, DebateDetail, DebateMessage } from '@/types/api'
@@ -8,8 +8,14 @@ import type { Debate, DebateDetail, DebateMessage } from '@/types/api'
 import MarkdownBody from '@/components/chat/MarkdownBody.vue'
 
 // embedded：内嵌对话主区（滑块切换），不再使用右侧滑出边栏与关闭按钮。
-const props = defineProps<{ caseId: string; embedded?: boolean }>()
-const emit = defineEmits<{ close: [] }>()
+// debateId（M5.3）：指定时只加载该 debate（Finding 对抗性审查），绝不拉取/选择
+// case 下的其它 debate；缺省时保留 legacy 列表行为。
+const props = defineProps<{
+  caseId: string
+  embedded?: boolean
+  debateId?: string | null
+}>()
+const emit = defineEmits<{ close: []; completed: [] }>()
 
 const debates = ref<Debate[] | null>(null)
 const active = ref<DebateDetail | null>(null)
@@ -36,15 +42,41 @@ const PLATFORM_COLORS: Record<string, string> = {
   douyin: '#111827',
 }
 
-const ROUND_LABELS: Record<number, string> = {
+// R3 结论投票标签（M5.7）：仅 finding_challenge 模式使用。
+const VERDICT_LABELS: Record<string, string> = {
+  supported: '支持',
+  refuted: '反驳',
+  insufficient: '证据不足',
+  overreach: '过度推断',
+}
+
+const CASE_ROUND_LABELS: Record<number, string> = {
   1: '观点陈述',
   2: '互相反驳',
   3: '观点投票',
   4: '主持人总结',
 }
 
+// finding_challenge 四轮语义（M3）：独立审查 → 交叉质疑 → 结论投票 → 主持人综合。
+const FINDING_ROUND_LABELS: Record<number, string> = {
+  1: '独立审查',
+  2: '交叉质疑',
+  3: '结论投票',
+  4: '主持人综合',
+}
+
+const isFindingChallenge = computed(() => active.value?.mode === 'finding_challenge')
+
+const roundLabels = computed(() =>
+  isFindingChallenge.value ? FINDING_ROUND_LABELS : CASE_ROUND_LABELS,
+)
+
+const panelTitle = computed(() =>
+  isFindingChallenge.value ? '对抗性审查' : '多角色辩论',
+)
+
 const currentRoundLabel = computed(() =>
-  active.value ? ROUND_LABELS[active.value.round] || `第 ${active.value.round} 轮` : '',
+  active.value ? roundLabels.value[active.value.round] || `第 ${active.value.round} 轮` : '',
 )
 
 const completed = computed(() => active.value?.status === 'completed')
@@ -58,7 +90,7 @@ const threadGroups = computed(() => {
     if (!last || last.round !== message.round) {
       groups.push({
         round: message.round,
-        label: ROUND_LABELS[message.round] || `第 ${message.round} 轮`,
+        label: roundLabels.value[message.round] || `第 ${message.round} 轮`,
         messages: [message],
       })
     } else {
@@ -83,7 +115,24 @@ function isNoDataMessage(message: DebateMessage): boolean {
   return message.role === 'platform_role' && message.content.startsWith('【数据缺失】')
 }
 
+// 指定 debateId：只加载该 debate，不读取 case 下的辩论列表。
+async function loadSpecificDebate(): Promise<void> {
+  if (!props.debateId) return
+  try {
+    active.value = await api.getDebate(props.debateId)
+    error.value = ''
+    listRetry.value = false
+  } catch {
+    error.value = '辩论加载失败，请重试。'
+    listRetry.value = true
+  }
+}
+
 async function loadDebates() {
+  if (props.debateId) {
+    await loadSpecificDebate()
+    return
+  }
   try {
     debates.value = await api.listDebates(props.caseId)
     const first = debates.value?.[0]
@@ -118,6 +167,7 @@ async function advance() {
   error.value = ''
   try {
     active.value = await api.advanceDebate(active.value.id)
+    if (active.value?.status === 'completed') emit('completed')
   } catch {
     error.value = '本轮推进失败，请重试。'
   } finally {
@@ -141,13 +191,20 @@ async function sendUserMessage() {
   }
 }
 
+watch(
+  () => props.debateId,
+  (debateId) => {
+    if (debateId) void loadSpecificDebate()
+  },
+)
+
 onMounted(loadDebates)
 </script>
 
 <template>
   <div class="debate-panel" :class="embedded ? 'debate-inline' : 'workspace-panel open'">
     <div class="modal-head">
-      <h3><Gavel :size="16" /> 多角色辩论</h3>
+      <h3><Gavel :size="16" /> {{ panelTitle }}</h3>
       <button v-if="!embedded" type="button" class="icon-button" aria-label="关闭" @click="emit('close')">
         <X :size="16" />
       </button>
@@ -168,7 +225,8 @@ onMounted(loadDebates)
       <div v-if="!active" class="debate-empty">
         <p>以各平台采集数据为背景知识，让多个平台视角的 Agent 辩论，逼近更接近事实的结论。</p>
         <p class="debate-flow">四轮流程：观点陈述 → 互相反驳 → 观点投票 → 主持人总结，每轮之间你都可以插话。</p>
-        <button type="button" class="primary-button" :disabled="creating" @click="createDebate">
+        <!-- 指定 debateId 模式下不提供发起入口（避免误创建 case_debate），仅 legacy 显示。 -->
+        <button v-if="!debateId" type="button" class="primary-button" :disabled="creating" @click="createDebate">
           <Loader2 v-if="creating" class="spin" :size="14" />
           发起辩论
         </button>
@@ -210,16 +268,24 @@ onMounted(loadDebates)
           </template>
 
           <div v-if="active.votes.length" class="debate-votes">
-            <span class="eyebrow">第三轮投票结果</span>
+            <span class="eyebrow">{{ isFindingChallenge ? '第三轮结论投票' : '第三轮投票结果' }}</span>
             <div
               v-for="vote in active.votes"
               :key="vote.id"
               class="debate-vote"
             >
-              <strong>{{ PLATFORM_NAMES[vote.platform] || vote.platform }}</strong>
-              投给
-              <em>{{ PLATFORM_NAMES[vote.choice] || vote.choice }}</em>
-              <span v-if="vote.reason">：{{ vote.reason }}</span>
+              <!-- finding_challenge：平台对 Finding 结论的 verdict（M5.7）；legacy：投给某平台。 -->
+              <template v-if="isFindingChallenge">
+                <strong>{{ PLATFORM_NAMES[vote.platform] || vote.platform }}</strong>
+                ：<em>{{ VERDICT_LABELS[vote.choice] || vote.choice }}</em>
+                <span v-if="vote.reason">：{{ vote.reason }}</span>
+              </template>
+              <template v-else>
+                <strong>{{ PLATFORM_NAMES[vote.platform] || vote.platform }}</strong>
+                投给
+                <em>{{ PLATFORM_NAMES[vote.choice] || vote.choice }}</em>
+                <span v-if="vote.reason">：{{ vote.reason }}</span>
+              </template>
             </div>
           </div>
 
@@ -258,8 +324,10 @@ onMounted(loadDebates)
         </div>
         <p v-else class="debate-finished">
           <MessageSquarePlus :size="14" />
-          辩论已完成。主持人结论即上方「主持人」发言。
+          {{ isFindingChallenge ? '对抗性审查已完成，结果仅供人工审核参考。' : '辩论已完成。主持人结论即上方「主持人」发言。' }}
+          <!-- finding_challenge 完成后只读：新一轮挑战由 FindingDebateModal / Finding Detail 提供。 -->
           <button
+            v-if="!isFindingChallenge"
             type="button"
             class="ghost-button debate-restart"
             :disabled="creating"

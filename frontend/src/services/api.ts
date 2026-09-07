@@ -185,6 +185,20 @@ export const api = {
     const { data } = await http.get<Debate[]>(`/cases/${caseId}/debates`)
     return data
   },
+  // Finding 级对抗性审查（M4.3）：列表按 created_at DESC 返回该 Finding 的
+  // finding_challenge 历史；POST 为 create-or-resume（有 in_progress 返回现有 debate）。
+  async listFindingDebates(caseId: string, findingId: string): Promise<Debate[]> {
+    const { data } = await http.get<Debate[]>(
+      `/cases/${caseId}/findings/${findingId}/debates`,
+    )
+    return data
+  },
+  async createFindingDebate(caseId: string, findingId: string): Promise<Debate> {
+    const { data } = await http.post<Debate>(
+      `/cases/${caseId}/findings/${findingId}/debates`,
+    )
+    return data
+  },
   async getDebate(debateId: string): Promise<DebateDetail> {
     const { data } = await http.get<DebateDetail>(`/cases/debates/${debateId}`)
     return data

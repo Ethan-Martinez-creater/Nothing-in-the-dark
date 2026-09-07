@@ -954,12 +954,50 @@ export interface SkillInfo {
 
 // ---------------- 辩论 ----------------
 
+/**
+ * Debate 模式（M4.2）：
+ * - case_debate：legacy 全 Case 多角色辩论（旧数据默认值）；
+ * - finding_challenge：Finding 级对抗性审查（必须绑定 finding_id）。
+ */
+export type DebateMode = 'case_debate' | 'finding_challenge'
+
+/** finding_challenge R3 结论投票 choice（服务端校验，非法值 fail-safe）。 */
+export type FindingVerdictChoice = 'supported' | 'refuted' | 'insufficient' | 'overreach'
+
+/**
+ * finding_challenge 创建时由服务端生成的 Finding 上下文快照。
+ * 快照创建后不随 Finding 后续修改而变化；legacy case_debate 记录为空对象。
+ */
+export interface FindingChallengeSnapshot {
+  prompt_version: string
+  finding: {
+    id: string
+    kind: string
+    title: string
+    statement: string
+    status: string
+    confidence: number | null
+  }
+  evidence: Array<{
+    evidence_ref: string
+    relation: string
+    excerpt?: string
+  }>
+  sources: Array<{
+    source_type: string
+    source_id: string
+    source_path?: string
+  }>
+}
+
 export interface Debate {
   id: string
   case_id: string
   title: string
   status: 'in_progress' | 'completed'
   round: number
+  mode: DebateMode
+  finding_id: string | null
   platform_roles: { platforms: string[] }
   created_at: string
   updated_at: string
@@ -987,6 +1025,8 @@ export interface DebateVote {
 export interface DebateDetail extends Debate {
   messages: DebateMessage[]
   votes: DebateVote[]
+  /** 仅 finding_challenge 有实际快照内容；legacy case_debate 为空对象/null。 */
+  context_snapshot: FindingChallengeSnapshot | null
 }
 
 // ---------------- 异步分析任务（A-02） ----------------
