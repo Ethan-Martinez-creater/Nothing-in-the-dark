@@ -22,6 +22,8 @@ class DebateResponse(BaseModel):
     status: str
     round: int
     platform_roles: dict[str, object]
+    mode: str = "case_debate"
+    finding_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -54,3 +56,4 @@ class DebateVoteResponse(BaseModel):
 class DebateDetailResponse(DebateResponse):
     messages: list[DebateMessageResponse]
     votes: list[DebateVoteResponse]
+    context_snapshot: dict[str, object] = {}

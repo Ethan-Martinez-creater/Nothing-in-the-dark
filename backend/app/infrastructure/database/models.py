@@ -883,7 +883,11 @@ class EmbeddingVersionRecord(Base):
 
 class DebateRecord(Base):
     """一次多角色辩论：以各平台采集数据为背景知识，四轮（陈述→反驳→
-    投票→主持人总结）逼近事实结论，用户可随时插话。"""
+    投票→主持人总结）逼近事实结论，用户可随时插话。
+
+    mode=case_debate 为 legacy 全案辩论；mode=finding_challenge 为
+    Finding-level 对抗性审查（创建时固化 Finding 上下文快照）。
+    """
 
     __tablename__ = "debates"
 
@@ -895,6 +899,14 @@ class DebateRecord(Base):
     round: Mapped[int] = mapped_column(Integer, default=1)
     # 参与角色（平台名列表），生成辩论消息时按此展开
     platform_roles: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    # 模式：case_debate（全案辩论）/ finding_challenge（Finding 对抗性审查）
+    mode: Mapped[str] = mapped_column(String(32), default="case_debate")
+    # finding_challenge 必须绑定同一 case 内的 Finding；case_debate 为 null
+    finding_id: Mapped[str | None] = mapped_column(
+        ForeignKey("findings.id"), nullable=True, index=True
+    )
+    # 创建时固化的 Finding 上下文快照（prompt_version/finding/evidence/sources）
+    context_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

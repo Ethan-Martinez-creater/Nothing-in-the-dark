@@ -31,6 +31,7 @@ async def build_detail(
             DebateMessageResponse.model_validate(m) for m in messages
         ],
         votes=[DebateVoteResponse.model_validate(v) for v in votes],
+        context_snapshot=dict(debate.context_snapshot or {}),
     )
 
 

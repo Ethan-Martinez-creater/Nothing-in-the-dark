@@ -794,12 +794,18 @@ class ApplicationRepository:
         *,
         title: str,
         platform_roles: list[str],
+        mode: str = "case_debate",
+        finding_id: str | None = None,
+        context_snapshot: dict[str, object] | None = None,
     ) -> DebateRecord:
         await self.get_case(case_id)
         record = DebateRecord(
             case_id=case_id,
             title=title,
             platform_roles={"platforms": platform_roles},
+            mode=mode,
+            finding_id=finding_id,
+            context_snapshot=context_snapshot or {},
         )
         async with self._database.session_factory() as session:
             session.add(record)
@@ -816,6 +822,42 @@ class ApplicationRepository:
                 .order_by(DebateRecord.created_at.desc())
             )
             return result.all()
+
+    async def list_debates_for_finding(
+        self, case_id: str, finding_id: str
+    ) -> Sequence[DebateRecord]:
+        """某 Finding 的 finding_challenge 历史（created_at DESC）。"""
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            result = await session.scalars(
+                select(DebateRecord)
+                .where(
+                    DebateRecord.case_id == case_id,
+                    DebateRecord.finding_id == finding_id,
+                    DebateRecord.mode == "finding_challenge",
+                )
+                .order_by(DebateRecord.created_at.desc())
+            )
+            return result.all()
+
+    async def get_active_debate_for_finding(
+        self, case_id: str, finding_id: str
+    ) -> DebateRecord | None:
+        """同一 Finding 同时只允许一个进行中的 Challenge。"""
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            result = await session.scalars(
+                select(DebateRecord)
+                .where(
+                    DebateRecord.case_id == case_id,
+                    DebateRecord.finding_id == finding_id,
+                    DebateRecord.mode == "finding_challenge",
+                    DebateRecord.status == "in_progress",
+                )
+                .order_by(DebateRecord.created_at.desc())
+                .limit(1)
+            )
+            return result.first()
 
     async def get_debate(self, debate_id: str) -> DebateRecord:
         async with self._database.session_factory() as session:
@@ -1835,6 +1877,17 @@ class ApplicationRepository:
         async with self._database.session_factory() as session:
             result = await session.scalars(query)
             return result.all()
+
+    async def get_evidence_for_case(
+        self, case_id: str, evidence_id: str
+    ) -> EvidenceRecord | None:
+        """按 case_id + evidence_id 取单条 Evidence（不存在或跨 case 返回 None）。"""
+        await self.get_case(case_id)
+        async with self._database.session_factory() as session:
+            record = await session.get(EvidenceRecord, evidence_id)
+        if record is None or record.case_id != case_id:
+            return None
+        return record
 
     async def get_claim_evidence_quality_metrics(
         self, case_id: str
