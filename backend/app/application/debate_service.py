@@ -1,11 +1,15 @@
 """四轮辩论引擎（Debate Service）。
 
-以各平台采集数据为背景知识，多角色扮演辩论逼近事实结论：
+两种模式（``DebateRecord.mode``）：
 
-- R1 观点陈述：每个平台角色基于本平台帖子数据陈述判断
-- R2 互相反驳：各角色指出其他平台视角的证据漏洞与信息偏差
-- R3 观点投票：各角色投票给"最接近事实的平台立场"并说明理由
-- R4 主持人总结：综合全部发言与投票，给出参考结论
+- ``case_debate``（legacy 全案辩论）：以各平台采集数据为背景知识，
+  多角色扮演辩论逼近事实结论——R1 观点陈述 / R2 互相反驳 /
+  R3 观点投票（投给平台）/ R4 主持人总结。
+- ``finding_challenge``（Finding 对抗性审查）：针对具体 Finding 的
+  有证据约束的多 Agent 对抗性审查——R1 独立审查 / R2 交叉质疑 /
+  R3 Finding verdict 投票（supported/refuted/insufficient/overreach）/
+  R4 主持人综合。Finding 是待审查命题，不是系统真相；Debate 输出
+  仅辅助人工审核，不自动修改 Finding 状态，也不是 Evidence。
 
 每轮之间用户可插话（``add_user_message``）；轮次由用户触发
 ``advance`` 推进（human-in-the-loop），重复触发幂等。
@@ -31,6 +35,21 @@ logger = logging.getLogger(__name__)
 
 ROUND_LABELS = {1: "观点陈述", 2: "互相反驳", 3: "观点投票", 4: "主持人总结"}
 _MAX_ROUND = 4
+
+FINDING_CHALLENGE_MODE = "finding_challenge"
+FINDING_CHALLENGE_PROMPT_VERSION = "finding_challenge_v1"
+# 进入 LLM prompt 的 Evidence 限流（计划文档 M2.4）
+_SNAPSHOT_MAX_EVIDENCE = 12
+_SNAPSHOT_EXCERPT_LIMIT = 550
+
+# Finding Challenge R3/R4 的合法 verdict（计划文档 M3.3）
+FINDING_VERDICTS = ("supported", "refuted", "insufficient", "overreach")
+VERDICT_LABELS = {
+    "supported": "支持",
+    "refuted": "反驳",
+    "insufficient": "证据不足",
+    "overreach": "过度推断",
+}
 
 _SYSTEM_TEMPLATE = (
     "你是「{platform_label}」平台视角的舆情辩论参与者，"
@@ -63,6 +82,56 @@ _ROUND_INSTRUCTIONS = {
     ),
 }
 
+_CHALLENGE_SYSTEM_TEMPLATE = (
+    "你是「{platform_label}」平台视角的对抗性审查参与者。"
+    "你正在审查的是一条【待审查命题】（Finding），不是系统真相；"
+    "你的职责是主动暴露它的证据薄弱点、反例、推理漏洞和替代解释。\n"
+    "你只能将本平台采集数据与【已关联 Evidence】作为证据，"
+    "不得把其他参与者的发言当作证据，不虚构证据。\n\n"
+    "【正在挑战的 Finding】\n"
+    "Finding ID: {finding_id}\n"
+    "类型: {finding_kind}\n"
+    "标题: {finding_title}\n"
+    "陈述: {finding_statement}\n"
+    "发起时状态: {finding_status}\n"
+    "发起时置信度: {finding_confidence}\n\n"
+    "【已关联 Evidence】\n"
+    "{evidence_block}\n\n"
+    "【{platform_label}平台采集的帖子】\n"
+    "{posts}\n\n"
+    "【事件背景】\n"
+    "{case_title}\n"
+)
+_CHALLENGE_ROUND_INSTRUCTIONS = {
+    1: (
+        "【第 1 轮 · 独立审查】基于本平台数据与已关联 Evidence，独立审查该 Finding：\n"
+        "1) 本平台数据支持结论的哪些部分；2) 哪些部分证据不足；"
+        "3) 是否与你的数据直接冲突；4) 是否存在过度推断。\n"
+        "正文最后单独一行输出 JSON："
+        "{{\"tendency\": \"supported|refuted|insufficient|overreach\"}}（当前倾向）。\n"
+        "用中文，300 字以内。"
+    ),
+    2: (
+        "【第 2 轮 · 交叉质疑】以下是其他参与者的第 1 轮审查发言（含用户插话）。请：\n"
+        "1) 找出最值得质疑的推理；2) 指出遗漏的反例；3) 检查相关性与因果混淆；"
+        "4) 提供替代解释。对方证据更强时允许修正你的立场——目标是发现真实分歧，不是制造冲突。\n"
+        "用中文，300 字以内。"
+    ),
+    3: (
+        "【第 3 轮 · Finding verdict 投票】对该 Finding 本身投票（不是投给某个平台）。"
+        "只输出 JSON：{{\"choice\": \"supported|refuted|insufficient|overreach\", "
+        "\"reason\": \"投票理由（中文，150字内）\"}}"
+    ),
+    4: (
+        "【第 4 轮 · 主持人综合】你是对抗性审查主持人。综合全部审查发言、用户插话与 verdict 投票，"
+        "严格按以下结构输出（Markdown）：\n"
+        "### 共识\n...\n\n### 主要反证与冲突\n...\n\n### 证据缺口\n...\n\n### 替代解释\n...\n\n"
+        "### 建议的复核态度\nsupported / refuted / insufficient / overreach\n理由：...\n\n"
+        "> 本结果仅用于辅助人工审核，不自动修改 Finding 状态。\n"
+        "你是综合者，不是终审裁判。用中文，450 字以内。"
+    ),
+}
+
 
 class DebateService:
     def __init__(
@@ -71,12 +140,15 @@ class DebateService:
         social: SocialRepository,
         llm: LLMGateway,
         profiles: PlatformProfileService | None = None,
+        finding_service: Any | None = None,
     ) -> None:
         self._repository = repository
         self._social = social
         self._llm = llm
-        # 平台画像记忆：发言时注入平台/用户特点，辩论结束后回写更新。
+        # 平台画像记忆：发言时注入平台/用户特点，case_debate 结束后回写更新。
         self._profiles = profiles
+        # Finding Service：finding_challenge 的 Finding 校验与 snapshot 构建。
+        self._finding_service = finding_service
 
     # ---------- 生命周期 ----------
 
@@ -100,6 +172,96 @@ class DebateService:
         )
         return debate
 
+    async def create_finding_challenge(
+        self, case_id: str, finding_id: str
+    ) -> tuple[Any, bool]:
+        """针对具体 Finding 的对抗性审查（create-or-resume）。
+
+        同一 Finding 同时只允许一个进行中的 Challenge：已存在则直接返回
+        ``(现有 debate, False)``。Finding 上下文由服务端构建并固化为
+        context_snapshot。
+        """
+        if self._finding_service is None:
+            raise ApplicationError(
+                "finding challenge requires finding service",
+                code="finding_challenge_unavailable",
+            )
+        # 跨 case / 不存在 → finding_scope_mismatch / finding_not_found
+        finding = await self._finding_service.get_for_case(case_id, finding_id)
+        case = await self._repository.get_case(case_id)
+        platforms = list(case.platforms or [])
+        if not platforms:
+            raise ApplicationError(
+                "case has no platforms to debate", code="debate_no_platforms"
+            )
+        active = await self._repository.get_active_debate_for_finding(
+            case_id, finding_id
+        )
+        if active is not None:
+            return active, False
+        snapshot = await self._build_finding_snapshot(case_id, finding_id)
+        debate = await self._repository.create_debate(
+            case_id,
+            title=f"对抗性审查：{finding.title}"[:200],
+            platform_roles=platforms,
+            mode=FINDING_CHALLENGE_MODE,
+            finding_id=finding_id,
+            context_snapshot=snapshot,
+        )
+        return debate, True
+
+    async def _build_finding_snapshot(
+        self, case_id: str, finding_id: str
+    ) -> dict[str, object]:
+        """服务端构建 Finding 上下文快照（M2.3），创建后不再变化。
+
+        Evidence 正文解析失败只保留 ref/relation，不阻止 Challenge（M2.4）。
+        """
+        detail = await self._finding_service.detail(case_id, finding_id)
+        finding = detail["finding"]
+        evidence_items: list[dict[str, object]] = []
+        for link in list(detail["evidence_links"])[:_SNAPSHOT_MAX_EVIDENCE]:
+            entry: dict[str, object] = {
+                "evidence_ref": link.evidence_ref,
+                "relation": link.relation,
+            }
+            try:
+                record = await self._repository.get_evidence_for_case(
+                    case_id, link.evidence_ref
+                )
+                if record is not None:
+                    entry["excerpt"] = str(record.excerpt or "")[
+                        :_SNAPSHOT_EXCERPT_LIMIT
+                    ]
+            except Exception:
+                logger.warning(
+                    "evidence %s lookup failed during snapshot build",
+                    link.evidence_ref,
+                    exc_info=True,
+                )
+            evidence_items.append(entry)
+        sources = [
+            {
+                "source_type": link.source_type,
+                "source_id": link.source_id,
+                "source_path": link.source_path,
+            }
+            for link in detail["sources"]
+        ]
+        return {
+            "prompt_version": FINDING_CHALLENGE_PROMPT_VERSION,
+            "finding": {
+                "id": finding.id,
+                "kind": finding.kind,
+                "title": finding.title,
+                "statement": finding.statement,
+                "status": finding.status,
+                "confidence": finding.confidence,
+            },
+            "evidence": evidence_items,
+            "sources": sources,
+        }
+
     async def add_user_message(self, debate_id: str, content: str) -> Any:
         debate = await self._repository.get_debate(debate_id)
         return await self._repository.add_debate_message(
@@ -118,6 +280,7 @@ class DebateService:
             )
         current_round = debate.round
         roles = list((debate.platform_roles or {}).get("platforms") or [])
+        is_challenge = debate.mode == FINDING_CHALLENGE_MODE
 
         if current_round > _MAX_ROUND:
             raise ApplicationError(
@@ -136,11 +299,18 @@ class DebateService:
 
             if current_round == 4:
                 await self._run_moderator(
-                    debate_id, case, history, votes
+                    debate_id, case, history, votes, is_challenge
                 )
             else:
                 await self._run_role_round(
-                    debate_id, case, roles, current_round, posts, history
+                    debate_id,
+                    case,
+                    roles,
+                    current_round,
+                    posts,
+                    history,
+                    is_challenge=is_challenge,
+                    snapshot=(debate.context_snapshot or {}),
                 )
 
         next_round = current_round + 1
@@ -150,7 +320,9 @@ class DebateService:
             )
             # 辩论完成：结合各平台发言、主持人结论与本次采集帖子，
             # 对平台画像记忆做一次回写更新（失败不影响辩论结果）。
-            if self._profiles is not None:
+            # M3.7：finding_challenge 的合成对抗性发言是任务驱动推理，
+            # 不是自然平台行为，禁止回写长期平台画像。
+            if self._profiles is not None and not is_challenge:
                 try:
                     case = await self._repository.get_case(debate.case_id)
                     posts = await self._social.list_posts_by_case(debate.case_id)
@@ -201,6 +373,8 @@ class DebateService:
         history: Sequence[Any],
         votes: Sequence[Any],
         current_round: int,
+        *,
+        is_challenge: bool = False,
     ) -> str:
         """前序轮次与当前轮用户插话的完整记录（供模型参考）。"""
         lines: list[str] = []
@@ -216,10 +390,18 @@ class DebateService:
                 f"[第{message.round}轮 · {role_label}] {message.content}"
             )
         for vote in votes:
-            lines.append(
-                f"[第3轮投票 · {PLATFORM_NAMES.get(str(vote.platform), vote.platform)}]"
-                f" 投给 {PLATFORM_NAMES.get(str(vote.choice), vote.choice)}：{vote.reason}"
-            )
+            if is_challenge:
+                # Finding verdict：显示对 Finding 的判定，不是"投给某平台"。
+                label = VERDICT_LABELS.get(str(vote.choice), str(vote.choice))
+                lines.append(
+                    f"[第3轮投票 · {PLATFORM_NAMES.get(str(vote.platform), vote.platform)}]"
+                    f" 判定 {label}：{vote.reason}"
+                )
+            else:
+                lines.append(
+                    f"[第3轮投票 · {PLATFORM_NAMES.get(str(vote.platform), vote.platform)}]"
+                    f" 投给 {PLATFORM_NAMES.get(str(vote.choice), vote.choice)}：{vote.reason}"
+                )
         if not lines:
             return "（暂无历史发言）"
         return "\n".join(lines)
@@ -249,9 +431,17 @@ class DebateService:
         round: int,
         posts: Sequence[Any],
         history: Sequence[Any],
+        *,
+        is_challenge: bool = False,
+        snapshot: dict[str, object] | None = None,
     ) -> None:
-        instruction = _ROUND_INSTRUCTIONS[round]
-        history_block = self._history_block(history, [], round)
+        if is_challenge:
+            instruction = _CHALLENGE_ROUND_INSTRUCTIONS[round]
+        else:
+            instruction = _ROUND_INSTRUCTIONS[round]
+        history_block = self._history_block(
+            history, [], round, is_challenge=is_challenge
+        )
 
         async def speak(platform: str) -> None:
             platform_lines = self._platform_posts(posts, platform)
@@ -272,11 +462,16 @@ class DebateService:
                 )
                 return
             posts_text = "\n".join(platform_lines)
-            system = _SYSTEM_TEMPLATE.format(
-                platform_label=platform_label,
-                posts=posts_text,
-                case_title=case.title,
-            )
+            if is_challenge:
+                system = self._challenge_system_prompt(
+                    platform_label, posts_text, case, snapshot or {}
+                )
+            else:
+                system = _SYSTEM_TEMPLATE.format(
+                    platform_label=platform_label,
+                    posts=posts_text,
+                    case_title=case.title,
+                )
             # 平台画像记忆注入：跨案例累积的平台/用户特点，让发言视角
             # 与措辞更贴近该平台真实生态；结论依据仍以本次采集帖子为准。
             if self._profiles is not None:
@@ -300,19 +495,30 @@ class DebateService:
                 f"{history_block}\n\n{instruction}",
             )
             if round == 3:
-                choice, reason = _parse_vote(content)
-                await self._repository.add_debate_vote(
-                    debate_id,
-                    platform=platform,
-                    choice=choice or platform,
-                    reason=reason,
-                )
-                message = (
-                    f"投票：支持「{PLATFORM_NAMES.get(choice, choice)}」的立场。"
-                    f"理由：{reason}"
-                    if choice
-                    else content
-                )
+                if is_challenge:
+                    choice, reason = _parse_verdict(content)
+                    await self._repository.add_debate_vote(
+                        debate_id,
+                        platform=platform,
+                        choice=choice,
+                        reason=reason,
+                    )
+                    label = VERDICT_LABELS.get(choice, choice)
+                    message = f"投票：{label}。理由：{reason}"
+                else:
+                    choice, reason = _parse_vote(content)
+                    await self._repository.add_debate_vote(
+                        debate_id,
+                        platform=platform,
+                        choice=choice or platform,
+                        reason=reason,
+                    )
+                    message = (
+                        f"投票：支持「{PLATFORM_NAMES.get(choice, choice)}」的立场。"
+                        f"理由：{reason}"
+                        if choice
+                        else content
+                    )
             else:
                 message = content
             await self._repository.add_debate_message(
@@ -325,17 +531,69 @@ class DebateService:
 
         await asyncio_gather(*[speak(platform) for platform in roles])
 
+    def _challenge_system_prompt(
+        self,
+        platform_label: str,
+        posts_text: str,
+        case: Any,
+        snapshot: dict[str, object],
+    ) -> str:
+        """Finding Challenge 的 system prompt（M3.5）：Finding 上下文 +
+        已关联 Evidence + 本平台采集数据。"""
+        payload = snapshot or {}
+        finding = dict(payload.get("finding") or {})
+        evidence_items = list(payload.get("evidence") or [])
+        if evidence_items:
+            evidence_lines = []
+            for item in evidence_items:
+                excerpt = str(item.get("excerpt") or "").strip()
+                entry = (
+                    f"- ref={item.get('evidence_ref')} "
+                    f"relation={item.get('relation')}"
+                )
+                if excerpt:
+                    entry += f"\n  摘录：{excerpt}"
+                evidence_lines.append(entry)
+            evidence_block = "\n".join(evidence_lines)
+        else:
+            evidence_block = "（该 Finding 暂无已关联 Evidence）"
+        return _CHALLENGE_SYSTEM_TEMPLATE.format(
+            platform_label=platform_label,
+            posts=posts_text,
+            case_title=case.title,
+            finding_id=finding.get("id", "?"),
+            finding_kind=finding.get("kind", "?"),
+            finding_title=finding.get("title", "?"),
+            finding_statement=finding.get("statement", "?"),
+            finding_status=finding.get("status", "?"),
+            finding_confidence=finding.get("confidence", "?"),
+            evidence_block=evidence_block,
+        )
+
     async def _run_moderator(
         self,
         debate_id: str,
         case: Any,
         history: Sequence[Any],
         votes: Sequence[Any],
+        is_challenge: bool = False,
     ) -> None:
-        history_block = self._history_block(history, votes, 4)
+        history_block = self._history_block(
+            history, votes, 4, is_challenge=is_challenge
+        )
+        if is_challenge:
+            system = (
+                "你是对抗性审查主持人，中立客观。"
+                "正在综合的是针对一条待审查命题（Finding）的多方审查结果。"
+                "你是综合者，不是终审裁判。"
+            )
+            instruction = _CHALLENGE_ROUND_INSTRUCTIONS[4]
+        else:
+            system = "你是舆情辩论主持人，中立客观。"
+            instruction = _ROUND_INSTRUCTIONS[4]
         content = await self._complete(
-            "你是舆情辩论主持人，中立客观。",
-            f"{history_block}\n\n{_ROUND_INSTRUCTIONS[4]}",
+            system,
+            f"{history_block}\n\n{instruction}",
         )
         await self._repository.add_debate_message(
             debate_id,
@@ -359,6 +617,34 @@ def _parse_vote(content: str) -> tuple[str | None, str]:
     except (ValueError, TypeError):
         logger.warning("vote JSON parse failed: %s", content[:120])
     return None, content
+
+
+def _parse_verdict(content: str) -> tuple[str, str]:
+    """Finding Challenge R3：解析 verdict JSON。
+
+    非法 choice 禁止 fallback 到平台名；fail-safe 保守归为
+    ``insufficient`` 并保留解析说明（计划文档 M3.3）。
+    """
+    try:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            payload = json.loads(content[start : end + 1])
+            choice = str(payload.get("choice") or "").strip()
+            reason = str(payload.get("reason") or "").strip()
+            if choice in FINDING_VERDICTS:
+                return choice, reason or "（未说明理由）"
+            if choice:
+                logger.warning("invalid finding verdict choice: %s", choice)
+                return "insufficient", (
+                    f"（模型输出非法 verdict '{choice}'，保守归为证据不足）"
+                    f"{reason or content[:150]}"
+                )
+    except (ValueError, TypeError):
+        logger.warning("verdict JSON parse failed: %s", content[:120])
+    return "insufficient", (
+        f"（输出无法解析为合法 verdict，保守归为证据不足）原文：{content[:150]}"
+    )
 
 
 def asyncio_gather(*coros: Any) -> Any:

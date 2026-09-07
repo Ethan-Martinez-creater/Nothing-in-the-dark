@@ -524,6 +524,7 @@ class ApplicationContainer:
             profiles=PlatformProfileService(
                 self.knowledge, self.llm, governance=self.memory_governance
             ),
+            finding_service=self.finding_service,
         )
         self.review_service = ReviewService(self.repository)
         # M20: 评测运行与发布门禁。

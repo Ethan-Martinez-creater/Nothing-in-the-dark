@@ -6,10 +6,11 @@ verified/rejected 由 ReviewService 决策同步产生，不提供直接端点�
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 
 from app.api.dependencies import get_container
 from app.bootstrap import ApplicationContainer
+from app.schemas.debates import DebateResponse
 from app.schemas.findings import (
     AddFindingEvidenceRequest,
     CreateFindingRequest,
@@ -135,3 +136,39 @@ async def remove_finding_evidence(
     )
     record = await container.finding_service.get_for_case(case_id, finding_id)
     return FindingResponse.from_record(record)
+
+
+@router.get(
+    "/{case_id}/findings/{finding_id}/debates",
+    response_model=list[DebateResponse],
+)
+async def list_finding_debates(
+    case_id: str,
+    finding_id: str,
+    container: ApplicationContainer = Depends(get_container),
+) -> list[DebateResponse]:
+    """该 Finding 的对抗性审查历史（finding_challenge，created_at DESC）。"""
+    records = await container.repository.list_debates_for_finding(
+        case_id, finding_id
+    )
+    return [DebateResponse.model_validate(r) for r in records]
+
+
+@router.post(
+    "/{case_id}/findings/{finding_id}/debates",
+    response_model=DebateResponse,
+    status_code=201,
+)
+async def create_finding_debate(
+    case_id: str,
+    finding_id: str,
+    response: Response,
+    container: ApplicationContainer = Depends(get_container),
+) -> DebateResponse:
+    """create-or-resume：有进行中 Challenge 返回现有（200），否则新建（201）。"""
+    debate, created = await container.debate_service.create_finding_challenge(
+        case_id, finding_id
+    )
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return DebateResponse.model_validate(debate)
