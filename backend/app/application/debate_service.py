@@ -310,7 +310,7 @@ class DebateService:
                     posts,
                     history,
                     is_challenge=is_challenge,
-                    snapshot=(debate.context_snapshot or {}),
+                    snapshot=snapshot_of(debate),
                 )
 
         next_round = current_round + 1
@@ -617,6 +617,20 @@ def _parse_vote(content: str) -> tuple[str | None, str]:
     except (ValueError, TypeError):
         logger.warning("vote JSON parse failed: %s", content[:120])
     return None, content
+
+
+def snapshot_of(debate: Any) -> dict[str, object]:
+    """读取 context_snapshot，兼容 JSON 列与 TEXT 残留库（str 则反序列化）。"""
+    raw = getattr(debate, "context_snapshot", None)
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else {}
+        except (ValueError, TypeError):
+            logger.warning("context_snapshot JSON parse failed", exc_info=True)
+    return {}
 
 
 def _parse_verdict(content: str) -> tuple[str, str]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_container
+from app.application.debate_service import snapshot_of
 from app.application.repositories import ApplicationRepository
 from app.bootstrap import ApplicationContainer
 from app.schemas.debates import (
@@ -31,7 +32,7 @@ async def build_detail(
             DebateMessageResponse.model_validate(m) for m in messages
         ],
         votes=[DebateVoteResponse.model_validate(v) for v in votes],
-        context_snapshot=dict(debate.context_snapshot or {}),
+        context_snapshot=snapshot_of(debate),
     )
 
 

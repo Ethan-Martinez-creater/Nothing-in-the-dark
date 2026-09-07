@@ -32,7 +32,12 @@ def upgrade() -> None:
         )
         batch_op.add_column(sa.Column("finding_id", sa.String(length=36), nullable=True))
         batch_op.add_column(
-            sa.Column("context_snapshot", sa.Text(), nullable=False, server_default="{}")
+            sa.Column(
+                "context_snapshot",
+                sa.JSON(),
+                nullable=False,
+                server_default="{}",
+            )
         )
         batch_op.create_index("ix_debates_finding_id", ["finding_id"])
         batch_op.create_foreign_key(
