@@ -129,6 +129,11 @@ export const router = createRouter({
           name: 'admin-notifications',
           component: () => import('@/views/admin/AdministrationNotificationsView.vue'),
         },
+        {
+          path: 'platform-auth',
+          name: 'admin-platform-auth',
+          component: () => import('@/views/PlatformAccountsView.vue'),
+        },
       ],
     },
     // ---- Legacy redirects（保留兼容，不删除旧路径）----

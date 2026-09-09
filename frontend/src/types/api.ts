@@ -1487,3 +1487,34 @@ export interface MemoryConflict {
   created_at: string | null
   resolved_at: string | null
 }
+
+// ---- Platform auth (QR login + credential management) ----
+
+export interface PlatformAuthStatusItem {
+  platform: string
+  status: 'active' | 'invalid' | 'revoked' | 'missing'
+  last_validated_at: string | null
+  expires_at: string | null
+  account_label: string | null
+}
+
+export interface PlatformAuthListResponse {
+  items: PlatformAuthStatusItem[]
+}
+
+export interface PlatformAuthSessionInfo {
+  session_id: string
+  platform: string
+  status: string
+  expires_at: string
+}
+
+export interface PlatformAuthSessionDetail extends PlatformAuthSessionInfo {
+  qr_code: string | null
+  error: string | null
+}
+
+export interface PlatformAuthValidateResponse {
+  platform: string
+  result: string
+}

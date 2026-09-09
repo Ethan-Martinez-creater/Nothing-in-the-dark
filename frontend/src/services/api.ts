@@ -80,6 +80,10 @@ import type {
   PlanDetail,
   StepInfo,
   CompletionAssessmentInfo,
+  PlatformAuthListResponse,
+  PlatformAuthSessionInfo,
+  PlatformAuthSessionDetail,
+  PlatformAuthValidateResponse,
   TelemetryHealth,
   EvaluationDataset,
   EvaluationRunSummary,
@@ -1040,6 +1044,41 @@ export const api = {
   async getPlan(planVersionId: string): Promise<PlanDetail> {
     const { data } = await http.get<PlanDetail>(
       '/goals/plans/' + planVersionId,
+    )
+    return data
+  },
+  // ---- 平台认证（扫码登录 + 凭据管理） ----
+  async listPlatformAuth(): Promise<PlatformAuthListResponse> {
+    const { data } = await http.get<PlatformAuthListResponse>('/platform-auth')
+    return data
+  },
+  async createLoginSession(platform: string): Promise<PlatformAuthSessionInfo> {
+    const { data } = await http.post<PlatformAuthSessionInfo>(
+      `/platform-auth/${platform}/login-sessions`,
+    )
+    return data
+  },
+  async getLoginSession(sessionId: string): Promise<PlatformAuthSessionDetail> {
+    const { data } = await http.get<PlatformAuthSessionDetail>(
+      `/platform-auth/login-sessions/${sessionId}`,
+    )
+    return data
+  },
+  async cancelLoginSession(sessionId: string): Promise<{ ok: boolean }> {
+    const { data } = await http.delete<{ ok: boolean }>(
+      `/platform-auth/login-sessions/${sessionId}`,
+    )
+    return data
+  },
+  async validatePlatform(platform: string): Promise<PlatformAuthValidateResponse> {
+    const { data } = await http.post<PlatformAuthValidateResponse>(
+      `/platform-auth/${platform}/validate`,
+    )
+    return data
+  },
+  async revokePlatform(platform: string): Promise<{ ok: boolean }> {
+    const { data } = await http.delete<{ ok: boolean }>(
+      `/platform-auth/${platform}`,
     )
     return data
   },
