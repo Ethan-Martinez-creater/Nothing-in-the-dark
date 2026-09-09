@@ -92,11 +92,145 @@ watch(
   },
 )
 onMounted(load)
+
+// ---- 创建目标（前端表单，替代纯 API 操作） ----
+const showGoalForm = ref(false)
+const goalForm = ref({ objective: '', constraints: '', priority: 'normal' })
+const savingGoal = ref(false)
+
+async function submitGoal() {
+  const objective = goalForm.value.objective.trim()
+  if (!objective || savingGoal.value) return
+  savingGoal.value = true
+  error.value = ''
+  try {
+    await api.createGoal(props.caseId, {
+      objective,
+      constraints: goalForm.value.constraints
+        .split(/[，,;；\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      priority: goalForm.value.priority,
+    })
+    showGoalForm.value = false
+    goalForm.value = { objective: '', constraints: '', priority: 'normal' }
+    await load()
+  } catch (e) {
+    error.value = '创建目标失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    savingGoal.value = false
+  }
+}
+
+// ---- 创建计划版本（步骤 + 依赖边） ----
+interface PlanStepDraft {
+  step_key: string
+  task: string
+  agent_capability: string
+  depends_on: string[]
+}
+const planFormFor = ref<string | null>(null)
+const planSteps = ref<PlanStepDraft[]>([
+  { step_key: 's1', task: '', agent_capability: 'coordinator', depends_on: [] },
+])
+const savingPlan = ref(false)
+
+function openPlanForm(goalId: string) {
+  planFormFor.value = planFormFor.value === goalId ? null : goalId
+  if (planFormFor.value === goalId) {
+    planSteps.value = [
+      { step_key: 's1', task: '', agent_capability: 'coordinator', depends_on: [] },
+    ]
+  }
+}
+
+function addPlanStep() {
+  planSteps.value.push({
+    step_key: 's' + (planSteps.value.length + 1),
+    task: '',
+    agent_capability: 'coordinator',
+    depends_on: [],
+  })
+}
+
+function removePlanStep(index: number) {
+  if (planSteps.value.length > 1) planSteps.value.splice(index, 1)
+}
+
+async function submitPlan(goal: GoalSummary) {
+  const steps = planSteps.value
+    .filter((s) => s.task.trim())
+    .map(({ step_key, task, agent_capability }) => ({ step_key, task, agent_capability }))
+  if (steps.length === 0 || savingPlan.value) return
+  savingPlan.value = true
+  error.value = ''
+  try {
+    const edges: Array<{ source_step_key: string; target_step_key: string }> = []
+    for (const draft of planSteps.value) {
+      if (!draft.task.trim()) continue
+      for (const dep of draft.depends_on) {
+        if (dep !== draft.step_key) {
+          edges.push({ source_step_key: dep, target_step_key: draft.step_key })
+        }
+      }
+    }
+    await api.createPlan(goal.id, { planner: 'deterministic', steps, edges })
+    planFormFor.value = null
+    // 刷新详情并自动选中最新计划版本
+    expandedGoalId.value = goal.id
+    detail.value = await api.getGoalDetail(goal.id)
+    const latest = detail.value.plan_versions[detail.value.plan_versions.length - 1]
+    if (latest) {
+      selectedPlanVersion.value = latest.id
+      plan.value = await api.getPlan(latest.id)
+    }
+  } catch (e) {
+    error.value = '创建计划失败：' + (e instanceof Error ? e.message : String(e))
+  } finally {
+    savingPlan.value = false
+  }
+}
 </script>
 
 <template>
   <div class="gpp">
     <div v-if="error" class="gpp__error">{{ error }}</div>
+
+    <div class="gpp__toolbar">
+      <button type="button" class="gpp__btn" @click="showGoalForm = !showGoalForm">
+        <Target :size="13" />
+        {{ showGoalForm ? '取消新建' : '新建目标' }}
+      </button>
+    </div>
+
+    <div v-if="showGoalForm" class="gpp__form">
+      <textarea
+        v-model="goalForm.objective"
+        rows="2"
+        class="gpp__input"
+        placeholder="目标描述（必填），例如：围绕该事件完成多平台信息采集与事实核查"
+      />
+      <input
+        v-model="goalForm.constraints"
+        class="gpp__input"
+        placeholder="约束（可选，逗号分隔），例如：以微博、贴吧为主要信源"
+      />
+      <div class="gpp__form-row">
+        <select v-model="goalForm.priority" class="gpp__input gpp__select">
+          <option value="low">低优先级</option>
+          <option value="normal">普通优先级</option>
+          <option value="high">高优先级</option>
+        </select>
+        <button
+          type="button"
+          class="gpp__btn gpp__btn--primary"
+          :disabled="savingGoal || !goalForm.objective.trim()"
+          @click="submitGoal"
+        >
+          {{ savingGoal ? '创建中…' : '创建目标' }}
+        </button>
+      </div>
+    </div>
 
     <div v-if="loading" class="gpp__state">加载中…</div>
     <div v-else-if="goals.length === 0" class="gpp__state">该调查暂无显式目标。</div>
@@ -141,6 +275,57 @@ onMounted(load)
               >
                 v{{ v.version }}（{{ v.status }}）
               </button>
+              <button type="button" class="gpp__btn" @click="openPlanForm(goal.id)">
+                {{ planFormFor === goal.id ? '取消' : '新建计划版本' }}
+              </button>
+            </div>
+
+            <div v-if="planFormFor === goal.id" class="gpp__form">
+              <div v-for="(step, index) in planSteps" :key="step.step_key" class="gpp__step-row">
+                <span class="gpp__node-key">{{ step.step_key }}</span>
+                <input
+                  v-model="step.task"
+                  class="gpp__input"
+                  placeholder="步骤任务，如：采集微博相关讨论"
+                />
+                <select v-model="step.agent_capability" class="gpp__input gpp__select gpp__capability">
+                  <option value="coordinator">coordinator</option>
+                  <option value="expert">expert</option>
+                  <option value="crawler">crawler</option>
+                  <option value="analyst">analyst</option>
+                </select>
+                <button
+                  type="button"
+                  class="gpp__btn gpp__btn--danger"
+                  :disabled="planSteps.length <= 1"
+                  @click="removePlanStep(index)"
+                >
+                  −
+                </button>
+                <div class="gpp__deps">
+                  <template v-for="other in planSteps" :key="other.step_key">
+                    <label v-if="other.step_key !== step.step_key" class="gpp__dep">
+                      <input
+                        type="checkbox"
+                        :value="other.step_key"
+                        v-model="step.depends_on"
+                      />
+                      依赖 {{ other.step_key }}
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <div class="gpp__form-row">
+                <button type="button" class="gpp__btn" @click="addPlanStep">+ 添加步骤</button>
+                <button
+                  type="button"
+                  class="gpp__btn gpp__btn--primary"
+                  :disabled="savingPlan || !planSteps.some((s) => s.task.trim())"
+                  @click="submitPlan(goal)"
+                >
+                  {{ savingPlan ? '创建中…' : '创建计划' }}
+                </button>
+              </div>
             </div>
           </section>
 
@@ -409,5 +594,114 @@ onMounted(load)
 .gpp__history-meta {
   color: var(--text-soft);
   font-size: 11px;
+}
+
+/* ---- 创建目标 / 创建计划表单 ---- */
+.gpp__toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gpp__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.gpp__btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.gpp__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gpp__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.gpp__btn--primary:hover:not(:disabled) {
+  color: #fff;
+}
+
+.gpp__btn--danger {
+  color: var(--red);
+}
+
+.gpp__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--surface-muted);
+}
+
+.gpp__input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text);
+  width: 100%;
+}
+
+.gpp__select {
+  width: auto;
+}
+
+.gpp__form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.gpp__step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.gpp__step-row .gpp__input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.gpp__capability {
+  width: 120px;
+  flex: none;
+}
+
+.gpp__deps {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-left: 22px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.gpp__dep {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 </style>
