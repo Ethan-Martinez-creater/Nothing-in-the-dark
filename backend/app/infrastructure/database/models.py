@@ -170,7 +170,9 @@ class ArtifactRecord(Base):
     title: Mapped[str] = mapped_column(String(200))
     version: Mapped[int] = mapped_column(Integer, default=1)
     data: Mapped[dict[str, object]] = mapped_column(_Utf8JSON)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     case: Mapped[CaseRecord] = relationship(back_populates="artifacts")
@@ -402,7 +404,9 @@ class MemoryRecord(Base):
     supersedes_id: Mapped[str | None] = mapped_column(
         ForeignKey("memories.id"), nullable=True
     )
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     metadata_json: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -463,7 +467,9 @@ class KnowledgeChunkRecord(Base):
     ordinal: Mapped[int] = mapped_column(Integer)
     content: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     metadata_json: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (UniqueConstraint("document_id", "ordinal"),)
@@ -488,7 +494,9 @@ class SourcePostRecord(Base):
     engagement: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     raw_payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     __table_args__ = (
@@ -513,7 +521,9 @@ class SourceCommentRecord(Base):
         DateTime(timezone=True), nullable=True
     )
     metrics: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     raw_payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (UniqueConstraint("post_id", "platform", "native_id"),)
@@ -570,7 +580,9 @@ class ClaimRecord(Base):
     status: Mapped[str] = mapped_column(String(32), default="open", index=True)
     verdict: Mapped[str | None] = mapped_column(String(32), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     created_by_run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -588,7 +600,9 @@ class EvidenceRecord(Base):
     stance: Mapped[str] = mapped_column(String(32), default="context")
     excerpt: Mapped[str] = mapped_column(Text)
     relevance: Mapped[float] = mapped_column(Float, default=0)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIMENSIONS), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(_EMBEDDING_DIMENSIONS), nullable=True
+    )
     metadata_json: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

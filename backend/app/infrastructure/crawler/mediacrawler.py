@@ -445,18 +445,20 @@ class MediaCrawlerAdapter:
         }[platform]
         return {_COOKIE_ENV: cookies} if cookies else {}
 
-    def _platform_login_state(self, platform: str) -> bool:
-        """检测该平台是否已在持久化浏览器 profile 中登录（读 Cookies 库）。
+    def _legacy_profile_has_login_markers(self, platform: str) -> bool:
+        """诊断辅助：旧 Chromium profile 中是否存在登录标志 cookie 名称。
 
-        登录态判断：browser_data/{code}_user_data_dir/Default/Network/Cookies
-        中存在该平台的登录标志 cookie（如微博 SUB、B站 SESSDATA、抖音
-        sessionid）即视为已登录。只读 SQLite，不影响浏览器运行。
+        只检查 browser_data/{code}_user_data_dir/Default/Network/Cookies
+        中是否存在平台标志 cookie 名称（如微博 SUB、B站 SESSDATA）。
+
+        该结果**不构成认证依据**：Cookie 名称存在不代表值可解密或仍有效
+        （Windows profile 迁移到 Linux 后 DPAPI 加密载荷无法解密）。平台
+        是否已登录必须由应用凭据层（PlatformAuthCredential / 注入的
+        cookie 字符串）判定。
         """
         markers = _PLATFORM_LOGIN_COOKIES.get(platform)
         if not markers:
-            # 未知平台：无法判断登录态，保守按"已登录"处理（避免误判
-            # 导致采集被强制切到前台）。
-            return True
+            return False
         code = PLATFORM_CODES[platform]
         cookies_db = (
             self._config.root
@@ -480,19 +482,20 @@ class MediaCrawlerAdapter:
             finally:
                 conn.close()
         except Exception:  # noqa: BLE001
-            # 读取失败（浏览器正占用 / 权限等）时保守按"已登录"处理，
-            # 避免采集被强制切到前台干扰用户。
-            return True
+            # 读取失败（浏览器正占用 / 权限等）时按"无标志"处理，不再
+            # 把不确定状态当成已登录。
+            return False
 
     def _effective_headless(self, platform: str) -> bool:
-        """登录态感知的 headless。
+        """凭据感知的 headless 决策。
 
-        用户配置 MEDIACRAWLER_HEADLESS=true 表示希望后台采集，但未登录的
-        平台需要可见浏览器完成扫码登录。规则：
+        规则（与旧版差异：不再把 Chromium profile 中的 cookie 名称作为
+        已登录依据）：
         - 配置为前台（headless=false）：保持前台；
-        - 平台配置了 cookie（cookie 登录，无需扫码）：保持后台；
-        - 已登录：保持后台；
-        - 未登录：强制前台（弹浏览器扫码，登录后 cookie 落盘，下次自动后台）。
+        - login_type=cookie 或平台已配置 cookie 字符串：保持后台；
+        - 无任何应用凭据：返回 False，由上层决定（本地前台可弹窗扫码；
+          服务器无 GUI 时应由认证层返回 auth_required，而非依赖 profile
+          残留判断）。
         """
         if not self._config.headless:
             return False
@@ -500,7 +503,7 @@ class MediaCrawlerAdapter:
             return True
         if self._configured_cookies(platform):
             return True
-        return self._platform_login_state(platform)
+        return False
 
     def _configured_cookies(self, platform: str) -> bool:
         """该平台是否配置了持久 cookie（此时登录不需要可见扫码窗口）。"""
