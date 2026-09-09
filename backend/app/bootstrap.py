@@ -90,6 +90,9 @@ from app.infrastructure.database.investigation_quality_repository import (
 from app.infrastructure.database.knowledge_repository import KnowledgeRepository
 from app.infrastructure.database.media_pipeline_repository import MediaPipelineRepository
 from app.infrastructure.database.monitor_repository import MonitorRepository
+from app.infrastructure.database.platform_auth_repository import (
+    PlatformAuthRepository,
+)
 from app.infrastructure.database.report_repository import ReportDocumentRepository
 from app.infrastructure.database.resilience_repository import ResilienceRepository
 from app.infrastructure.database.social_repository import SocialRepository
@@ -109,15 +112,13 @@ from app.infrastructure.media_providers import (
     probe_capabilities,
 )
 from app.infrastructure.sentiment import SentimentWorkerClient
-from app.infrastructure.database.platform_auth_repository import (
-    PlatformAuthRepository,
-)
 from app.mcp.client import McpClientManager
 from app.services.content_security import ContentSecurityService
 from app.services.platform_auth import (
     LoginSessionCoordinator,
     PlatformAuthService,
 )
+from app.services.platform_credentials import PlatformCredentialResolver
 from app.telemetry import build_telemetry
 
 # 系统已知权限（各 ToolSpec.permissions 的并集）；Skill manifest 声明的
@@ -164,6 +165,18 @@ class ApplicationContainer:
             otlp_service_name=settings.telemetry_otlp_service_name,
         )
         self.database = Database(settings.database_url)
+        # 平台认证：扫码登录 + 加密凭据存储（Phase 4）。需在 crawler
+        # 构建之前装配（crawler 的凭据 resolver 依赖它）。
+        self.platform_auth_repository = PlatformAuthRepository(self.database)
+        self.platform_auth_service = PlatformAuthService(
+            self.platform_auth_repository,
+            str(settings.platform_auth_master_key),
+            enabled=settings.platform_auth_enabled,
+        )
+        self.login_session_coordinator = LoginSessionCoordinator(
+            settings,
+            self.platform_auth_service,
+        )
         self.repository = ApplicationRepository(self.database)
         self.knowledge = KnowledgeRepository(self.database)
         self.social = SocialRepository(self.database)
@@ -433,17 +446,6 @@ class ApplicationContainer:
         )
         # M17: 显式目标、计划图与完成条件。
         self.goal_service = GoalService(self.repository)
-        # 平台认证：扫码登录 + 加密凭据存储（Phase 4）。
-        self.platform_auth_repository = PlatformAuthRepository(self.database)
-        self.platform_auth_service = PlatformAuthService(
-            self.platform_auth_repository,
-            str(settings.platform_auth_master_key),
-            enabled=settings.platform_auth_enabled,
-        )
-        self.login_session_coordinator = LoginSessionCoordinator(
-            settings,
-            self.platform_auth_service,
-        )
         self.alignment_repository = AlignmentRepository(self.database)
         self.integrity_repository = IntegrityRepository(self.database)
         self.media_repository = MediaPipelineRepository(self.database)
@@ -681,10 +683,10 @@ class ApplicationContainer:
             await self._checkpointer_cm.__aexit__(None, None, None)
         await self.database.dispose()
 
-    @staticmethod
-    def _build_crawler(settings: Settings) -> DemoCrawlerAdapter | MediaCrawlerAdapter:
+    def _build_crawler(self, settings: Settings) -> DemoCrawlerAdapter | MediaCrawlerAdapter:
         if settings.demo_mode:
             return DemoCrawlerAdapter()
+        resolver = PlatformCredentialResolver(self.platform_auth_service, settings)
         return MediaCrawlerAdapter(
             MediaCrawlerConfig(
                 root=settings.mediacrawler_root.resolve(),
@@ -707,6 +709,8 @@ class ApplicationContainer:
                 tieba_cookies=settings.mediacrawler_tieba_cookies.get_secret_value(),
                 zhihu_cookies=settings.mediacrawler_zhihu_cookies.get_secret_value(),
                 douyin_cookies=settings.mediacrawler_douyin_cookies.get_secret_value(),
+                cookie_resolver=resolver.resolve_cookie_string,
+                auth_failure_callback=resolver.mark_failed,
             )
         )
 

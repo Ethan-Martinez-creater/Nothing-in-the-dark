@@ -97,6 +97,11 @@ class MediaCrawlerConfig:
     tieba_cookies: str = ""
     zhihu_cookies: str = ""
     douyin_cookies: str = ""
+    # Phase 5：异步凭据解析端口（DB credential > env cookie）。
+    # cookie_resolver(platform) -> str | None（cookie 字符串）。
+    cookie_resolver: Any | None = None
+    # 认证失败回调：auth_failure_callback(platform, sanitized_message)。
+    auth_failure_callback: Any | None = None
 
 
 # M15: 子进程环境白名单——禁止爬虫读取宿主完整环境（防 .env/密钥泄漏）。
@@ -313,11 +318,17 @@ class MediaCrawlerAdapter:
             keywords = (request.keywords or {}).get(platform) or [request.topic]
             platform_root = run_root / platform
             platform_root.mkdir(parents=True, exist_ok=False)
+            # Phase 5：DB credential 优先，env cookie 兜底（由注入的
+            # resolver 解析；无 resolver 时保持静态配置行为）。
+            resolved_cookie: str | None = None
+            if self._config.cookie_resolver is not None:
+                resolved_cookie = await self._config.cookie_resolver(platform)
             command = self._build_command(
                 platform,
                 request,
                 platform_root,
                 keywords,
+                cookie_override=resolved_cookie,
             )
             try:
                 return_code, stdout, stderr = await self._command_runner(
@@ -325,7 +336,9 @@ class MediaCrawlerAdapter:
                     self._config.root,
                     self._config.timeout_seconds,
                     cancel,
-                    self._process_environment(platform),
+                    self._process_environment(
+                        platform, cookie_override=resolved_cookie
+                    ),
                 )
             except TypeError:
                 return_code, stdout, stderr = await self._command_runner(
@@ -346,6 +359,11 @@ class MediaCrawlerAdapter:
                     )
                     platform_posts = partial
                 else:
+                    # Phase 5：认证失败回写（仅 DB 来源凭据会被标记 invalid）。
+                    if self._config.auth_failure_callback is not None and detail:
+                        await self._config.auth_failure_callback(
+                            platform, detail[:2000]
+                        )
                     raise CrawlerExecutionError(
                         f"MediaCrawler failed for {platform} with exit code "
                         f"{return_code}: {detail or 'no diagnostic output'}"
@@ -435,14 +453,19 @@ class MediaCrawlerAdapter:
                 "directories manually before collecting again."
             )
 
-    def _process_environment(self, platform: str) -> dict[str, str]:
-        cookies = {
-            "weibo": self._config.weibo_cookies,
-            "bilibili": self._config.bilibili_cookies,
-            "tieba": self._config.tieba_cookies,
-            "zhihu": self._config.zhihu_cookies,
-            "douyin": self._config.douyin_cookies,
-        }[platform]
+    def _process_environment(
+        self, platform: str, *, cookie_override: str | None = None
+    ) -> dict[str, str]:
+        if cookie_override is not None:
+            cookies = cookie_override
+        else:
+            cookies = {
+                "weibo": self._config.weibo_cookies,
+                "bilibili": self._config.bilibili_cookies,
+                "tieba": self._config.tieba_cookies,
+                "zhihu": self._config.zhihu_cookies,
+                "douyin": self._config.douyin_cookies,
+            }[platform]
         return {_COOKIE_ENV: cookies} if cookies else {}
 
     def _legacy_profile_has_login_markers(self, platform: str) -> bool:
@@ -522,17 +545,23 @@ class MediaCrawlerAdapter:
         request: CrawlRequest,
         output_root: Path,
         keywords: list[str] | None = None,
+        *,
+        cookie_override: str | None = None,
     ) -> list[str]:
-        cookies = {
-            "weibo": self._config.weibo_cookies,
-            "bilibili": self._config.bilibili_cookies,
-            "tieba": self._config.tieba_cookies,
-            "zhihu": self._config.zhihu_cookies,
-            "douyin": self._config.douyin_cookies,
-        }[platform]
+        if cookie_override is not None:
+            cookies = cookie_override
+        else:
+            cookies = {
+                "weibo": self._config.weibo_cookies,
+                "bilibili": self._config.bilibili_cookies,
+                "tieba": self._config.tieba_cookies,
+                "zhihu": self._config.zhihu_cookies,
+                "douyin": self._config.douyin_cookies,
+            }[platform]
         if self._config.login_type == "cookie" and not cookies:
-            raise CrawlerConfigurationError(
-                f"Cookie login is enabled but no cookie is configured for {platform}"
+            raise ApplicationError(
+                f"Platform {platform} requires login",
+                code="platform_auth_required",
             )
 
         # Discovery 传平台 aggregate 上限；legacy 调用保持 fetch_limit_for。
