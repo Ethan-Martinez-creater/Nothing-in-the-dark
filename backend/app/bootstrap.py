@@ -109,8 +109,15 @@ from app.infrastructure.media_providers import (
     probe_capabilities,
 )
 from app.infrastructure.sentiment import SentimentWorkerClient
+from app.infrastructure.database.platform_auth_repository import (
+    PlatformAuthRepository,
+)
 from app.mcp.client import McpClientManager
 from app.services.content_security import ContentSecurityService
+from app.services.platform_auth import (
+    LoginSessionCoordinator,
+    PlatformAuthService,
+)
 from app.telemetry import build_telemetry
 
 # 系统已知权限（各 ToolSpec.permissions 的并集）；Skill manifest 声明的
@@ -426,6 +433,17 @@ class ApplicationContainer:
         )
         # M17: 显式目标、计划图与完成条件。
         self.goal_service = GoalService(self.repository)
+        # 平台认证：扫码登录 + 加密凭据存储（Phase 4）。
+        self.platform_auth_repository = PlatformAuthRepository(self.database)
+        self.platform_auth_service = PlatformAuthService(
+            self.platform_auth_repository,
+            str(settings.platform_auth_master_key),
+            enabled=settings.platform_auth_enabled,
+        )
+        self.login_session_coordinator = LoginSessionCoordinator(
+            settings,
+            self.platform_auth_service,
+        )
         self.alignment_repository = AlignmentRepository(self.database)
         self.integrity_repository = IntegrityRepository(self.database)
         self.media_repository = MediaPipelineRepository(self.database)

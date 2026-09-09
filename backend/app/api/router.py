@@ -23,6 +23,7 @@ from app.api.routes import (
     monitors,
     narratives,
     notifications,
+    platform_auth,
     platform_comparison,
     posts,
     projects,
@@ -129,4 +130,7 @@ api_router.include_router(
 )
 api_router.include_router(
     cross_investigation.case_router, prefix="/cases", tags=["intelligence"]
+)
+api_router.include_router(
+    platform_auth.router, prefix="/platform-auth", tags=["platform-auth"]
 )
