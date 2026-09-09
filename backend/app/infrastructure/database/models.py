@@ -3233,3 +3233,33 @@ class DerivedSignalCaseLinkRecord(Base):
         UniqueConstraint("signal_id", "case_id", name="uq_derived_signal_case_link"),
         Index("ix_derived_signal_case_links_case", "case_id"),
     )
+
+
+class PlatformAuthCredentialRecord(Base):
+    """平台登录凭据（AES-256-GCM 加密存储）。
+
+    status 枚举语义：active / invalid / revoked。cookies 载荷只以密文
+    （nonce_b64 + ciphertext_b64）落库，明文不得出现在任何表字段中。
+    """
+
+    __tablename__ = "platform_auth_credentials"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    platform: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    account_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+    state_format_version: Mapped[int] = mapped_column(Integer, default=1)
+    key_version: Mapped[int] = mapped_column(Integer, default=1)
+    nonce_b64: Mapped[str] = mapped_column(Text)
+    ciphertext_b64: Mapped[str] = mapped_column(Text)
+    last_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )

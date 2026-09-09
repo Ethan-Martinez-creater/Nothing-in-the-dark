@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     mediacrawler_tieba_cookies: SecretStr = SecretStr("")
     mediacrawler_zhihu_cookies: SecretStr = SecretStr("")
     mediacrawler_douyin_cookies: SecretStr = SecretStr("")
+
+    # 平台认证（扫码登录 + 加密凭据存储）。master key 缺失时平台认证
+    # 功能 fail closed，不允许退化为明文保存。
+    platform_auth_enabled: bool = True
+    platform_auth_master_key: SecretStr = SecretStr("")
+    platform_auth_session_ttl_seconds: int = 600
+    platform_auth_poll_interval_seconds: float = 0.5
+    platform_auth_session_root: Path = Path("./data/auth_sessions")
+
     event_poll_interval_seconds: float = 0.35
     default_platforms: list[str] = Field(default_factory=lambda: ["weibo", "bilibili"])
     default_max_budget: float = 5.0
