@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import TEXT, TIMESTAMP, String, and_, bindparam, cast, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 
+from app.core.config import get_settings
 from app.core.errors import ApplicationError, ResourceNotFoundError
 from app.infrastructure.database.engine import Database
 from app.infrastructure.database.models import (
@@ -542,7 +543,7 @@ class KnowledgeRepository:
         time_from: datetime | None = None,
         time_to: datetime | None = None,
     ) -> list[RagHit]:
-        if len(embedding) != 1024:
+        if len(embedding) != get_settings().embedding_dimensions:
             raise ApplicationError(
                 f"Expected a 1024-dimensional embedding, got {len(embedding)}",
                 code="invalid_embedding_dimensions",
