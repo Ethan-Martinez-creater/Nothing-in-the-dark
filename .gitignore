@@ -109,3 +109,6 @@ backend/_sel_loop.py
 
 # Visual companion mockups
 .superpowers/
+
+# SSH deployment connection info (sensitive, never commit)
+deploy.env
