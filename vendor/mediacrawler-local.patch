@@ -142,144 +142,93 @@ index 14b5099..8c28cd1 100644
      async def create_bilibili_client(self, httpx_proxy: Optional[str]) -> BilibiliClient:
          """
 diff --git a/media_platform/bilibili/login.py b/media_platform/bilibili/login.py
-index bd50fe2..52a661c 100644
+index bd50fe2..0b45bd9 100644
 --- a/media_platform/bilibili/login.py
 +++ b/media_platform/bilibili/login.py
-@@ -25,10 +25,9 @@
- 
- import asyncio
- import functools
+@@ -1,127 +1,278 @@
+-# -*- coding: utf-8 -*-
+-# Copyright (c) 2025 relakkes@gmail.com
+-#
+-# This file is part of MediaCrawler project.
+-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/bilibili/login.py
+-# GitHub: https://github.com/NanmiCoder
+-# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
+-#
+-
+-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+-# 1. 不得用于任何商业用途。
+-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+-# 3. 不得进行大规模爬取或对平台造成运营干扰。
+-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
+-# 5. 不得用于任何非法或不当的用途。
+-#
+-# 详细许可条款请参阅项目根目录下的LICENSE文件。
+-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
+-
+-
+-# -*- coding: utf-8 -*-
+-# @Author  : relakkes@gmail.com
+-# @Time    : 2023/12/2 18:44
+-# @Desc    : bilibili login implementation class
+-
+-import asyncio
+-import functools
 -import sys
- from typing import Optional
- 
+-from typing import Optional
+-
 -from playwright.async_api import BrowserContext, Page
-+from playwright.async_api import BrowserContext, Page, TimeoutError as PlaywrightTimeoutError
- from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
-                       wait_fixed)
- 
-@@ -37,6 +36,20 @@ from base.base_crawler import AbstractLogin
- from tools import utils
- 
- 
-+BILIBILI_LOGIN_URL = "https://passport.bilibili.com/login"
-+LOGIN_ENTRY_SELECTORS = (
-+    ".header-login-entry",
-+    ".right-entry__outside.go-login-btn",
-+    "[class*='login-entry']",
-+)
-+QRCODE_SELECTORS = (
-+    "img[alt='登录二维码'][src^='data:image']:visible",
-+    "img[alt*='二维码'][src]:visible",
-+    ".login-scan-box img[src]:visible",
-+    "[class*='qr-code'] img[src]:visible",
-+)
-+
-+
- class BilibiliLogin(AbstractLogin):
-     def __init__(self,
-                  login_type: str,
-@@ -50,6 +63,7 @@ class BilibiliLogin(AbstractLogin):
-         self.context_page = context_page
-         self.login_phone = login_phone
-         self.cookie_str = cookie_str
-+        self._sessdata_before_qrcode = ""
- 
-     async def begin(self):
-         """Start login bilibili"""
-@@ -68,45 +82,121 @@ class BilibiliLogin(AbstractLogin):
-     async def check_login_state(self) -> bool:
-         """
-             Check if the current login status is successful and return True otherwise return False
+-from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
+-                      wait_fixed)
+-
+-import config
+-from base.base_crawler import AbstractLogin
+-from tools import utils
+-
+-
+-class BilibiliLogin(AbstractLogin):
+-    def __init__(self,
+-                 login_type: str,
+-                 browser_context: BrowserContext,
+-                 context_page: Page,
+-                 login_phone: Optional[str] = "",
+-                 cookie_str: str = ""
+-                 ):
+-        config.LOGIN_TYPE = login_type
+-        self.browser_context = browser_context
+-        self.context_page = context_page
+-        self.login_phone = login_phone
+-        self.cookie_str = cookie_str
+-
+-    async def begin(self):
+-        """Start login bilibili"""
+-        utils.logger.info("[BilibiliLogin.begin] Begin login Bilibili ...")
+-        if config.LOGIN_TYPE == "qrcode":
+-            await self.login_by_qrcode()
+-        elif config.LOGIN_TYPE == "phone":
+-            await self.login_by_mobile()
+-        elif config.LOGIN_TYPE == "cookie":
+-            await self.login_by_cookies()
+-        else:
+-            raise ValueError(
+-                "[BilibiliLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
+-
+-    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
+-    async def check_login_state(self) -> bool:
+-        """
+-            Check if the current login status is successful and return True otherwise return False
 -            retry decorator will retry 20 times if the return value is False, and the retry interval is 1 second
-+            retry decorator will retry 600 times if the return value is False, and the retry interval is 1 second
-             if max retry times reached, raise RetryError
-         """
-+        return await self._has_fresh_sessdata()
-+
-+    async def _has_fresh_sessdata(self) -> bool:
-+        """Return True only after QR login creates or refreshes SESSDATA.
-+
-+        The crawler calls this login flow after its API login probe has failed. A
-+        persisted browser profile can therefore still contain an expired
-+        SESSDATA/DedeUserID pair. Treating mere cookie presence as success makes
-+        the QR flow return immediately without the user actually logging in.
-+        """
-         current_cookie = await self.browser_context.cookies()
-         _, cookie_dict = utils.convert_cookies(current_cookie)
+-            if max retry times reached, raise RetryError
+-        """
+-        current_cookie = await self.browser_context.cookies()
+-        _, cookie_dict = utils.convert_cookies(current_cookie)
 -        if cookie_dict.get("SESSDATA", "") or cookie_dict.get("DedeUserID"):
 -            return True
-+        current_sessdata = cookie_dict.get("SESSDATA", "")
-+        return bool(
-+            current_sessdata
-+            and current_sessdata != self._sessdata_before_qrcode
-+        )
-+
-+    async def _has_visible_qrcode(self) -> bool:
-+        for selector in QRCODE_SELECTORS:
-+            locator = self.context_page.locator(selector)
-+            if await locator.count() > 0:
-+                return True
-         return False
- 
-+    async def _click_login_entry(self) -> Optional[str]:
-+        """Click the first visible login entry and return its selector."""
-+        for selector in LOGIN_ENTRY_SELECTORS:
-+            locator = self.context_page.locator(selector)
-+            for index in range(await locator.count()):
-+                candidate = locator.nth(index)
-+                try:
-+                    if not await candidate.is_visible():
-+                        continue
-+                    await candidate.click(timeout=5_000)
-+                    return selector
-+                except PlaywrightTimeoutError:
-+                    continue
-+        return None
-+
-+    async def _open_qrcode_dialog(self) -> None:
-+        if await self._has_visible_qrcode():
-+            return
-+
-+        clicked_selector = await self._click_login_entry()
-+        if clicked_selector:
-+            utils.logger.info(
-+                "[BilibiliLogin.login_by_qrcode] Clicked login entry: "
-+                f"{clicked_selector}"
-+            )
-+            await asyncio.sleep(1)
-+            if await self._has_visible_qrcode():
-+                return
-+
-+        # The homepage header is frequently A/B tested. The passport page is a
-+        # stable fallback when no known entry exists or a click did not open the
-+        # dialog.
-+        utils.logger.warning(
-+            "[BilibiliLogin.login_by_qrcode] Homepage login entry unavailable; "
-+            f"falling back to {BILIBILI_LOGIN_URL}"
-+        )
-+        try:
-+            await self.context_page.goto(
-+                BILIBILI_LOGIN_URL,
-+                wait_until="domcontentloaded",
-+                timeout=60_000,
-+            )
-+            await asyncio.sleep(1)
-+        except PlaywrightTimeoutError as exc:
-+            raise RuntimeError(
-+                "Bilibili login page timed out while opening the QR login flow"
-+            ) from exc
-+
-+        if not await self._has_visible_qrcode():
-+            title = await self.context_page.title()
-+            raise RuntimeError(
-+                "Bilibili QR code was not found after trying the homepage and "
-+                f"passport page (url={self.context_page.url!r}, title={title!r})"
-+            )
-+
-     async def login_by_qrcode(self):
-         """login bilibili website and keep webdriver login state"""
-         utils.logger.info("[BilibiliLogin.login_by_qrcode] Begin login bilibili by qrcode ...")
- 
+-        return False
+-
+-    async def login_by_qrcode(self):
+-        """login bilibili website and keep webdriver login state"""
+-        utils.logger.info("[BilibiliLogin.login_by_qrcode] Begin login bilibili by qrcode ...")
+-
 -        # click login button
 -        login_button_ele = self.context_page.locator(
 -            "xpath=//div[@class='right-entry__outside go-login-btn']//div"
@@ -292,43 +241,316 @@ index bd50fe2..52a661c 100644
 -            self.context_page,
 -            selector=qrcode_img_selector
 -        )
-+        _, cookie_dict = utils.convert_cookies(await self.browser_context.cookies())
-+        self._sessdata_before_qrcode = cookie_dict.get("SESSDATA", "")
-+        await self._open_qrcode_dialog()
-+
-+        base64_qrcode_img = ""
-+        for qrcode_img_selector in QRCODE_SELECTORS:
-+            base64_qrcode_img = await utils.find_login_qrcode(
-+                self.context_page,
-+                selector=qrcode_img_selector,
-+            )
-+            if base64_qrcode_img:
-+                break
-         if not base64_qrcode_img:
+-        if not base64_qrcode_img:
 -            utils.logger.info("[BilibiliLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
 -            sys.exit()
-+            raise RuntimeError(
-+                "Bilibili QR code element was found, but its image could not be extracted"
-+            )
- 
-         # show login qrcode
-         partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
-         asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
- 
+-
+-        # show login qrcode
+-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
+-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+-
 -        utils.logger.info(f"[BilibiliLogin.login_by_qrcode] Waiting for scan code login, remaining time is 20s")
-+        utils.logger.info("[BilibiliLogin.login_by_qrcode] Waiting for scan code login, timeout is 600s")
-         try:
-             await self.check_login_state()
+-        try:
+-            await self.check_login_state()
 -        except RetryError:
 -            utils.logger.info("[BilibiliLogin.login_by_qrcode] Login bilibili failed by qrcode login method ...")
 -            sys.exit()
-+        except RetryError as exc:
-+            raise RuntimeError(
-+                "Bilibili QR login timed out before a fresh SESSDATA cookie was observed"
-+            ) from exc
- 
-         wait_redirect_seconds = 5
-         utils.logger.info(
+-
+-        wait_redirect_seconds = 5
+-        utils.logger.info(
+-            f"[BilibiliLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+-        await asyncio.sleep(wait_redirect_seconds)
+-
+-    async def login_by_mobile(self):
+-        pass
+-
+-    async def login_by_cookies(self):
+-        utils.logger.info("[BilibiliLogin.login_by_qrcode] Begin login bilibili by cookie ...")
+-        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
+-            await self.browser_context.add_cookies([{
+-                'name': key,
+-                'value': value,
+-                'domain': ".bilibili.com",
+-                'path': "/"
+-            }])
++# -*- coding: utf-8 -*-
++# Copyright (c) 2025 relakkes@gmail.com
++#
++# This file is part of MediaCrawler project.
++# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/douyin/login.py
++# GitHub: https://github.com/NanmiCoder
++# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
++#
++
++# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
++# 1. 不得用于任何商业用途。
++# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
++# 3. 不得进行大规模爬取或对平台造成运营干扰。
++# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
++# 5. 不得用于任何非法或不当的用途。
++#
++# 详细许可条款请参阅项目根目录下的LICENSE文件。
++# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
++
++
++import asyncio
++import functools
++import sys
++from typing import Optional
++
++from playwright.async_api import BrowserContext, Page
++from playwright.async_api import TimeoutError as PlaywrightTimeoutError
++from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
++                      wait_fixed)
++
++import config
++from base.base_crawler import AbstractLogin
++from cache.cache_factory import CacheFactory
++from tools import utils
++
++
++class DouYinLogin(AbstractLogin):
++
++    def __init__(self,
++                 login_type: str,
++                 browser_context: BrowserContext, # type: ignore
++                 context_page: Page, # type: ignore
++                 login_phone: Optional[str] = "",
++                 cookie_str: Optional[str] = ""
++                 ):
++        config.LOGIN_TYPE = login_type
++        self.browser_context = browser_context
++        self.context_page = context_page
++        self.login_phone = login_phone
++        self.scan_qrcode_time = 60
++        self.cookie_str = cookie_str
++
++    async def begin(self):
++        """
++            Start login douyin website
++            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
++        """
++
++        # popup login dialog
++        await self.popup_login_dialog()
++
++        # select login type
++        if config.LOGIN_TYPE == "qrcode":
++            await self.login_by_qrcode()
++        elif config.LOGIN_TYPE == "phone":
++            await self.login_by_mobile()
++        elif config.LOGIN_TYPE == "cookie":
++            await self.login_by_cookies()
++        else:
++            raise ValueError("[DouYinLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
++
++        # If the page redirects to the slider verification page, need to slide again
++        await asyncio.sleep(6)
++        current_page_title = await self.context_page.title()
++        if "验证码中间页" in current_page_title:
++            await self.check_page_display_slider(move_step=3, slider_level="hard")
++
++        # check login state
++        utils.logger.info(f"[DouYinLogin.begin] login finished then check login state ...")
++        try:
++            await self.check_login_state()
++        except RetryError:
++            utils.logger.info("[DouYinLogin.begin] login failed please confirm ...")
++            sys.exit()
++
++        # wait for redirect
++        wait_redirect_seconds = 5
++        utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
++        await asyncio.sleep(wait_redirect_seconds)
++
++        # COIFESP auth bridge: export logical cookies after successful login
++        from tools.coifesp_auth_bridge import export_cookies
++        await export_cookies(self.browser_context, platform="douyin")
++
++    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
++    async def check_login_state(self):
++        """Check if the current login status is successful and return True otherwise return False"""
++        current_cookie = await self.browser_context.cookies()
++        _, cookie_dict = utils.convert_cookies(current_cookie)
++
++        for page in self.browser_context.pages:
++            try:
++                local_storage = await page.evaluate("() => window.localStorage")
++                if local_storage.get("HasUserLogin", "") == "1":
++                    return True
++            except Exception as e:
++                # utils.logger.warn(f"[DouYinLogin] check_login_state waring: {e}")
++                await asyncio.sleep(0.1)
++
++        if cookie_dict.get("LOGIN_STATUS") == "1":
++            return True
++
++        return False
++
++    async def popup_login_dialog(self):
++        """If the login dialog box does not pop up automatically, we will manually click the login button"""
++        dialog_selector = "xpath=//div[@id='login-panel-new']"
++        try:
++            # check dialog box is auto popup and wait for 10 seconds
++            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
++        except Exception as e:
++            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
++            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
++            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
++            await login_button_ele.click()
++            await asyncio.sleep(0.5)
++
++    async def login_by_qrcode(self):
++        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
++        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
++        base64_qrcode_img = await utils.find_login_qrcode(
++            self.context_page,
++            selector=qrcode_img_selector
++        )
++        if not base64_qrcode_img:
++            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
++            sys.exit()
++
++        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++        await asyncio.sleep(2)
++
++    async def login_by_mobile(self):
++        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
++        mobile_tap_ele = self.context_page.locator("xpath=//li[text() = '验证码登录']")
++        await mobile_tap_ele.click()
++        await self.context_page.wait_for_selector("xpath=//article[@class='web-login-mobile-code']")
++        mobile_input_ele = self.context_page.locator("xpath=//input[@placeholder='手机号']")
++        await mobile_input_ele.fill(self.login_phone)
++        await asyncio.sleep(0.5)
++        send_sms_code_btn = self.context_page.locator("xpath=//span[text() = '获取验证码']")
++        await send_sms_code_btn.click()
++
++        # Check if there is slider verification
++        await self.check_page_display_slider(move_step=10, slider_level="easy")
++        cache_client = CacheFactory.create_cache(config.CACHE_TYPE_MEMORY)
++        max_get_sms_code_time = 60 * 2  # Maximum time to get verification code is 2 minutes
++        while max_get_sms_code_time > 0:
++            utils.logger.info(f"[DouYinLogin.login_by_mobile] get douyin sms code from redis remaining time {max_get_sms_code_time}s ...")
++            await asyncio.sleep(1)
++            sms_code_key = f"dy_{self.login_phone}"
++            sms_code_value = cache_client.get(sms_code_key)
++            if not sms_code_value:
++                max_get_sms_code_time -= 1
++                continue
++
++            sms_code_input_ele = self.context_page.locator("xpath=//input[@placeholder='请输入验证码']")
++            await sms_code_input_ele.fill(value=sms_code_value.decode())
++            await asyncio.sleep(0.5)
++            submit_btn_ele = self.context_page.locator("xpath=//button[@class='web-login-button']")
++            await submit_btn_ele.click()  # Click login
++            # todo ... should also check the correctness of the verification code, it may be incorrect
++            break
++
++    async def check_page_display_slider(self, move_step: int = 10, slider_level: str = "easy"):
++        """
++        Check if slider verification appears on the page
++        :return:
++        """
++        # Wait for slider verification to appear
++        back_selector = "#captcha-verify-image"
++        try:
++            await self.context_page.wait_for_selector(selector=back_selector, state="visible", timeout=30 * 1000)
++        except PlaywrightTimeoutError:  # No slider verification, return directly
++            return
++
++        gap_selector = 'xpath=//*[@id="captcha_container"]/div/div[2]/img[2]'
++        max_slider_try_times = 20
++        slider_verify_success = False
++        while not slider_verify_success:
++            if max_slider_try_times <= 0:
++                utils.logger.error("[DouYinLogin.check_page_display_slider] slider verify failed ...")
++                sys.exit()
++            try:
++                await self.move_slider(back_selector, gap_selector, move_step, slider_level)
++                await asyncio.sleep(1)
++
++                # If the slider is too slow or verification failed, it will prompt "The operation is too slow", click the refresh button here
++                page_content = await self.context_page.content()
++                if "操作过慢" in page_content or "提示重新操作" in page_content:
++                    utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify failed, retry ...")
++                    await self.context_page.click(selector="//a[contains(@class, 'secsdk_captcha_refresh')]")
++                    continue
++
++                # After successful sliding, wait for the slider to disappear
++                await self.context_page.wait_for_selector(selector=back_selector, state="hidden", timeout=1000)
++                # If the slider disappears, it means the verification is successful, break the loop. If not, it means the verification failed, the above line will throw an exception and be caught to continue the loop
++                utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify success ...")
++                slider_verify_success = True
++            except Exception as e:
++                utils.logger.error(f"[DouYinLogin.check_page_display_slider] slider verify failed, error: {e}")
++                await asyncio.sleep(1)
++                max_slider_try_times -= 1
++                utils.logger.info(f"[DouYinLogin.check_page_display_slider] remaining slider try times: {max_slider_try_times}")
++                continue
++
++    async def move_slider(self, back_selector: str, gap_selector: str, move_step: int = 10, slider_level="easy"):
++        """
++        Move the slider to the right to complete the verification
++        :param back_selector: Selector for the slider verification background image
++        :param gap_selector:  Selector for the slider verification slider
++        :param move_step: Controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++        :param slider_level: Slider difficulty easy hard, corresponding to the slider for mobile verification code and the slider in the middle of verification code
++        :return:
++        """
++
++        # get slider background image
++        slider_back_elements = await self.context_page.wait_for_selector(
++            selector=back_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        slide_back = str(await slider_back_elements.get_property("src")) # type: ignore
++
++        # get slider gap image
++        gap_elements = await self.context_page.wait_for_selector(
++            selector=gap_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        gap_src = str(await gap_elements.get_property("src")) # type: ignore
++
++        # Identify slider position
++        slide_app = utils.Slide(gap=gap_src, bg=slide_back)
++        distance = slide_app.discern()
++
++        # Get movement trajectory
++        tracks = utils.get_tracks(distance, slider_level)
++        new_1 = tracks[-1] - (sum(tracks) - distance)
++        tracks.pop()
++        tracks.append(new_1)
++
++        # Drag slider to specified position according to trajectory
++        element = await self.context_page.query_selector(gap_selector)
++        bounding_box = await element.bounding_box() # type: ignore
++
++        await self.context_page.mouse.move(bounding_box["x"] + bounding_box["width"] / 2, # type: ignore
++                                           bounding_box["y"] + bounding_box["height"] / 2) # type: ignore
++        # Get x coordinate center position
++        x = bounding_box["x"] + bounding_box["width"] / 2 # type: ignore
++        # Simulate sliding operation
++        await element.hover() # type: ignore
++        await self.context_page.mouse.down()
++
++        for track in tracks:
++            # Loop mouse movement according to trajectory
++            # steps controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++            await self.context_page.mouse.move(x + track, 0, steps=move_step)
++            x += track
++        await self.context_page.mouse.up()
++
++    async def login_by_cookies(self):
++        utils.logger.info("[DouYinLogin.login_by_cookies] Begin login douyin by cookie ...")
++        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
++            await self.browser_context.add_cookies([{
++                'name': key,
++                'value': value,
++                'domain': ".douyin.com",
++                'path': "/"
++            }])
 diff --git a/media_platform/douyin/client.py b/media_platform/douyin/client.py
 index 3310cdb..5dc74c1 100644
 --- a/media_platform/douyin/client.py
@@ -514,21 +736,122 @@ index c0e9372..0e1ff48 100644
              return browser_context
  
 diff --git a/media_platform/douyin/login.py b/media_platform/douyin/login.py
-index 4b76d11..85fcda9 100644
+index 4b76d11..0b45bd9 100644
 --- a/media_platform/douyin/login.py
 +++ b/media_platform/douyin/login.py
-@@ -105,36 +105,75 @@ class DouYinLogin(AbstractLogin):
- 
-         if cookie_dict.get("LOGIN_STATUS") == "1":
-             return True
-+        # 2026 网页端登录后不一定再写 LOGIN_STATUS / HasUserLogin。
-+        if any(cookie_dict.get(name) for name in ("sessionid", "sid_guard", "uid_tt", "sid_tt")):
-+            return True
- 
-         return False
- 
-     async def popup_login_dialog(self):
-         """If the login dialog box does not pop up automatically, we will manually click the login button"""
+@@ -1,274 +1,278 @@
+-# -*- coding: utf-8 -*-
+-# Copyright (c) 2025 relakkes@gmail.com
+-#
+-# This file is part of MediaCrawler project.
+-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/douyin/login.py
+-# GitHub: https://github.com/NanmiCoder
+-# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
+-#
+-
+-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+-# 1. 不得用于任何商业用途。
+-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+-# 3. 不得进行大规模爬取或对平台造成运营干扰。
+-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
+-# 5. 不得用于任何非法或不当的用途。
+-#
+-# 详细许可条款请参阅项目根目录下的LICENSE文件。
+-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
+-
+-
+-import asyncio
+-import functools
+-import sys
+-from typing import Optional
+-
+-from playwright.async_api import BrowserContext, Page
+-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+-from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
+-                      wait_fixed)
+-
+-import config
+-from base.base_crawler import AbstractLogin
+-from cache.cache_factory import CacheFactory
+-from tools import utils
+-
+-
+-class DouYinLogin(AbstractLogin):
+-
+-    def __init__(self,
+-                 login_type: str,
+-                 browser_context: BrowserContext, # type: ignore
+-                 context_page: Page, # type: ignore
+-                 login_phone: Optional[str] = "",
+-                 cookie_str: Optional[str] = ""
+-                 ):
+-        config.LOGIN_TYPE = login_type
+-        self.browser_context = browser_context
+-        self.context_page = context_page
+-        self.login_phone = login_phone
+-        self.scan_qrcode_time = 60
+-        self.cookie_str = cookie_str
+-
+-    async def begin(self):
+-        """
+-            Start login douyin website
+-            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
+-        """
+-
+-        # popup login dialog
+-        await self.popup_login_dialog()
+-
+-        # select login type
+-        if config.LOGIN_TYPE == "qrcode":
+-            await self.login_by_qrcode()
+-        elif config.LOGIN_TYPE == "phone":
+-            await self.login_by_mobile()
+-        elif config.LOGIN_TYPE == "cookie":
+-            await self.login_by_cookies()
+-        else:
+-            raise ValueError("[DouYinLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
+-
+-        # If the page redirects to the slider verification page, need to slide again
+-        await asyncio.sleep(6)
+-        current_page_title = await self.context_page.title()
+-        if "验证码中间页" in current_page_title:
+-            await self.check_page_display_slider(move_step=3, slider_level="hard")
+-
+-        # check login state
+-        utils.logger.info(f"[DouYinLogin.begin] login finished then check login state ...")
+-        try:
+-            await self.check_login_state()
+-        except RetryError:
+-            utils.logger.info("[DouYinLogin.begin] login failed please confirm ...")
+-            sys.exit()
+-
+-        # wait for redirect
+-        wait_redirect_seconds = 5
+-        utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+-        await asyncio.sleep(wait_redirect_seconds)
+-
+-    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
+-    async def check_login_state(self):
+-        """Check if the current login status is successful and return True otherwise return False"""
+-        current_cookie = await self.browser_context.cookies()
+-        _, cookie_dict = utils.convert_cookies(current_cookie)
+-
+-        for page in self.browser_context.pages:
+-            try:
+-                local_storage = await page.evaluate("() => window.localStorage")
+-                if local_storage.get("HasUserLogin", "") == "1":
+-                    return True
+-            except Exception as e:
+-                # utils.logger.warn(f"[DouYinLogin] check_login_state waring: {e}")
+-                await asyncio.sleep(0.1)
+-
+-        if cookie_dict.get("LOGIN_STATUS") == "1":
+-            return True
+-
+-        return False
+-
+-    async def popup_login_dialog(self):
+-        """If the login dialog box does not pop up automatically, we will manually click the login button"""
 -        dialog_selector = "xpath=//div[@id='login-panel-new']"
 -        try:
 -            # check dialog box is auto popup and wait for 10 seconds
@@ -539,71 +862,14 @@ index 4b76d11..85fcda9 100644
 -            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
 -            await login_button_ele.click()
 -            await asyncio.sleep(0.5)
-+        dialog_selectors = (
-+            "xpath=//div[@id='login-panel-new']",
-+            "xpath=//div[contains(@class,'login-panel')]",
-+            "text=扫码登录",
-+        )
-+        for selector in dialog_selectors:
-+            try:
-+                await self.context_page.wait_for_selector(selector, timeout=3000)
-+                return
-+            except Exception:
-+                continue
-+        utils.logger.info(
-+            "[DouYinLogin.popup_login_dialog] login dialog did not auto-open; clicking visible 登录"
-+        )
-+        clicked = await self.context_page.evaluate(
-+            """() => {
-+              const nodes = [...document.querySelectorAll('button, a, div, span, p')];
-+              const target = nodes.find((node) => {
-+                const text = (node.innerText || '').trim();
-+                const rect = node.getBoundingClientRect();
-+                return text === '登录' && rect.width > 20 && rect.height > 10;
-+              });
-+              if (!target) return false;
-+              target.click();
-+              return true;
-+            }"""
-+        )
-+        if not clicked:
-+            raise RuntimeError("Douyin login button not found on homepage")
-+        await asyncio.sleep(1.0)
- 
-     async def login_by_qrcode(self):
-         utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
+-
+-    async def login_by_qrcode(self):
+-        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
 -        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
 -        base64_qrcode_img = await utils.find_login_qrcode(
 -            self.context_page,
 -            selector=qrcode_img_selector
-+        qrcode_img_selectors = (
-+            "xpath=//div[@id='animate_qrcode_container']//img",
-+            "xpath=//img[contains(@src,'qr')]",
-+        )
-+        base64_qrcode_img = ""
-+        for selector in qrcode_img_selectors:
-+            try:
-+                handle = await self.context_page.wait_for_selector(selector, timeout=4000)
-+            except Exception:
-+                continue
-+            if handle is None:
-+                continue
-+            base64_qrcode_img = await utils.find_login_qrcode(
-+                self.context_page,
-+                selector=selector,
-+            )
-+            if base64_qrcode_img:
-+                break
-+        if base64_qrcode_img:
-+            partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
-+            asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
-+            await asyncio.sleep(2)
-+            return
-+        # 页面上已有登录框/验证码时不要退出：关掉浏览器会打断用户正在输入的验证码。
-+        utils.logger.info(
-+            "[DouYinLogin.login_by_qrcode] QR selector not found; "
-+            "keep the browser open and wait for manual scan + captcha"
-         )
+-        )
 -        if not base64_qrcode_img:
 -            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
 -            sys.exit()
@@ -611,95 +877,510 @@ index 4b76d11..85fcda9 100644
 -        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
 -        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
 -        await asyncio.sleep(2)
- 
-     async def login_by_mobile(self):
-         utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
+-
+-    async def login_by_mobile(self):
+-        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
+-        mobile_tap_ele = self.context_page.locator("xpath=//li[text() = '验证码登录']")
+-        await mobile_tap_ele.click()
+-        await self.context_page.wait_for_selector("xpath=//article[@class='web-login-mobile-code']")
+-        mobile_input_ele = self.context_page.locator("xpath=//input[@placeholder='手机号']")
+-        await mobile_input_ele.fill(self.login_phone)
+-        await asyncio.sleep(0.5)
+-        send_sms_code_btn = self.context_page.locator("xpath=//span[text() = '获取验证码']")
+-        await send_sms_code_btn.click()
+-
+-        # Check if there is slider verification
+-        await self.check_page_display_slider(move_step=10, slider_level="easy")
+-        cache_client = CacheFactory.create_cache(config.CACHE_TYPE_MEMORY)
+-        max_get_sms_code_time = 60 * 2  # Maximum time to get verification code is 2 minutes
+-        while max_get_sms_code_time > 0:
+-            utils.logger.info(f"[DouYinLogin.login_by_mobile] get douyin sms code from redis remaining time {max_get_sms_code_time}s ...")
+-            await asyncio.sleep(1)
+-            sms_code_key = f"dy_{self.login_phone}"
+-            sms_code_value = cache_client.get(sms_code_key)
+-            if not sms_code_value:
+-                max_get_sms_code_time -= 1
+-                continue
+-
+-            sms_code_input_ele = self.context_page.locator("xpath=//input[@placeholder='请输入验证码']")
+-            await sms_code_input_ele.fill(value=sms_code_value.decode())
+-            await asyncio.sleep(0.5)
+-            submit_btn_ele = self.context_page.locator("xpath=//button[@class='web-login-button']")
+-            await submit_btn_ele.click()  # Click login
+-            # todo ... should also check the correctness of the verification code, it may be incorrect
+-            break
+-
+-    async def check_page_display_slider(self, move_step: int = 10, slider_level: str = "easy"):
+-        """
+-        Check if slider verification appears on the page
+-        :return:
+-        """
+-        # Wait for slider verification to appear
+-        back_selector = "#captcha-verify-image"
+-        try:
+-            await self.context_page.wait_for_selector(selector=back_selector, state="visible", timeout=30 * 1000)
+-        except PlaywrightTimeoutError:  # No slider verification, return directly
+-            return
+-
+-        gap_selector = 'xpath=//*[@id="captcha_container"]/div/div[2]/img[2]'
+-        max_slider_try_times = 20
+-        slider_verify_success = False
+-        while not slider_verify_success:
+-            if max_slider_try_times <= 0:
+-                utils.logger.error("[DouYinLogin.check_page_display_slider] slider verify failed ...")
+-                sys.exit()
+-            try:
+-                await self.move_slider(back_selector, gap_selector, move_step, slider_level)
+-                await asyncio.sleep(1)
+-
+-                # If the slider is too slow or verification failed, it will prompt "The operation is too slow", click the refresh button here
+-                page_content = await self.context_page.content()
+-                if "操作过慢" in page_content or "提示重新操作" in page_content:
+-                    utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify failed, retry ...")
+-                    await self.context_page.click(selector="//a[contains(@class, 'secsdk_captcha_refresh')]")
+-                    continue
+-
+-                # After successful sliding, wait for the slider to disappear
+-                await self.context_page.wait_for_selector(selector=back_selector, state="hidden", timeout=1000)
+-                # If the slider disappears, it means the verification is successful, break the loop. If not, it means the verification failed, the above line will throw an exception and be caught to continue the loop
+-                utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify success ...")
+-                slider_verify_success = True
+-            except Exception as e:
+-                utils.logger.error(f"[DouYinLogin.check_page_display_slider] slider verify failed, error: {e}")
+-                await asyncio.sleep(1)
+-                max_slider_try_times -= 1
+-                utils.logger.info(f"[DouYinLogin.check_page_display_slider] remaining slider try times: {max_slider_try_times}")
+-                continue
+-
+-    async def move_slider(self, back_selector: str, gap_selector: str, move_step: int = 10, slider_level="easy"):
+-        """
+-        Move the slider to the right to complete the verification
+-        :param back_selector: Selector for the slider verification background image
+-        :param gap_selector:  Selector for the slider verification slider
+-        :param move_step: Controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
+-        :param slider_level: Slider difficulty easy hard, corresponding to the slider for mobile verification code and the slider in the middle of verification code
+-        :return:
+-        """
+-
+-        # get slider background image
+-        slider_back_elements = await self.context_page.wait_for_selector(
+-            selector=back_selector,
+-            timeout=1000 * 10,  # wait 10 seconds
+-        )
+-        slide_back = str(await slider_back_elements.get_property("src")) # type: ignore
+-
+-        # get slider gap image
+-        gap_elements = await self.context_page.wait_for_selector(
+-            selector=gap_selector,
+-            timeout=1000 * 10,  # wait 10 seconds
+-        )
+-        gap_src = str(await gap_elements.get_property("src")) # type: ignore
+-
+-        # Identify slider position
+-        slide_app = utils.Slide(gap=gap_src, bg=slide_back)
+-        distance = slide_app.discern()
+-
+-        # Get movement trajectory
+-        tracks = utils.get_tracks(distance, slider_level)
+-        new_1 = tracks[-1] - (sum(tracks) - distance)
+-        tracks.pop()
+-        tracks.append(new_1)
+-
+-        # Drag slider to specified position according to trajectory
+-        element = await self.context_page.query_selector(gap_selector)
+-        bounding_box = await element.bounding_box() # type: ignore
+-
+-        await self.context_page.mouse.move(bounding_box["x"] + bounding_box["width"] / 2, # type: ignore
+-                                           bounding_box["y"] + bounding_box["height"] / 2) # type: ignore
+-        # Get x coordinate center position
+-        x = bounding_box["x"] + bounding_box["width"] / 2 # type: ignore
+-        # Simulate sliding operation
+-        await element.hover() # type: ignore
+-        await self.context_page.mouse.down()
+-
+-        for track in tracks:
+-            # Loop mouse movement according to trajectory
+-            # steps controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
+-            await self.context_page.mouse.move(x + track, 0, steps=move_step)
+-            x += track
+-        await self.context_page.mouse.up()
+-
+-    async def login_by_cookies(self):
+-        utils.logger.info("[DouYinLogin.login_by_cookies] Begin login douyin by cookie ...")
+-        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
+-            await self.browser_context.add_cookies([{
+-                'name': key,
+-                'value': value,
+-                'domain': ".douyin.com",
+-                'path': "/"
+-            }])
++# -*- coding: utf-8 -*-
++# Copyright (c) 2025 relakkes@gmail.com
++#
++# This file is part of MediaCrawler project.
++# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/douyin/login.py
++# GitHub: https://github.com/NanmiCoder
++# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
++#
++
++# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
++# 1. 不得用于任何商业用途。
++# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
++# 3. 不得进行大规模爬取或对平台造成运营干扰。
++# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
++# 5. 不得用于任何非法或不当的用途。
++#
++# 详细许可条款请参阅项目根目录下的LICENSE文件。
++# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
++
++
++import asyncio
++import functools
++import sys
++from typing import Optional
++
++from playwright.async_api import BrowserContext, Page
++from playwright.async_api import TimeoutError as PlaywrightTimeoutError
++from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
++                      wait_fixed)
++
++import config
++from base.base_crawler import AbstractLogin
++from cache.cache_factory import CacheFactory
++from tools import utils
++
++
++class DouYinLogin(AbstractLogin):
++
++    def __init__(self,
++                 login_type: str,
++                 browser_context: BrowserContext, # type: ignore
++                 context_page: Page, # type: ignore
++                 login_phone: Optional[str] = "",
++                 cookie_str: Optional[str] = ""
++                 ):
++        config.LOGIN_TYPE = login_type
++        self.browser_context = browser_context
++        self.context_page = context_page
++        self.login_phone = login_phone
++        self.scan_qrcode_time = 60
++        self.cookie_str = cookie_str
++
++    async def begin(self):
++        """
++            Start login douyin website
++            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
++        """
++
++        # popup login dialog
++        await self.popup_login_dialog()
++
++        # select login type
++        if config.LOGIN_TYPE == "qrcode":
++            await self.login_by_qrcode()
++        elif config.LOGIN_TYPE == "phone":
++            await self.login_by_mobile()
++        elif config.LOGIN_TYPE == "cookie":
++            await self.login_by_cookies()
++        else:
++            raise ValueError("[DouYinLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
++
++        # If the page redirects to the slider verification page, need to slide again
++        await asyncio.sleep(6)
++        current_page_title = await self.context_page.title()
++        if "验证码中间页" in current_page_title:
++            await self.check_page_display_slider(move_step=3, slider_level="hard")
++
++        # check login state
++        utils.logger.info(f"[DouYinLogin.begin] login finished then check login state ...")
++        try:
++            await self.check_login_state()
++        except RetryError:
++            utils.logger.info("[DouYinLogin.begin] login failed please confirm ...")
++            sys.exit()
++
++        # wait for redirect
++        wait_redirect_seconds = 5
++        utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
++        await asyncio.sleep(wait_redirect_seconds)
++
++        # COIFESP auth bridge: export logical cookies after successful login
++        from tools.coifesp_auth_bridge import export_cookies
++        await export_cookies(self.browser_context, platform="douyin")
++
++    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
++    async def check_login_state(self):
++        """Check if the current login status is successful and return True otherwise return False"""
++        current_cookie = await self.browser_context.cookies()
++        _, cookie_dict = utils.convert_cookies(current_cookie)
++
++        for page in self.browser_context.pages:
++            try:
++                local_storage = await page.evaluate("() => window.localStorage")
++                if local_storage.get("HasUserLogin", "") == "1":
++                    return True
++            except Exception as e:
++                # utils.logger.warn(f"[DouYinLogin] check_login_state waring: {e}")
++                await asyncio.sleep(0.1)
++
++        if cookie_dict.get("LOGIN_STATUS") == "1":
++            return True
++
++        return False
++
++    async def popup_login_dialog(self):
++        """If the login dialog box does not pop up automatically, we will manually click the login button"""
++        dialog_selector = "xpath=//div[@id='login-panel-new']"
++        try:
++            # check dialog box is auto popup and wait for 10 seconds
++            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
++        except Exception as e:
++            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
++            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
++            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
++            await login_button_ele.click()
++            await asyncio.sleep(0.5)
++
++    async def login_by_qrcode(self):
++        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
++        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
++        base64_qrcode_img = await utils.find_login_qrcode(
++            self.context_page,
++            selector=qrcode_img_selector
++        )
++        if not base64_qrcode_img:
++            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
++            sys.exit()
++
++        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++        await asyncio.sleep(2)
++
++    async def login_by_mobile(self):
++        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
++        mobile_tap_ele = self.context_page.locator("xpath=//li[text() = '验证码登录']")
++        await mobile_tap_ele.click()
++        await self.context_page.wait_for_selector("xpath=//article[@class='web-login-mobile-code']")
++        mobile_input_ele = self.context_page.locator("xpath=//input[@placeholder='手机号']")
++        await mobile_input_ele.fill(self.login_phone)
++        await asyncio.sleep(0.5)
++        send_sms_code_btn = self.context_page.locator("xpath=//span[text() = '获取验证码']")
++        await send_sms_code_btn.click()
++
++        # Check if there is slider verification
++        await self.check_page_display_slider(move_step=10, slider_level="easy")
++        cache_client = CacheFactory.create_cache(config.CACHE_TYPE_MEMORY)
++        max_get_sms_code_time = 60 * 2  # Maximum time to get verification code is 2 minutes
++        while max_get_sms_code_time > 0:
++            utils.logger.info(f"[DouYinLogin.login_by_mobile] get douyin sms code from redis remaining time {max_get_sms_code_time}s ...")
++            await asyncio.sleep(1)
++            sms_code_key = f"dy_{self.login_phone}"
++            sms_code_value = cache_client.get(sms_code_key)
++            if not sms_code_value:
++                max_get_sms_code_time -= 1
++                continue
++
++            sms_code_input_ele = self.context_page.locator("xpath=//input[@placeholder='请输入验证码']")
++            await sms_code_input_ele.fill(value=sms_code_value.decode())
++            await asyncio.sleep(0.5)
++            submit_btn_ele = self.context_page.locator("xpath=//button[@class='web-login-button']")
++            await submit_btn_ele.click()  # Click login
++            # todo ... should also check the correctness of the verification code, it may be incorrect
++            break
++
++    async def check_page_display_slider(self, move_step: int = 10, slider_level: str = "easy"):
++        """
++        Check if slider verification appears on the page
++        :return:
++        """
++        # Wait for slider verification to appear
++        back_selector = "#captcha-verify-image"
++        try:
++            await self.context_page.wait_for_selector(selector=back_selector, state="visible", timeout=30 * 1000)
++        except PlaywrightTimeoutError:  # No slider verification, return directly
++            return
++
++        gap_selector = 'xpath=//*[@id="captcha_container"]/div/div[2]/img[2]'
++        max_slider_try_times = 20
++        slider_verify_success = False
++        while not slider_verify_success:
++            if max_slider_try_times <= 0:
++                utils.logger.error("[DouYinLogin.check_page_display_slider] slider verify failed ...")
++                sys.exit()
++            try:
++                await self.move_slider(back_selector, gap_selector, move_step, slider_level)
++                await asyncio.sleep(1)
++
++                # If the slider is too slow or verification failed, it will prompt "The operation is too slow", click the refresh button here
++                page_content = await self.context_page.content()
++                if "操作过慢" in page_content or "提示重新操作" in page_content:
++                    utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify failed, retry ...")
++                    await self.context_page.click(selector="//a[contains(@class, 'secsdk_captcha_refresh')]")
++                    continue
++
++                # After successful sliding, wait for the slider to disappear
++                await self.context_page.wait_for_selector(selector=back_selector, state="hidden", timeout=1000)
++                # If the slider disappears, it means the verification is successful, break the loop. If not, it means the verification failed, the above line will throw an exception and be caught to continue the loop
++                utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify success ...")
++                slider_verify_success = True
++            except Exception as e:
++                utils.logger.error(f"[DouYinLogin.check_page_display_slider] slider verify failed, error: {e}")
++                await asyncio.sleep(1)
++                max_slider_try_times -= 1
++                utils.logger.info(f"[DouYinLogin.check_page_display_slider] remaining slider try times: {max_slider_try_times}")
++                continue
++
++    async def move_slider(self, back_selector: str, gap_selector: str, move_step: int = 10, slider_level="easy"):
++        """
++        Move the slider to the right to complete the verification
++        :param back_selector: Selector for the slider verification background image
++        :param gap_selector:  Selector for the slider verification slider
++        :param move_step: Controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++        :param slider_level: Slider difficulty easy hard, corresponding to the slider for mobile verification code and the slider in the middle of verification code
++        :return:
++        """
++
++        # get slider background image
++        slider_back_elements = await self.context_page.wait_for_selector(
++            selector=back_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        slide_back = str(await slider_back_elements.get_property("src")) # type: ignore
++
++        # get slider gap image
++        gap_elements = await self.context_page.wait_for_selector(
++            selector=gap_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        gap_src = str(await gap_elements.get_property("src")) # type: ignore
++
++        # Identify slider position
++        slide_app = utils.Slide(gap=gap_src, bg=slide_back)
++        distance = slide_app.discern()
++
++        # Get movement trajectory
++        tracks = utils.get_tracks(distance, slider_level)
++        new_1 = tracks[-1] - (sum(tracks) - distance)
++        tracks.pop()
++        tracks.append(new_1)
++
++        # Drag slider to specified position according to trajectory
++        element = await self.context_page.query_selector(gap_selector)
++        bounding_box = await element.bounding_box() # type: ignore
++
++        await self.context_page.mouse.move(bounding_box["x"] + bounding_box["width"] / 2, # type: ignore
++                                           bounding_box["y"] + bounding_box["height"] / 2) # type: ignore
++        # Get x coordinate center position
++        x = bounding_box["x"] + bounding_box["width"] / 2 # type: ignore
++        # Simulate sliding operation
++        await element.hover() # type: ignore
++        await self.context_page.mouse.down()
++
++        for track in tracks:
++            # Loop mouse movement according to trajectory
++            # steps controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++            await self.context_page.mouse.move(x + track, 0, steps=move_step)
++            x += track
++        await self.context_page.mouse.up()
++
++    async def login_by_cookies(self):
++        utils.logger.info("[DouYinLogin.login_by_cookies] Begin login douyin by cookie ...")
++        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
++            await self.browser_context.add_cookies([{
++                'name': key,
++                'value': value,
++                'domain': ".douyin.com",
++                'path': "/"
++            }])
 diff --git a/media_platform/tieba/login.py b/media_platform/tieba/login.py
-index a177293..6a8ceab 100644
+index a177293..0b45bd9 100644
 --- a/media_platform/tieba/login.py
 +++ b/media_platform/tieba/login.py
-@@ -19,13 +19,9 @@
- 
- 
- import asyncio
+@@ -1,132 +1,278 @@
+-# -*- coding: utf-8 -*-
+-# Copyright (c) 2025 relakkes@gmail.com
+-#
+-# This file is part of MediaCrawler project.
+-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/tieba/login.py
+-# GitHub: https://github.com/NanmiCoder
+-# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
+-#
+-
+-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+-# 1. 不得用于任何商业用途。
+-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+-# 3. 不得进行大规模爬取或对平台造成运营干扰。
+-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
+-# 5. 不得用于任何非法或不当的用途。
+-#
+-# 详细许可条款请参阅项目根目录下的LICENSE文件。
+-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
+-
+-
+-import asyncio
 -import functools
 -import sys
- from typing import Optional
- 
- from playwright.async_api import BrowserContext, Page
+-from typing import Optional
+-
+-from playwright.async_api import BrowserContext, Page
 -from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
 -                      wait_fixed)
- 
- import config
- from base.base_crawler import AbstractLogin
-@@ -33,6 +29,15 @@ from tools import utils
- 
- 
- class BaiduTieBaLogin(AbstractLogin):
-+    LOGIN_COOKIE_NAMES = {"STOKEN", "PTOKEN", "BDUSS", "BDUSS_BFESS"}
-+    LOGIN_ENTRY_SELECTORS = (
-+        "li.u_login",
-+        "a.u_login",
-+        ".u_login",
-+        "button:has-text('登录')",
-+        "a:has-text('登录')",
-+        "text=登录",
-+    )
- 
-     def __init__(self,
-                  login_type: str,
-@@ -47,7 +52,6 @@ class BaiduTieBaLogin(AbstractLogin):
-         self.login_phone = login_phone
-         self.cookie_str = cookie_str
- 
+-
+-import config
+-from base.base_crawler import AbstractLogin
+-from tools import utils
+-
+-
+-class BaiduTieBaLogin(AbstractLogin):
+-
+-    def __init__(self,
+-                 login_type: str,
+-                 browser_context: BrowserContext,
+-                 context_page: Page,
+-                 login_phone: Optional[str] = "",
+-                 cookie_str: str = ""
+-                 ):
+-        config.LOGIN_TYPE = login_type
+-        self.browser_context = browser_context
+-        self.context_page = context_page
+-        self.login_phone = login_phone
+-        self.cookie_str = cookie_str
+-
 -    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
-     async def check_login_state(self) -> bool:
-         """
-         Poll to check if login status is successful, return True if successful, otherwise return False
-@@ -57,12 +61,35 @@ class BaiduTieBaLogin(AbstractLogin):
-         """
-         current_cookie = await self.browser_context.cookies()
-         _, cookie_dict = utils.convert_cookies(current_cookie)
+-    async def check_login_state(self) -> bool:
+-        """
+-        Poll to check if login status is successful, return True if successful, otherwise return False
+-
+-        Returns:
+-
+-        """
+-        current_cookie = await self.browser_context.cookies()
+-        _, cookie_dict = utils.convert_cookies(current_cookie)
 -        stoken = cookie_dict.get("STOKEN")
 -        ptoken = cookie_dict.get("PTOKEN")
 -        if stoken or ptoken:
 -            return True
-+        return any(cookie_dict.get(name) for name in self.LOGIN_COOKIE_NAMES)
-+
-+    async def _click_login_entry(self) -> bool:
-+        """Try the known login entry variants without depending on one DOM version."""
-+        for selector in self.LOGIN_ENTRY_SELECTORS:
-+            locator = self.context_page.locator(selector).first
-+            try:
-+                if await locator.is_visible(timeout=1_500):
-+                    await locator.click(timeout=5_000)
-+                    utils.logger.info(
-+                        f"[BaiduTieBaLogin._click_login_entry] Opened login dialog with selector: {selector}"
-+                    )
-+                    return True
-+            except Exception:
-+                continue
-         return False
- 
-+    async def _wait_for_login(self, timeout_seconds: int = 180) -> None:
-+        """Keep the visible browser available while the user completes login."""
-+        loop = asyncio.get_running_loop()
-+        deadline = loop.time() + timeout_seconds
-+        while loop.time() < deadline:
-+            if await self.check_login_state():
-+                return
-+            await asyncio.sleep(1)
-+        raise TimeoutError(
-+            f"Baidu Tieba login was not completed within {timeout_seconds} seconds"
-+        )
-+
-     async def begin(self):
-         """Start login baidutieba"""
-         utils.logger.info("[BaiduTieBaLogin.begin] Begin login baidutieba ...")
-@@ -82,39 +109,24 @@ class BaiduTieBaLogin(AbstractLogin):
-     async def login_by_qrcode(self):
-         """login baidutieba website and keep webdriver login state"""
-         utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] Begin login baidutieba by qrcode ...")
+-        return False
+-
+-    async def begin(self):
+-        """Start login baidutieba"""
+-        utils.logger.info("[BaiduTieBaLogin.begin] Begin login baidutieba ...")
+-        if config.LOGIN_TYPE == "qrcode":
+-            await self.login_by_qrcode()
+-        elif config.LOGIN_TYPE == "phone":
+-            await self.login_by_mobile()
+-        elif config.LOGIN_TYPE == "cookie":
+-            await self.login_by_cookies()
+-        else:
+-            raise ValueError("[BaiduTieBaLogin.begin]Invalid Login Type Currently only supported qrcode or phone or cookies ...")
+-
+-    async def login_by_mobile(self):
+-        """Login baidutieba by mobile"""
+-        pass
+-
+-    async def login_by_qrcode(self):
+-        """login baidutieba website and keep webdriver login state"""
+-        utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] Begin login baidutieba by qrcode ...")
 -        qrcode_img_selector = "xpath=//img[@class='tang-pass-qrcode-img']"
 -        # find login qrcode
 -        base64_qrcode_img = await utils.find_login_qrcode(
@@ -715,12 +1396,7 @@ index a177293..6a8ceab 100644
 -            base64_qrcode_img = await utils.find_login_qrcode(
 -                self.context_page,
 -                selector=qrcode_img_selector
-+        opened = await self._click_login_entry()
-+        if not opened:
-+            utils.logger.warning(
-+                "[BaiduTieBaLogin.login_by_qrcode] Automatic login entry detection failed. "
-+                "Please click 登录 in the visible browser manually."
-             )
+-            )
 -            if not base64_qrcode_img:
 -                utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
 -                sys.exit()
@@ -733,25 +1409,304 @@ index a177293..6a8ceab 100644
 -        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
 -
 -        utils.logger.info(f"[BaiduTieBaLogin.login_by_qrcode] waiting for scan code login, remaining time is 120s")
-+
-+        utils.logger.info(
-+            "[BaiduTieBaLogin.login_by_qrcode] Please scan the QR code or finish login "
-+            "in the visible browser, remaining time is 180s"
-+        )
-         try:
+-        try:
 -            await self.check_login_state()
 -        except RetryError:
 -            utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] Login baidutieba failed by qrcode login method ...")
 -            sys.exit()
-+            await self._wait_for_login()
-+        except TimeoutError as exc:
-+            raise RuntimeError(
-+                "[BaiduTieBaLogin.login_by_qrcode] Login failed: timed out waiting "
-+                "for Baidu authentication cookies"
-+            ) from exc
- 
-         wait_redirect_seconds = 5
-         utils.logger.info(f"[BaiduTieBaLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+-
+-        wait_redirect_seconds = 5
+-        utils.logger.info(f"[BaiduTieBaLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+-        await asyncio.sleep(wait_redirect_seconds)
+-
+-    async def login_by_cookies(self):
+-        """login baidutieba website by cookies"""
+-        utils.logger.info("[BaiduTieBaLogin.login_by_cookies] Begin login baidutieba by cookie ...")
+-        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
+-            await self.browser_context.add_cookies([{
+-                'name': key,
+-                'value': value,
+-                'domain': ".baidu.com",
+-                'path': "/"
+-            }])
++# -*- coding: utf-8 -*-
++# Copyright (c) 2025 relakkes@gmail.com
++#
++# This file is part of MediaCrawler project.
++# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/douyin/login.py
++# GitHub: https://github.com/NanmiCoder
++# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
++#
++
++# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
++# 1. 不得用于任何商业用途。
++# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
++# 3. 不得进行大规模爬取或对平台造成运营干扰。
++# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
++# 5. 不得用于任何非法或不当的用途。
++#
++# 详细许可条款请参阅项目根目录下的LICENSE文件。
++# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
++
++
++import asyncio
++import functools
++import sys
++from typing import Optional
++
++from playwright.async_api import BrowserContext, Page
++from playwright.async_api import TimeoutError as PlaywrightTimeoutError
++from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
++                      wait_fixed)
++
++import config
++from base.base_crawler import AbstractLogin
++from cache.cache_factory import CacheFactory
++from tools import utils
++
++
++class DouYinLogin(AbstractLogin):
++
++    def __init__(self,
++                 login_type: str,
++                 browser_context: BrowserContext, # type: ignore
++                 context_page: Page, # type: ignore
++                 login_phone: Optional[str] = "",
++                 cookie_str: Optional[str] = ""
++                 ):
++        config.LOGIN_TYPE = login_type
++        self.browser_context = browser_context
++        self.context_page = context_page
++        self.login_phone = login_phone
++        self.scan_qrcode_time = 60
++        self.cookie_str = cookie_str
++
++    async def begin(self):
++        """
++            Start login douyin website
++            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
++        """
++
++        # popup login dialog
++        await self.popup_login_dialog()
++
++        # select login type
++        if config.LOGIN_TYPE == "qrcode":
++            await self.login_by_qrcode()
++        elif config.LOGIN_TYPE == "phone":
++            await self.login_by_mobile()
++        elif config.LOGIN_TYPE == "cookie":
++            await self.login_by_cookies()
++        else:
++            raise ValueError("[DouYinLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
++
++        # If the page redirects to the slider verification page, need to slide again
++        await asyncio.sleep(6)
++        current_page_title = await self.context_page.title()
++        if "验证码中间页" in current_page_title:
++            await self.check_page_display_slider(move_step=3, slider_level="hard")
++
++        # check login state
++        utils.logger.info(f"[DouYinLogin.begin] login finished then check login state ...")
++        try:
++            await self.check_login_state()
++        except RetryError:
++            utils.logger.info("[DouYinLogin.begin] login failed please confirm ...")
++            sys.exit()
++
++        # wait for redirect
++        wait_redirect_seconds = 5
++        utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
++        await asyncio.sleep(wait_redirect_seconds)
++
++        # COIFESP auth bridge: export logical cookies after successful login
++        from tools.coifesp_auth_bridge import export_cookies
++        await export_cookies(self.browser_context, platform="douyin")
++
++    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
++    async def check_login_state(self):
++        """Check if the current login status is successful and return True otherwise return False"""
++        current_cookie = await self.browser_context.cookies()
++        _, cookie_dict = utils.convert_cookies(current_cookie)
++
++        for page in self.browser_context.pages:
++            try:
++                local_storage = await page.evaluate("() => window.localStorage")
++                if local_storage.get("HasUserLogin", "") == "1":
++                    return True
++            except Exception as e:
++                # utils.logger.warn(f"[DouYinLogin] check_login_state waring: {e}")
++                await asyncio.sleep(0.1)
++
++        if cookie_dict.get("LOGIN_STATUS") == "1":
++            return True
++
++        return False
++
++    async def popup_login_dialog(self):
++        """If the login dialog box does not pop up automatically, we will manually click the login button"""
++        dialog_selector = "xpath=//div[@id='login-panel-new']"
++        try:
++            # check dialog box is auto popup and wait for 10 seconds
++            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
++        except Exception as e:
++            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
++            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
++            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
++            await login_button_ele.click()
++            await asyncio.sleep(0.5)
++
++    async def login_by_qrcode(self):
++        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
++        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
++        base64_qrcode_img = await utils.find_login_qrcode(
++            self.context_page,
++            selector=qrcode_img_selector
++        )
++        if not base64_qrcode_img:
++            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
++            sys.exit()
++
++        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++        await asyncio.sleep(2)
++
++    async def login_by_mobile(self):
++        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
++        mobile_tap_ele = self.context_page.locator("xpath=//li[text() = '验证码登录']")
++        await mobile_tap_ele.click()
++        await self.context_page.wait_for_selector("xpath=//article[@class='web-login-mobile-code']")
++        mobile_input_ele = self.context_page.locator("xpath=//input[@placeholder='手机号']")
++        await mobile_input_ele.fill(self.login_phone)
++        await asyncio.sleep(0.5)
++        send_sms_code_btn = self.context_page.locator("xpath=//span[text() = '获取验证码']")
++        await send_sms_code_btn.click()
++
++        # Check if there is slider verification
++        await self.check_page_display_slider(move_step=10, slider_level="easy")
++        cache_client = CacheFactory.create_cache(config.CACHE_TYPE_MEMORY)
++        max_get_sms_code_time = 60 * 2  # Maximum time to get verification code is 2 minutes
++        while max_get_sms_code_time > 0:
++            utils.logger.info(f"[DouYinLogin.login_by_mobile] get douyin sms code from redis remaining time {max_get_sms_code_time}s ...")
++            await asyncio.sleep(1)
++            sms_code_key = f"dy_{self.login_phone}"
++            sms_code_value = cache_client.get(sms_code_key)
++            if not sms_code_value:
++                max_get_sms_code_time -= 1
++                continue
++
++            sms_code_input_ele = self.context_page.locator("xpath=//input[@placeholder='请输入验证码']")
++            await sms_code_input_ele.fill(value=sms_code_value.decode())
++            await asyncio.sleep(0.5)
++            submit_btn_ele = self.context_page.locator("xpath=//button[@class='web-login-button']")
++            await submit_btn_ele.click()  # Click login
++            # todo ... should also check the correctness of the verification code, it may be incorrect
++            break
++
++    async def check_page_display_slider(self, move_step: int = 10, slider_level: str = "easy"):
++        """
++        Check if slider verification appears on the page
++        :return:
++        """
++        # Wait for slider verification to appear
++        back_selector = "#captcha-verify-image"
++        try:
++            await self.context_page.wait_for_selector(selector=back_selector, state="visible", timeout=30 * 1000)
++        except PlaywrightTimeoutError:  # No slider verification, return directly
++            return
++
++        gap_selector = 'xpath=//*[@id="captcha_container"]/div/div[2]/img[2]'
++        max_slider_try_times = 20
++        slider_verify_success = False
++        while not slider_verify_success:
++            if max_slider_try_times <= 0:
++                utils.logger.error("[DouYinLogin.check_page_display_slider] slider verify failed ...")
++                sys.exit()
++            try:
++                await self.move_slider(back_selector, gap_selector, move_step, slider_level)
++                await asyncio.sleep(1)
++
++                # If the slider is too slow or verification failed, it will prompt "The operation is too slow", click the refresh button here
++                page_content = await self.context_page.content()
++                if "操作过慢" in page_content or "提示重新操作" in page_content:
++                    utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify failed, retry ...")
++                    await self.context_page.click(selector="//a[contains(@class, 'secsdk_captcha_refresh')]")
++                    continue
++
++                # After successful sliding, wait for the slider to disappear
++                await self.context_page.wait_for_selector(selector=back_selector, state="hidden", timeout=1000)
++                # If the slider disappears, it means the verification is successful, break the loop. If not, it means the verification failed, the above line will throw an exception and be caught to continue the loop
++                utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify success ...")
++                slider_verify_success = True
++            except Exception as e:
++                utils.logger.error(f"[DouYinLogin.check_page_display_slider] slider verify failed, error: {e}")
++                await asyncio.sleep(1)
++                max_slider_try_times -= 1
++                utils.logger.info(f"[DouYinLogin.check_page_display_slider] remaining slider try times: {max_slider_try_times}")
++                continue
++
++    async def move_slider(self, back_selector: str, gap_selector: str, move_step: int = 10, slider_level="easy"):
++        """
++        Move the slider to the right to complete the verification
++        :param back_selector: Selector for the slider verification background image
++        :param gap_selector:  Selector for the slider verification slider
++        :param move_step: Controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++        :param slider_level: Slider difficulty easy hard, corresponding to the slider for mobile verification code and the slider in the middle of verification code
++        :return:
++        """
++
++        # get slider background image
++        slider_back_elements = await self.context_page.wait_for_selector(
++            selector=back_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        slide_back = str(await slider_back_elements.get_property("src")) # type: ignore
++
++        # get slider gap image
++        gap_elements = await self.context_page.wait_for_selector(
++            selector=gap_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        gap_src = str(await gap_elements.get_property("src")) # type: ignore
++
++        # Identify slider position
++        slide_app = utils.Slide(gap=gap_src, bg=slide_back)
++        distance = slide_app.discern()
++
++        # Get movement trajectory
++        tracks = utils.get_tracks(distance, slider_level)
++        new_1 = tracks[-1] - (sum(tracks) - distance)
++        tracks.pop()
++        tracks.append(new_1)
++
++        # Drag slider to specified position according to trajectory
++        element = await self.context_page.query_selector(gap_selector)
++        bounding_box = await element.bounding_box() # type: ignore
++
++        await self.context_page.mouse.move(bounding_box["x"] + bounding_box["width"] / 2, # type: ignore
++                                           bounding_box["y"] + bounding_box["height"] / 2) # type: ignore
++        # Get x coordinate center position
++        x = bounding_box["x"] + bounding_box["width"] / 2 # type: ignore
++        # Simulate sliding operation
++        await element.hover() # type: ignore
++        await self.context_page.mouse.down()
++
++        for track in tracks:
++            # Loop mouse movement according to trajectory
++            # steps controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++            await self.context_page.mouse.move(x + track, 0, steps=move_step)
++            x += track
++        await self.context_page.mouse.up()
++
++    async def login_by_cookies(self):
++        utils.logger.info("[DouYinLogin.login_by_cookies] Begin login douyin by cookie ...")
++        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
++            await self.browser_context.add_cookies([{
++                'name': key,
++                'value': value,
++                'domain': ".douyin.com",
++                'path': "/"
++            }])
 diff --git a/media_platform/weibo/core.py b/media_platform/weibo/core.py
 index 4f34da5..7dbae7e 100644
 --- a/media_platform/weibo/core.py
@@ -828,29 +1783,420 @@ index 4f34da5..7dbae7e 100644
                  page += 1
  
 diff --git a/media_platform/weibo/login.py b/media_platform/weibo/login.py
-index 7916c87..516430b 100644
+index 7916c87..0b45bd9 100644
 --- a/media_platform/weibo/login.py
 +++ b/media_platform/weibo/login.py
-@@ -85,9 +85,17 @@ class WeiboLogin(AbstractLogin):
-     async def login_by_qrcode(self):
-         """login weibo website and keep webdriver login state"""
-         utils.logger.info("[WeiboLogin.login_by_qrcode] Begin login weibo by qrcode ...")
+@@ -1,132 +1,278 @@
+-# -*- coding: utf-8 -*-
+-# Copyright (c) 2025 relakkes@gmail.com
+-#
+-# This file is part of MediaCrawler project.
+-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/weibo/login.py
+-# GitHub: https://github.com/NanmiCoder
+-# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
+-#
+-
+-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+-# 1. 不得用于任何商业用途。
+-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+-# 3. 不得进行大规模爬取或对平台造成运营干扰。
+-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
+-# 5. 不得用于任何非法或不当的用途。
+-#
+-# 详细许可条款请参阅项目根目录下的LICENSE文件。
+-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
+-
+-
+-# -*- coding: utf-8 -*-
+-# @Author  : relakkes@gmail.com
+-# @Time    : 2023/12/23 15:42
+-# @Desc    : Weibo login implementation
+-
+-import asyncio
+-import functools
+-import sys
+-from typing import Optional
+-
+-from playwright.async_api import BrowserContext, Page
+-from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
+-                      wait_fixed)
+-
+-import config
+-from base.base_crawler import AbstractLogin
+-from tools import utils
+-
+-
+-class WeiboLogin(AbstractLogin):
+-    def __init__(self,
+-                 login_type: str,
+-                 browser_context: BrowserContext,
+-                 context_page: Page,
+-                 login_phone: Optional[str] = "",
+-                 cookie_str: str = ""
+-                 ):
+-        config.LOGIN_TYPE = login_type
+-        self.browser_context = browser_context
+-        self.context_page = context_page
+-        self.login_phone = login_phone
+-        self.cookie_str = cookie_str
+-        self.weibo_sso_login_url = "https://passport.weibo.com/sso/signin?entry=miniblog&source=miniblog"
+-
+-    async def begin(self):
+-        """Start login weibo"""
+-        utils.logger.info("[WeiboLogin.begin] Begin login weibo ...")
+-        if config.LOGIN_TYPE == "qrcode":
+-            await self.login_by_qrcode()
+-        elif config.LOGIN_TYPE == "phone":
+-            await self.login_by_mobile()
+-        elif config.LOGIN_TYPE == "cookie":
+-            await self.login_by_cookies()
+-        else:
+-            raise ValueError(
+-                "[WeiboLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
+-
+-
+-    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
+-    async def check_login_state(self, no_logged_in_session: str) -> bool:
+-        """
+-            Check if the current login status is successful and return True otherwise return False
+-            retry decorator will retry 20 times if the return value is False, and the retry interval is 1 second
+-            if max retry times reached, raise RetryError
+-        """
+-        current_cookie = await self.browser_context.cookies()
+-        _, cookie_dict = utils.convert_cookies(current_cookie)
+-        if cookie_dict.get("SSOLoginState"):
+-            return True
+-        current_web_session = cookie_dict.get("WBPSESS")
+-        if current_web_session != no_logged_in_session:
+-            return True
+-        return False
+-
+-    async def login_by_qrcode(self):
+-        """login weibo website and keep webdriver login state"""
+-        utils.logger.info("[WeiboLogin.login_by_qrcode] Begin login weibo by qrcode ...")
 -        await self.context_page.goto(self.weibo_sso_login_url)
-+        await self.context_page.goto(
-+            self.weibo_sso_login_url,
-+            wait_until="domcontentloaded",
-+            timeout=60_000,
-+        )
-         # find login qrcode
+-        # find login qrcode
 -        qrcode_img_selector = "xpath=//img[@class='w-full h-full']"
-+        # Prefer the QR endpoint URL and retain the historical utility-class
-+        # selector as a fallback.
-+        qrcode_img_selector = (
-+            "img[src*='qr.weibo.cn'], img.w-full.h-full"
+-        base64_qrcode_img = await utils.find_login_qrcode(
+-            self.context_page,
+-            selector=qrcode_img_selector
+-        )
+-        if not base64_qrcode_img:
+-            utils.logger.info("[WeiboLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
+-            sys.exit()
+-
+-        # show login qrcode
+-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
+-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+-
+-        utils.logger.info(f"[WeiboLogin.login_by_qrcode] Waiting for scan code login, remaining time is 20s")
+-
+-        # get not logged session
+-        current_cookie = await self.browser_context.cookies()
+-        _, cookie_dict = utils.convert_cookies(current_cookie)
+-        no_logged_in_session = cookie_dict.get("WBPSESS")
+-
+-        try:
+-            await self.check_login_state(no_logged_in_session)
+-        except RetryError:
+-            utils.logger.info("[WeiboLogin.login_by_qrcode] Login weibo failed by qrcode login method ...")
+-            sys.exit()
+-
+-        wait_redirect_seconds = 5
+-        utils.logger.info(
+-            f"[WeiboLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+-        await asyncio.sleep(wait_redirect_seconds)
+-
+-    async def login_by_mobile(self):
+-        pass
+-
+-    async def login_by_cookies(self):
+-        utils.logger.info("[WeiboLogin.login_by_qrcode] Begin login weibo by cookie ...")
+-        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
+-            await self.browser_context.add_cookies([{
+-                'name': key,
+-                'value': value,
+-                'domain': ".weibo.cn",
+-                'path': "/"
+-            }])
++# -*- coding: utf-8 -*-
++# Copyright (c) 2025 relakkes@gmail.com
++#
++# This file is part of MediaCrawler project.
++# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/douyin/login.py
++# GitHub: https://github.com/NanmiCoder
++# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
++#
++
++# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
++# 1. 不得用于任何商业用途。
++# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
++# 3. 不得进行大规模爬取或对平台造成运营干扰。
++# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
++# 5. 不得用于任何非法或不当的用途。
++#
++# 详细许可条款请参阅项目根目录下的LICENSE文件。
++# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
++
++
++import asyncio
++import functools
++import sys
++from typing import Optional
++
++from playwright.async_api import BrowserContext, Page
++from playwright.async_api import TimeoutError as PlaywrightTimeoutError
++from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
++                      wait_fixed)
++
++import config
++from base.base_crawler import AbstractLogin
++from cache.cache_factory import CacheFactory
++from tools import utils
++
++
++class DouYinLogin(AbstractLogin):
++
++    def __init__(self,
++                 login_type: str,
++                 browser_context: BrowserContext, # type: ignore
++                 context_page: Page, # type: ignore
++                 login_phone: Optional[str] = "",
++                 cookie_str: Optional[str] = ""
++                 ):
++        config.LOGIN_TYPE = login_type
++        self.browser_context = browser_context
++        self.context_page = context_page
++        self.login_phone = login_phone
++        self.scan_qrcode_time = 60
++        self.cookie_str = cookie_str
++
++    async def begin(self):
++        """
++            Start login douyin website
++            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
++        """
++
++        # popup login dialog
++        await self.popup_login_dialog()
++
++        # select login type
++        if config.LOGIN_TYPE == "qrcode":
++            await self.login_by_qrcode()
++        elif config.LOGIN_TYPE == "phone":
++            await self.login_by_mobile()
++        elif config.LOGIN_TYPE == "cookie":
++            await self.login_by_cookies()
++        else:
++            raise ValueError("[DouYinLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
++
++        # If the page redirects to the slider verification page, need to slide again
++        await asyncio.sleep(6)
++        current_page_title = await self.context_page.title()
++        if "验证码中间页" in current_page_title:
++            await self.check_page_display_slider(move_step=3, slider_level="hard")
++
++        # check login state
++        utils.logger.info(f"[DouYinLogin.begin] login finished then check login state ...")
++        try:
++            await self.check_login_state()
++        except RetryError:
++            utils.logger.info("[DouYinLogin.begin] login failed please confirm ...")
++            sys.exit()
++
++        # wait for redirect
++        wait_redirect_seconds = 5
++        utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
++        await asyncio.sleep(wait_redirect_seconds)
++
++        # COIFESP auth bridge: export logical cookies after successful login
++        from tools.coifesp_auth_bridge import export_cookies
++        await export_cookies(self.browser_context, platform="douyin")
++
++    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
++    async def check_login_state(self):
++        """Check if the current login status is successful and return True otherwise return False"""
++        current_cookie = await self.browser_context.cookies()
++        _, cookie_dict = utils.convert_cookies(current_cookie)
++
++        for page in self.browser_context.pages:
++            try:
++                local_storage = await page.evaluate("() => window.localStorage")
++                if local_storage.get("HasUserLogin", "") == "1":
++                    return True
++            except Exception as e:
++                # utils.logger.warn(f"[DouYinLogin] check_login_state waring: {e}")
++                await asyncio.sleep(0.1)
++
++        if cookie_dict.get("LOGIN_STATUS") == "1":
++            return True
++
++        return False
++
++    async def popup_login_dialog(self):
++        """If the login dialog box does not pop up automatically, we will manually click the login button"""
++        dialog_selector = "xpath=//div[@id='login-panel-new']"
++        try:
++            # check dialog box is auto popup and wait for 10 seconds
++            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
++        except Exception as e:
++            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
++            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
++            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
++            await login_button_ele.click()
++            await asyncio.sleep(0.5)
++
++    async def login_by_qrcode(self):
++        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
++        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
++        base64_qrcode_img = await utils.find_login_qrcode(
++            self.context_page,
++            selector=qrcode_img_selector
 +        )
-         base64_qrcode_img = await utils.find_login_qrcode(
-             self.context_page,
-             selector=qrcode_img_selector
++        if not base64_qrcode_img:
++            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
++            sys.exit()
++
++        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++        await asyncio.sleep(2)
++
++    async def login_by_mobile(self):
++        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
++        mobile_tap_ele = self.context_page.locator("xpath=//li[text() = '验证码登录']")
++        await mobile_tap_ele.click()
++        await self.context_page.wait_for_selector("xpath=//article[@class='web-login-mobile-code']")
++        mobile_input_ele = self.context_page.locator("xpath=//input[@placeholder='手机号']")
++        await mobile_input_ele.fill(self.login_phone)
++        await asyncio.sleep(0.5)
++        send_sms_code_btn = self.context_page.locator("xpath=//span[text() = '获取验证码']")
++        await send_sms_code_btn.click()
++
++        # Check if there is slider verification
++        await self.check_page_display_slider(move_step=10, slider_level="easy")
++        cache_client = CacheFactory.create_cache(config.CACHE_TYPE_MEMORY)
++        max_get_sms_code_time = 60 * 2  # Maximum time to get verification code is 2 minutes
++        while max_get_sms_code_time > 0:
++            utils.logger.info(f"[DouYinLogin.login_by_mobile] get douyin sms code from redis remaining time {max_get_sms_code_time}s ...")
++            await asyncio.sleep(1)
++            sms_code_key = f"dy_{self.login_phone}"
++            sms_code_value = cache_client.get(sms_code_key)
++            if not sms_code_value:
++                max_get_sms_code_time -= 1
++                continue
++
++            sms_code_input_ele = self.context_page.locator("xpath=//input[@placeholder='请输入验证码']")
++            await sms_code_input_ele.fill(value=sms_code_value.decode())
++            await asyncio.sleep(0.5)
++            submit_btn_ele = self.context_page.locator("xpath=//button[@class='web-login-button']")
++            await submit_btn_ele.click()  # Click login
++            # todo ... should also check the correctness of the verification code, it may be incorrect
++            break
++
++    async def check_page_display_slider(self, move_step: int = 10, slider_level: str = "easy"):
++        """
++        Check if slider verification appears on the page
++        :return:
++        """
++        # Wait for slider verification to appear
++        back_selector = "#captcha-verify-image"
++        try:
++            await self.context_page.wait_for_selector(selector=back_selector, state="visible", timeout=30 * 1000)
++        except PlaywrightTimeoutError:  # No slider verification, return directly
++            return
++
++        gap_selector = 'xpath=//*[@id="captcha_container"]/div/div[2]/img[2]'
++        max_slider_try_times = 20
++        slider_verify_success = False
++        while not slider_verify_success:
++            if max_slider_try_times <= 0:
++                utils.logger.error("[DouYinLogin.check_page_display_slider] slider verify failed ...")
++                sys.exit()
++            try:
++                await self.move_slider(back_selector, gap_selector, move_step, slider_level)
++                await asyncio.sleep(1)
++
++                # If the slider is too slow or verification failed, it will prompt "The operation is too slow", click the refresh button here
++                page_content = await self.context_page.content()
++                if "操作过慢" in page_content or "提示重新操作" in page_content:
++                    utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify failed, retry ...")
++                    await self.context_page.click(selector="//a[contains(@class, 'secsdk_captcha_refresh')]")
++                    continue
++
++                # After successful sliding, wait for the slider to disappear
++                await self.context_page.wait_for_selector(selector=back_selector, state="hidden", timeout=1000)
++                # If the slider disappears, it means the verification is successful, break the loop. If not, it means the verification failed, the above line will throw an exception and be caught to continue the loop
++                utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify success ...")
++                slider_verify_success = True
++            except Exception as e:
++                utils.logger.error(f"[DouYinLogin.check_page_display_slider] slider verify failed, error: {e}")
++                await asyncio.sleep(1)
++                max_slider_try_times -= 1
++                utils.logger.info(f"[DouYinLogin.check_page_display_slider] remaining slider try times: {max_slider_try_times}")
++                continue
++
++    async def move_slider(self, back_selector: str, gap_selector: str, move_step: int = 10, slider_level="easy"):
++        """
++        Move the slider to the right to complete the verification
++        :param back_selector: Selector for the slider verification background image
++        :param gap_selector:  Selector for the slider verification slider
++        :param move_step: Controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++        :param slider_level: Slider difficulty easy hard, corresponding to the slider for mobile verification code and the slider in the middle of verification code
++        :return:
++        """
++
++        # get slider background image
++        slider_back_elements = await self.context_page.wait_for_selector(
++            selector=back_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        slide_back = str(await slider_back_elements.get_property("src")) # type: ignore
++
++        # get slider gap image
++        gap_elements = await self.context_page.wait_for_selector(
++            selector=gap_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        gap_src = str(await gap_elements.get_property("src")) # type: ignore
++
++        # Identify slider position
++        slide_app = utils.Slide(gap=gap_src, bg=slide_back)
++        distance = slide_app.discern()
++
++        # Get movement trajectory
++        tracks = utils.get_tracks(distance, slider_level)
++        new_1 = tracks[-1] - (sum(tracks) - distance)
++        tracks.pop()
++        tracks.append(new_1)
++
++        # Drag slider to specified position according to trajectory
++        element = await self.context_page.query_selector(gap_selector)
++        bounding_box = await element.bounding_box() # type: ignore
++
++        await self.context_page.mouse.move(bounding_box["x"] + bounding_box["width"] / 2, # type: ignore
++                                           bounding_box["y"] + bounding_box["height"] / 2) # type: ignore
++        # Get x coordinate center position
++        x = bounding_box["x"] + bounding_box["width"] / 2 # type: ignore
++        # Simulate sliding operation
++        await element.hover() # type: ignore
++        await self.context_page.mouse.down()
++
++        for track in tracks:
++            # Loop mouse movement according to trajectory
++            # steps controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++            await self.context_page.mouse.move(x + track, 0, steps=move_step)
++            x += track
++        await self.context_page.mouse.up()
++
++    async def login_by_cookies(self):
++        utils.logger.info("[DouYinLogin.login_by_cookies] Begin login douyin by cookie ...")
++        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
++            await self.browser_context.add_cookies([{
++                'name': key,
++                'value': value,
++                'domain': ".douyin.com",
++                'path': "/"
++            }])
 diff --git a/media_platform/zhihu/client.py b/media_platform/zhihu/client.py
 index 073928f..7dad07f 100644
 --- a/media_platform/zhihu/client.py
@@ -1013,101 +2359,990 @@ index 7b21e3b..dc1dbf5 100644
              )
  
      async def get_creators_and_notes(self) -> None:
-diff --git a/tests/test_bilibili_resilience.py b/tests/test_bilibili_resilience.py
-new file mode 100644
-index 0000000..f43b659
---- /dev/null
-+++ b/tests/test_bilibili_resilience.py
-@@ -0,0 +1,92 @@
-+from unittest.mock import AsyncMock, Mock
+diff --git a/media_platform/zhihu/login.py b/media_platform/zhihu/login.py
+index ca8210b..0b45bd9 100644
+--- a/media_platform/zhihu/login.py
++++ b/media_platform/zhihu/login.py
+@@ -1,124 +1,278 @@
+-# -*- coding: utf-8 -*-
+-# Copyright (c) 2025 relakkes@gmail.com
+-#
+-# This file is part of MediaCrawler project.
+-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/zhihu/login.py
+-# GitHub: https://github.com/NanmiCoder
+-# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
+-#
+-
+-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+-# 1. 不得用于任何商业用途。
+-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+-# 3. 不得进行大规模爬取或对平台造成运营干扰。
+-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
+-# 5. 不得用于任何非法或不当的用途。
+-#
+-# 详细许可条款请参阅项目根目录下的LICENSE文件。
+-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
+-
+-
+-# -*- coding: utf-8 -*-
+-import asyncio
+-import functools
+-import sys
+-from typing import Optional
+-
+-from playwright.async_api import BrowserContext, Page
+-from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
+-                      wait_fixed)
+-
+-import config
+-from base.base_crawler import AbstractLogin
+-from tools import utils
+-
+-
+-class ZhiHuLogin(AbstractLogin):
+-
+-    def __init__(self,
+-                 login_type: str,
+-                 browser_context: BrowserContext,
+-                 context_page: Page,
+-                 login_phone: Optional[str] = "",
+-                 cookie_str: str = ""
+-                 ):
+-        config.LOGIN_TYPE = login_type
+-        self.browser_context = browser_context
+-        self.context_page = context_page
+-        self.login_phone = login_phone
+-        self.cookie_str = cookie_str
+-
+-    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
+-    async def check_login_state(self) -> bool:
+-        """
+-        Check if the current login status is successful and return True otherwise return False
+-        Returns:
+-
+-        """
+-        current_cookie = await self.browser_context.cookies()
+-        _, cookie_dict = utils.convert_cookies(current_cookie)
+-        current_web_session = cookie_dict.get("z_c0")
+-        if current_web_session:
+-            return True
+-        return False
+-
+-    async def begin(self):
+-        """Start login zhihu"""
+-        utils.logger.info("[ZhiHu.begin] Begin login zhihu ...")
+-        if config.LOGIN_TYPE == "qrcode":
+-            await self.login_by_qrcode()
+-        elif config.LOGIN_TYPE == "phone":
+-            await self.login_by_mobile()
+-        elif config.LOGIN_TYPE == "cookie":
+-            await self.login_by_cookies()
+-        else:
+-            raise ValueError("[ZhiHu.begin]I nvalid Login Type Currently only supported qrcode or phone or cookies ...")
+-
+-    async def login_by_mobile(self):
+-        """Login zhihu by mobile"""
+-        # todo implement login by mobile
+-
+-    async def login_by_qrcode(self):
+-        """login zhihu website and keep webdriver login state"""
+-        utils.logger.info("[ZhiHu.login_by_qrcode] Begin login zhihu by qrcode ...")
+-        qrcode_img_selector = "canvas.Qrcode-qrcode"
+-        # find login qrcode
+-        base64_qrcode_img = await utils.find_qrcode_img_from_canvas(
+-            self.context_page,
+-            canvas_selector=qrcode_img_selector
+-        )
+-        if not base64_qrcode_img:
+-            utils.logger.info("[ZhiHu.login_by_qrcode] login failed , have not found qrcode please check ....")
+-            if not base64_qrcode_img:
+-                sys.exit()
+-
+-        # show login qrcode
+-        # fix issue #12
+-        # we need to use partial function to call show_qrcode function and run in executor
+-        # then current asyncio event loop will not be blocked
+-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
+-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+-
+-        utils.logger.info(f"[ZhiHu.login_by_qrcode] waiting for scan code login, remaining time is 120s")
+-        try:
+-            await self.check_login_state()
+-
+-        except RetryError:
+-            utils.logger.info("[ZhiHu.login_by_qrcode] Login zhihu failed by qrcode login method ...")
+-            sys.exit()
+-
+-        wait_redirect_seconds = 5
+-        utils.logger.info(
+-            f"[ZhiHu.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
+-        await asyncio.sleep(wait_redirect_seconds)
+-
+-    async def login_by_cookies(self):
+-        """login zhihu website by cookies"""
+-        utils.logger.info("[ZhiHu.login_by_cookies] Begin login zhihu by cookie ...")
+-        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
+-            await self.browser_context.add_cookies([{
+-                'name': key,
+-                'value': value,
+-                'domain': ".zhihu.com",
+-                'path': "/"
+-            }])
++# -*- coding: utf-8 -*-
++# Copyright (c) 2025 relakkes@gmail.com
++#
++# This file is part of MediaCrawler project.
++# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/douyin/login.py
++# GitHub: https://github.com/NanmiCoder
++# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
++#
 +
-+import httpx
-+import pytest
++# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
++# 1. 不得用于任何商业用途。
++# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
++# 3. 不得进行大规模爬取或对平台造成运营干扰。
++# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
++# 5. 不得用于任何非法或不当的用途。
++#
++# 详细许可条款请参阅项目根目录下的LICENSE文件。
++# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 +
-+from media_platform.bilibili import client as client_module
-+from media_platform.bilibili.client import BilibiliClient
-+from media_platform.bilibili.login import BilibiliLogin, LOGIN_ENTRY_SELECTORS
++
++import asyncio
++import functools
++import sys
++from typing import Optional
++
++from playwright.async_api import BrowserContext, Page
++from playwright.async_api import TimeoutError as PlaywrightTimeoutError
++from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
++                      wait_fixed)
++
++import config
++from base.base_crawler import AbstractLogin
++from cache.cache_factory import CacheFactory
++from tools import utils
 +
 +
-+class _AsyncClientContext:
-+    def __init__(self, client):
-+        self.client = client
++class DouYinLogin(AbstractLogin):
 +
-+    async def __aenter__(self):
-+        return self.client
++    def __init__(self,
++                 login_type: str,
++                 browser_context: BrowserContext, # type: ignore
++                 context_page: Page, # type: ignore
++                 login_phone: Optional[str] = "",
++                 cookie_str: Optional[str] = ""
++                 ):
++        config.LOGIN_TYPE = login_type
++        self.browser_context = browser_context
++        self.context_page = context_page
++        self.login_phone = login_phone
++        self.scan_qrcode_time = 60
++        self.cookie_str = cookie_str
 +
-+    async def __aexit__(self, exc_type, exc, traceback):
++    async def begin(self):
++        """
++            Start login douyin website
++            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
++        """
++
++        # popup login dialog
++        await self.popup_login_dialog()
++
++        # select login type
++        if config.LOGIN_TYPE == "qrcode":
++            await self.login_by_qrcode()
++        elif config.LOGIN_TYPE == "phone":
++            await self.login_by_mobile()
++        elif config.LOGIN_TYPE == "cookie":
++            await self.login_by_cookies()
++        else:
++            raise ValueError("[DouYinLogin.begin] Invalid Login Type Currently only supported qrcode or phone or cookie ...")
++
++        # If the page redirects to the slider verification page, need to slide again
++        await asyncio.sleep(6)
++        current_page_title = await self.context_page.title()
++        if "验证码中间页" in current_page_title:
++            await self.check_page_display_slider(move_step=3, slider_level="hard")
++
++        # check login state
++        utils.logger.info(f"[DouYinLogin.begin] login finished then check login state ...")
++        try:
++            await self.check_login_state()
++        except RetryError:
++            utils.logger.info("[DouYinLogin.begin] login failed please confirm ...")
++            sys.exit()
++
++        # wait for redirect
++        wait_redirect_seconds = 5
++        utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
++        await asyncio.sleep(wait_redirect_seconds)
++
++        # COIFESP auth bridge: export logical cookies after successful login
++        from tools.coifesp_auth_bridge import export_cookies
++        await export_cookies(self.browser_context, platform="douyin")
++
++    @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
++    async def check_login_state(self):
++        """Check if the current login status is successful and return True otherwise return False"""
++        current_cookie = await self.browser_context.cookies()
++        _, cookie_dict = utils.convert_cookies(current_cookie)
++
++        for page in self.browser_context.pages:
++            try:
++                local_storage = await page.evaluate("() => window.localStorage")
++                if local_storage.get("HasUserLogin", "") == "1":
++                    return True
++            except Exception as e:
++                # utils.logger.warn(f"[DouYinLogin] check_login_state waring: {e}")
++                await asyncio.sleep(0.1)
++
++        if cookie_dict.get("LOGIN_STATUS") == "1":
++            return True
++
 +        return False
 +
++    async def popup_login_dialog(self):
++        """If the login dialog box does not pop up automatically, we will manually click the login button"""
++        dialog_selector = "xpath=//div[@id='login-panel-new']"
++        try:
++            # check dialog box is auto popup and wait for 10 seconds
++            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
++        except Exception as e:
++            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
++            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
++            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
++            await login_button_ele.click()
++            await asyncio.sleep(0.5)
 +
-+@pytest.mark.asyncio
-+async def test_bilibili_request_retries_transport_error(monkeypatch):
-+    request = httpx.Request("GET", "https://api.bilibili.com/test")
-+    response = Mock(
-+        spec=httpx.Response,
-+        status_code=200,
-+        headers={},
++    async def login_by_qrcode(self):
++        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
++        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
++        base64_qrcode_img = await utils.find_login_qrcode(
++            self.context_page,
++            selector=qrcode_img_selector
++        )
++        if not base64_qrcode_img:
++            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
++            sys.exit()
++
++        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++        await asyncio.sleep(2)
++
++    async def login_by_mobile(self):
++        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
++        mobile_tap_ele = self.context_page.locator("xpath=//li[text() = '验证码登录']")
++        await mobile_tap_ele.click()
++        await self.context_page.wait_for_selector("xpath=//article[@class='web-login-mobile-code']")
++        mobile_input_ele = self.context_page.locator("xpath=//input[@placeholder='手机号']")
++        await mobile_input_ele.fill(self.login_phone)
++        await asyncio.sleep(0.5)
++        send_sms_code_btn = self.context_page.locator("xpath=//span[text() = '获取验证码']")
++        await send_sms_code_btn.click()
++
++        # Check if there is slider verification
++        await self.check_page_display_slider(move_step=10, slider_level="easy")
++        cache_client = CacheFactory.create_cache(config.CACHE_TYPE_MEMORY)
++        max_get_sms_code_time = 60 * 2  # Maximum time to get verification code is 2 minutes
++        while max_get_sms_code_time > 0:
++            utils.logger.info(f"[DouYinLogin.login_by_mobile] get douyin sms code from redis remaining time {max_get_sms_code_time}s ...")
++            await asyncio.sleep(1)
++            sms_code_key = f"dy_{self.login_phone}"
++            sms_code_value = cache_client.get(sms_code_key)
++            if not sms_code_value:
++                max_get_sms_code_time -= 1
++                continue
++
++            sms_code_input_ele = self.context_page.locator("xpath=//input[@placeholder='请输入验证码']")
++            await sms_code_input_ele.fill(value=sms_code_value.decode())
++            await asyncio.sleep(0.5)
++            submit_btn_ele = self.context_page.locator("xpath=//button[@class='web-login-button']")
++            await submit_btn_ele.click()  # Click login
++            # todo ... should also check the correctness of the verification code, it may be incorrect
++            break
++
++    async def check_page_display_slider(self, move_step: int = 10, slider_level: str = "easy"):
++        """
++        Check if slider verification appears on the page
++        :return:
++        """
++        # Wait for slider verification to appear
++        back_selector = "#captcha-verify-image"
++        try:
++            await self.context_page.wait_for_selector(selector=back_selector, state="visible", timeout=30 * 1000)
++        except PlaywrightTimeoutError:  # No slider verification, return directly
++            return
++
++        gap_selector = 'xpath=//*[@id="captcha_container"]/div/div[2]/img[2]'
++        max_slider_try_times = 20
++        slider_verify_success = False
++        while not slider_verify_success:
++            if max_slider_try_times <= 0:
++                utils.logger.error("[DouYinLogin.check_page_display_slider] slider verify failed ...")
++                sys.exit()
++            try:
++                await self.move_slider(back_selector, gap_selector, move_step, slider_level)
++                await asyncio.sleep(1)
++
++                # If the slider is too slow or verification failed, it will prompt "The operation is too slow", click the refresh button here
++                page_content = await self.context_page.content()
++                if "操作过慢" in page_content or "提示重新操作" in page_content:
++                    utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify failed, retry ...")
++                    await self.context_page.click(selector="//a[contains(@class, 'secsdk_captcha_refresh')]")
++                    continue
++
++                # After successful sliding, wait for the slider to disappear
++                await self.context_page.wait_for_selector(selector=back_selector, state="hidden", timeout=1000)
++                # If the slider disappears, it means the verification is successful, break the loop. If not, it means the verification failed, the above line will throw an exception and be caught to continue the loop
++                utils.logger.info("[DouYinLogin.check_page_display_slider] slider verify success ...")
++                slider_verify_success = True
++            except Exception as e:
++                utils.logger.error(f"[DouYinLogin.check_page_display_slider] slider verify failed, error: {e}")
++                await asyncio.sleep(1)
++                max_slider_try_times -= 1
++                utils.logger.info(f"[DouYinLogin.check_page_display_slider] remaining slider try times: {max_slider_try_times}")
++                continue
++
++    async def move_slider(self, back_selector: str, gap_selector: str, move_step: int = 10, slider_level="easy"):
++        """
++        Move the slider to the right to complete the verification
++        :param back_selector: Selector for the slider verification background image
++        :param gap_selector:  Selector for the slider verification slider
++        :param move_step: Controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++        :param slider_level: Slider difficulty easy hard, corresponding to the slider for mobile verification code and the slider in the middle of verification code
++        :return:
++        """
++
++        # get slider background image
++        slider_back_elements = await self.context_page.wait_for_selector(
++            selector=back_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        slide_back = str(await slider_back_elements.get_property("src")) # type: ignore
++
++        # get slider gap image
++        gap_elements = await self.context_page.wait_for_selector(
++            selector=gap_selector,
++            timeout=1000 * 10,  # wait 10 seconds
++        )
++        gap_src = str(await gap_elements.get_property("src")) # type: ignore
++
++        # Identify slider position
++        slide_app = utils.Slide(gap=gap_src, bg=slide_back)
++        distance = slide_app.discern()
++
++        # Get movement trajectory
++        tracks = utils.get_tracks(distance, slider_level)
++        new_1 = tracks[-1] - (sum(tracks) - distance)
++        tracks.pop()
++        tracks.append(new_1)
++
++        # Drag slider to specified position according to trajectory
++        element = await self.context_page.query_selector(gap_selector)
++        bounding_box = await element.bounding_box() # type: ignore
++
++        await self.context_page.mouse.move(bounding_box["x"] + bounding_box["width"] / 2, # type: ignore
++                                           bounding_box["y"] + bounding_box["height"] / 2) # type: ignore
++        # Get x coordinate center position
++        x = bounding_box["x"] + bounding_box["width"] / 2 # type: ignore
++        # Simulate sliding operation
++        await element.hover() # type: ignore
++        await self.context_page.mouse.down()
++
++        for track in tracks:
++            # Loop mouse movement according to trajectory
++            # steps controls the ratio of single movement speed, default is 1, meaning the distance moves in 0.1 seconds no matter how far, larger value means slower
++            await self.context_page.mouse.move(x + track, 0, steps=move_step)
++            x += track
++        await self.context_page.mouse.up()
++
++    async def login_by_cookies(self):
++        utils.logger.info("[DouYinLogin.login_by_cookies] Begin login douyin by cookie ...")
++        for key, value in utils.convert_str_cookie_to_dict(self.cookie_str).items():
++            await self.browser_context.add_cookies([{
++                'name': key,
++                'value': value,
++                'domain': ".douyin.com",
++                'path': "/"
++            }])
+diff --git a/tools/coifesp_auth_bridge.py b/tools/coifesp_auth_bridge.py
+new file mode 100644
+index 0000000..db23156
+--- /dev/null
++++ b/tools/coifesp_auth_bridge.py
+@@ -0,0 +1,97 @@
++# -*- coding: utf-8 -*-
++"""COIFESP server-side auth bridge (Phase 3).
++
++通过环境变量发现 COIFESP 驱动的登录 session：
++
++    COIFESP_AUTH_SESSION_DIR=/absolute/path/to/session
++    COIFESP_AUTH_PLATFORM=weibo
++
++职责（保持小补丁，不重写任何平台登录流程）：
++- publish_qrcode(): 二维码出现时原子写 session/qr.json（不弹窗）
++- export_cookies(): 登录成功后从 BrowserContext 导出明文逻辑 cookies，
++  写 session/auth_state.json
++
++严禁把 QR / Cookie 输出到 stdout 日志；文件权限尽量 0600。
++"""
++
++import asyncio
++import json
++import os
++from datetime import datetime, timezone
++from pathlib import Path
++
++from tools import utils
++
++
++def is_coifesp_auth_session() -> bool:
++    return bool(os.environ.get("COIFESP_AUTH_SESSION_DIR"))
++
++
++def _session_dir() -> Path | None:
++    raw = os.environ.get("COIFESP_AUTH_SESSION_DIR")
++    return Path(raw) if raw else None
++
++
++def _platform() -> str:
++    return os.environ.get("COIFESP_AUTH_PLATFORM") or "unknown"
++
++
++def publish_qrcode(qr_code: str) -> None:
++    """规范化 base64 二维码并原子写 qr.json（不调用 GUI）。"""
++    session = _session_dir()
++    if session is None:
++        return
++    data_url = (
++        qr_code
++        if str(qr_code).startswith("data:")
++        else "data:image/png;base64," + str(qr_code)
 +    )
-+    response.json.return_value = {"code": 0, "data": {"ok": True}}
-+    http_client = Mock()
-+    http_client.request = AsyncMock(
-+        side_effect=[httpx.ConnectError("temporary", request=request), response]
++    payload = {
++        "version": 1,
++        "type": "qrcode",
++        "data_url": data_url,
++        "created_at": _now_iso(),
++    }
++    _atomic_write(session / "qr.json", json.dumps(payload, ensure_ascii=False))
++
++
++async def export_cookies(browser_context, platform: str) -> None:
++    """登录成功后导出 BrowserContext 的明文逻辑 cookies。
++
++    只写 name/value/domain/path/expires/httpOnly/secure/sameSite 等
++    Playwright 原生字段；不打印、不落日志。
++    """
++    session = _session_dir()
++    if session is None:
++        return
++    cookies = await browser_context.cookies()
++    payload = {
++        "version": 1,
++        "platform": platform,
++        "cookies": cookies,
++        "created_at": _now_iso(),
++    }
++    _atomic_write(
++        session / "auth_state.json",
++        json.dumps(payload, ensure_ascii=False),
 +    )
-+    monkeypatch.setattr(
-+        client_module,
-+        "make_async_client",
-+        lambda **kwargs: _AsyncClientContext(http_client),
-+    )
-+    monkeypatch.setattr(client_module.asyncio, "sleep", AsyncMock())
-+
-+    client = BilibiliClient(
-+        headers={},
-+        playwright_page=AsyncMock(),
-+        cookie_dict={},
-+    )
-+    client._refresh_proxy_if_expired = AsyncMock()
-+
-+    assert await client.request("GET", str(request.url)) == {"ok": True}
-+    assert http_client.request.await_count == 2
-+
-+
-+@pytest.mark.asyncio
-+async def test_qrcode_login_requires_fresh_sessdata():
-+    browser_context = AsyncMock()
-+    browser_context.cookies = AsyncMock(
-+        side_effect=[
-+            [{"name": "SESSDATA", "value": "expired"}],
-+            [{"name": "SESSDATA", "value": "fresh"}],
-+        ]
-+    )
-+    login = BilibiliLogin(
-+        login_type="qrcode",
-+        browser_context=browser_context,
-+        context_page=Mock(),
-+    )
-+    login._sessdata_before_qrcode = "expired"
-+
-+    assert await login._has_fresh_sessdata() is False
-+    assert await login._has_fresh_sessdata() is True
-+
-+
-+@pytest.mark.asyncio
-+async def test_qrcode_login_clicks_current_header_entry():
-+    entry = Mock()
-+    entry.count = AsyncMock(return_value=1)
-+    entry.nth.return_value = entry
-+    entry.is_visible = AsyncMock(return_value=True)
-+    entry.click = AsyncMock()
-+
-+    page = Mock()
-+    page.locator.side_effect = lambda selector: (
-+        entry if selector == LOGIN_ENTRY_SELECTORS[0] else Mock()
-+    )
-+    login = BilibiliLogin(
-+        login_type="qrcode",
-+        browser_context=AsyncMock(),
-+        context_page=page,
++    utils.logger.info(
++        "[coifesp_auth_bridge] auth_state.json exported for platform %s",
++        platform,
 +    )
 +
-+    assert await login._click_login_entry() == LOGIN_ENTRY_SELECTORS[0]
-+    entry.click.assert_awaited_once_with(timeout=5_000)
++
++def _atomic_write(path: Path, text: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_name(path.name + ".tmp")
++    tmp.write_text(text, encoding="utf-8")
++    os.replace(tmp, path)
++    try:
++        os.chmod(path, 0o600)
++    except OSError:
++        # Windows 下 chmod 不可用时容错
++        pass
++
++
++def _now_iso() -> str:
++    return datetime.now(timezone.utc).isoformat()
+diff --git a/tools/crawler_util.py b/tools/crawler_util.py
+index c816377..ade7406 100644
+--- a/tools/crawler_util.py
++++ b/tools/crawler_util.py
+@@ -1,233 +1,239 @@
+-# -*- coding: utf-8 -*-
+-# Copyright (c) 2025 relakkes@gmail.com
+-#
+-# This file is part of MediaCrawler project.
+-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/tools/crawler_util.py
+-# GitHub: https://github.com/NanmiCoder
+-# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
+-#
+-
+-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+-# 1. 不得用于任何商业用途。
+-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+-# 3. 不得进行大规模爬取或对平台造成运营干扰。
+-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
+-# 5. 不得用于任何非法或不当的用途。
+-#
+-# 详细许可条款请参阅项目根目录下的LICENSE文件。
+-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
+-
+-
+-# -*- coding: utf-8 -*-
+-# @Author  : relakkes@gmail.com
+-# @Time    : 2023/12/2 12:53
+-# @Desc    : Crawler utility functions
+-
+-import base64
+-import json
+-import random
+-import re
+-import urllib
+-import urllib.parse
+-from io import BytesIO
+-from typing import Dict, List, Optional, Tuple, cast
+-
+-import httpx
+-from PIL import Image, ImageDraw, ImageShow
+-from playwright.async_api import BrowserContext, Cookie, Page
+-
+-from . import utils
+-from .httpx_util import make_async_client
+-
+-
+-async def find_login_qrcode(page: Page, selector: str) -> str:
+-    """find login qrcode image from target selector"""
+-    try:
+-        elements = await page.wait_for_selector(
+-            selector=selector,
+-        )
+-        login_qrcode_img = str(await elements.get_property("src"))  # type: ignore
+-        if "http://" in login_qrcode_img or "https://" in login_qrcode_img:
+-            async with make_async_client(follow_redirects=True) as client:
+-                utils.logger.info(f"[find_login_qrcode] get qrcode by url:{login_qrcode_img}")
+-                resp = await client.get(login_qrcode_img, headers={"User-Agent": get_user_agent()})
+-                if resp.status_code == 200:
+-                    image_data = resp.content
+-                    base64_image = base64.b64encode(image_data).decode('utf-8')
+-                    return base64_image
+-                raise Exception(f"fetch login image url failed, response message:{resp.text}")
+-        return login_qrcode_img
+-
+-    except Exception as e:
+-        print(e)
+-        return ""
+-
+-
+-async def find_qrcode_img_from_canvas(page: Page, canvas_selector: str) -> str:
+-    """
+-    find qrcode image from canvas element
+-    Args:
+-        page:
+-        canvas_selector:
+-
+-    Returns:
+-
+-    """
+-
+-    # Wait for Canvas element to load
+-    canvas = await page.wait_for_selector(canvas_selector)
+-
+-    # Take screenshot of Canvas element
+-    screenshot = await canvas.screenshot()
+-
+-    # Convert screenshot to base64 format
+-    base64_image = base64.b64encode(screenshot).decode('utf-8')
+-    return base64_image
+-
+-
+-def show_qrcode(qr_code) -> None:  # type: ignore
+-    """parse base64 encode qrcode image and show it"""
+-    if "," in qr_code:
+-        qr_code = qr_code.split(",")[1]
+-    qr_code = base64.b64decode(qr_code)
+-    image = Image.open(BytesIO(qr_code))
+-
+-    # Add a square border around the QR code and display it within the border to improve scanning accuracy.
+-    width, height = image.size
+-    new_image = Image.new('RGB', (width + 20, height + 20), color=(255, 255, 255))
+-    new_image.paste(image, (10, 10))
+-    draw = ImageDraw.Draw(new_image)
+-    draw.rectangle((0, 0, width + 19, height + 19), outline=(0, 0, 0), width=1)
+-    del ImageShow.UnixViewer.options["save_all"]
+-    new_image.show()
+-
+-
+-def get_user_agent() -> str:
+-    ua_list = [
+-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.79 Safari/537.36",
+-        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.53 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36",
+-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.5112.79 Safari/537.36",
+-        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.5060.53 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.4844.84 Safari/537.36",
+-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5112.79 Safari/537.36",
+-        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5060.53 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.4844.84 Safari/537.36",
+-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.5112.79 Safari/537.36"
+-    ]
+-    return random.choice(ua_list)
+-
+-
+-def get_mobile_user_agent() -> str:
+-    ua_list = [
+-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
+-    ]
+-    return random.choice(ua_list)
+-
+-
+-def convert_cookies(cookies: Optional[List[Cookie]]) -> Tuple[str, Dict]:
+-    if not cookies:
+-        return "", {}
+-    cookies_str = ";".join([f"{cookie.get('name')}={cookie.get('value')}" for cookie in cookies])
+-    cookie_dict = dict()
+-    for cookie in cookies:
+-        cookie_dict[cookie.get('name')] = cookie.get('value')
+-    return cookies_str, cookie_dict
+-
+-
+-async def convert_browser_context_cookies(
+-    browser_context: BrowserContext, urls: Optional[List[str]] = None
+-) -> Tuple[str, Dict]:
+-    cookies = (
+-        await browser_context.cookies(urls=urls)
+-        if urls
+-        else await browser_context.cookies()
+-    )
+-    return convert_cookies(cookies)
+-
+-
+-def convert_str_cookie_to_dict(cookie_str: str) -> Dict:
+-    cookie_dict: Dict[str, str] = dict()
+-    if not cookie_str:
+-        return cookie_dict
+-    for cookie in cookie_str.split(";"):
+-        cookie = cookie.strip()
+-        if not cookie:
+-            continue
+-        cookie_list = cookie.split("=")
+-        if len(cookie_list) != 2:
+-            continue
+-        cookie_value = cookie_list[1]
+-        if isinstance(cookie_value, list):
+-            cookie_value = "".join(cookie_value)
+-        cookie_dict[cookie_list[0]] = cookie_value
+-    return cookie_dict
+-
+-
+-def match_interact_info_count(count_str: str) -> int:
+-    if not count_str:
+-        return 0
+-
+-    match = re.search(r'\d+', count_str)
+-    if match:
+-        number = match.group()
+-        return int(number)
+-    else:
+-        return 0
+-
+-
+-def format_proxy_info(ip_proxy_info) -> Tuple[Optional[Dict], Optional[str]]:
+-    """format proxy info for playwright and httpx"""
+-    # fix circular import issue
+-    from proxy.proxy_ip_pool import IpInfoModel
+-    ip_proxy_info = cast(IpInfoModel, ip_proxy_info)
+-
+-    # Playwright proxy server should be in format "host:port" without protocol prefix
+-    server = f"{ip_proxy_info.ip}:{ip_proxy_info.port}"
+-    
+-    playwright_proxy = {
+-        "server": server,
+-    }
+-    
+-    # Only add username and password if they are not empty
+-    if ip_proxy_info.user and ip_proxy_info.password:
+-        playwright_proxy["username"] = ip_proxy_info.user
+-        playwright_proxy["password"] = ip_proxy_info.password
+-    
+-    # httpx 0.28.1 requires passing proxy URL string directly, not a dictionary
+-    if ip_proxy_info.user and ip_proxy_info.password:
+-        httpx_proxy = f"http://{ip_proxy_info.user}:{ip_proxy_info.password}@{ip_proxy_info.ip}:{ip_proxy_info.port}"
+-    else:
+-        httpx_proxy = f"http://{ip_proxy_info.ip}:{ip_proxy_info.port}"
+-    return playwright_proxy, httpx_proxy
+-
+-
+-def extract_text_from_html(html: str) -> str:
+-    """Extract text from HTML, removing all tags."""
+-    if not html:
+-        return ""
+-
+-    # Remove script and style elements
+-    clean_html = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', html, flags=re.DOTALL)
+-    # Remove all other tags
+-    clean_text = re.sub(r'<[^>]+>', '', clean_html).strip()
+-    return clean_text
+-
+-def extract_url_params_to_dict(url: str) -> Dict:
+-    """Extract URL parameters to dict"""
+-    url_params_dict = dict()
+-    if not url:
+-        return url_params_dict
+-    parsed_url = urllib.parse.urlparse(url)
+-    url_params_dict = dict(urllib.parse.parse_qsl(parsed_url.query))
+-    return url_params_dict
++# -*- coding: utf-8 -*-
++# Copyright (c) 2025 relakkes@gmail.com
++#
++# This file is part of MediaCrawler project.
++# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/tools/crawler_util.py
++# GitHub: https://github.com/NanmiCoder
++# Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
++#
++
++# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
++# 1. 不得用于任何商业用途。
++# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
++# 3. 不得进行大规模爬取或对平台造成运营干扰。
++# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
++# 5. 不得用于任何非法或不当的用途。
++#
++# 详细许可条款请参阅项目根目录下的LICENSE文件。
++# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
++
++
++# -*- coding: utf-8 -*-
++# @Author  : relakkes@gmail.com
++# @Time    : 2023/12/2 12:53
++# @Desc    : Crawler utility functions
++
++import base64
++import json
++import random
++import re
++import urllib
++import urllib.parse
++from io import BytesIO
++from typing import Dict, List, Optional, Tuple, cast
++
++import httpx
++from PIL import Image, ImageDraw, ImageShow
++from playwright.async_api import BrowserContext, Cookie, Page
++
++from . import utils
++from .httpx_util import make_async_client
++
++
++async def find_login_qrcode(page: Page, selector: str) -> str:
++    """find login qrcode image from target selector"""
++    try:
++        elements = await page.wait_for_selector(
++            selector=selector,
++        )
++        login_qrcode_img = str(await elements.get_property("src"))  # type: ignore
++        if "http://" in login_qrcode_img or "https://" in login_qrcode_img:
++            async with make_async_client(follow_redirects=True) as client:
++                utils.logger.info(f"[find_login_qrcode] get qrcode by url:{login_qrcode_img}")
++                resp = await client.get(login_qrcode_img, headers={"User-Agent": get_user_agent()})
++                if resp.status_code == 200:
++                    image_data = resp.content
++                    base64_image = base64.b64encode(image_data).decode('utf-8')
++                    return base64_image
++                raise Exception(f"fetch login image url failed, response message:{resp.text}")
++        return login_qrcode_img
++
++    except Exception as e:
++        print(e)
++        return ""
++
++
++async def find_qrcode_img_from_canvas(page: Page, canvas_selector: str) -> str:
++    """
++    find qrcode image from canvas element
++    Args:
++        page:
++        canvas_selector:
++
++    Returns:
++
++    """
++
++    # Wait for Canvas element to load
++    canvas = await page.wait_for_selector(canvas_selector)
++
++    # Take screenshot of Canvas element
++    screenshot = await canvas.screenshot()
++
++    # Convert screenshot to base64 format
++    base64_image = base64.b64encode(screenshot).decode('utf-8')
++    return base64_image
++
++
++def show_qrcode(qr_code) -> None:  # type: ignore
++    """parse base64 encode qrcode image and show it"""
++    # COIFESP server-side auth: 有 auth session 时把二维码导出为 qr.json，
++    # 不弹本地 GUI 窗口（headless 服务器无显示器）。
++    from tools.coifesp_auth_bridge import is_coifesp_auth_session, publish_qrcode
++    if is_coifesp_auth_session():
++        publish_qrcode(qr_code)
++        return
++    if "," in qr_code:
++        qr_code = qr_code.split(",")[1]
++    qr_code = base64.b64decode(qr_code)
++    image = Image.open(BytesIO(qr_code))
++
++    # Add a square border around the QR code and display it within the border to improve scanning accuracy.
++    width, height = image.size
++    new_image = Image.new('RGB', (width + 20, height + 20), color=(255, 255, 255))
++    new_image.paste(image, (10, 10))
++    draw = ImageDraw.Draw(new_image)
++    draw.rectangle((0, 0, width + 19, height + 19), outline=(0, 0, 0), width=1)
++    del ImageShow.UnixViewer.options["save_all"]
++    new_image.show()
++
++
++def get_user_agent() -> str:
++    ua_list = [
++        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.79 Safari/537.36",
++        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.53 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36",
++        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.5112.79 Safari/537.36",
++        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.5060.53 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.4844.84 Safari/537.36",
++        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5112.79 Safari/537.36",
++        "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5060.53 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.4844.84 Safari/537.36",
++        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
++        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.5112.79 Safari/537.36"
++    ]
++    return random.choice(ua_list)
++
++
++def get_mobile_user_agent() -> str:
++    ua_list = [
++        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
++    ]
++    return random.choice(ua_list)
++
++
++def convert_cookies(cookies: Optional[List[Cookie]]) -> Tuple[str, Dict]:
++    if not cookies:
++        return "", {}
++    cookies_str = ";".join([f"{cookie.get('name')}={cookie.get('value')}" for cookie in cookies])
++    cookie_dict = dict()
++    for cookie in cookies:
++        cookie_dict[cookie.get('name')] = cookie.get('value')
++    return cookies_str, cookie_dict
++
++
++async def convert_browser_context_cookies(
++    browser_context: BrowserContext, urls: Optional[List[str]] = None
++) -> Tuple[str, Dict]:
++    cookies = (
++        await browser_context.cookies(urls=urls)
++        if urls
++        else await browser_context.cookies()
++    )
++    return convert_cookies(cookies)
++
++
++def convert_str_cookie_to_dict(cookie_str: str) -> Dict:
++    cookie_dict: Dict[str, str] = dict()
++    if not cookie_str:
++        return cookie_dict
++    for cookie in cookie_str.split(";"):
++        cookie = cookie.strip()
++        if not cookie:
++            continue
++        cookie_list = cookie.split("=")
++        if len(cookie_list) != 2:
++            continue
++        cookie_value = cookie_list[1]
++        if isinstance(cookie_value, list):
++            cookie_value = "".join(cookie_value)
++        cookie_dict[cookie_list[0]] = cookie_value
++    return cookie_dict
++
++
++def match_interact_info_count(count_str: str) -> int:
++    if not count_str:
++        return 0
++
++    match = re.search(r'\d+', count_str)
++    if match:
++        number = match.group()
++        return int(number)
++    else:
++        return 0
++
++
++def format_proxy_info(ip_proxy_info) -> Tuple[Optional[Dict], Optional[str]]:
++    """format proxy info for playwright and httpx"""
++    # fix circular import issue
++    from proxy.proxy_ip_pool import IpInfoModel
++    ip_proxy_info = cast(IpInfoModel, ip_proxy_info)
++
++    # Playwright proxy server should be in format "host:port" without protocol prefix
++    server = f"{ip_proxy_info.ip}:{ip_proxy_info.port}"
++    
++    playwright_proxy = {
++        "server": server,
++    }
++    
++    # Only add username and password if they are not empty
++    if ip_proxy_info.user and ip_proxy_info.password:
++        playwright_proxy["username"] = ip_proxy_info.user
++        playwright_proxy["password"] = ip_proxy_info.password
++    
++    # httpx 0.28.1 requires passing proxy URL string directly, not a dictionary
++    if ip_proxy_info.user and ip_proxy_info.password:
++        httpx_proxy = f"http://{ip_proxy_info.user}:{ip_proxy_info.password}@{ip_proxy_info.ip}:{ip_proxy_info.port}"
++    else:
++        httpx_proxy = f"http://{ip_proxy_info.ip}:{ip_proxy_info.port}"
++    return playwright_proxy, httpx_proxy
++
++
++def extract_text_from_html(html: str) -> str:
++    """Extract text from HTML, removing all tags."""
++    if not html:
++        return ""
++
++    # Remove script and style elements
++    clean_html = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', html, flags=re.DOTALL)
++    # Remove all other tags
++    clean_text = re.sub(r'<[^>]+>', '', clean_html).strip()
++    return clean_text
++
++def extract_url_params_to_dict(url: str) -> Dict:
++    """Extract URL parameters to dict"""
++    url_params_dict = dict()
++    if not url:
++        return url_params_dict
++    parsed_url = urllib.parse.urlparse(url)
++    url_params_dict = dict(urllib.parse.parse_qsl(parsed_url.query))
++    return url_params_dict

@@ -25,7 +25,11 @@ be replayed from a clean pinned checkout with `scripts/apply-mediacrawler-patche
 - `domcontentloaded` navigation for continuously loading home pages;
 - strict enforcement of `CRAWLER_MAX_NOTES_COUNT` below platform page sizes;
 - Douyin system-Chrome fallback and redirect-safe user-agent acquisition;
-- Zhihu comment-count enforcement and API compatibility fixes.
+- Zhihu comment-count enforcement and API compatibility fixes;
+- COIFESP server-side QR/auth-state bridge (`tools/coifesp_auth_bridge.py`:
+  `show_qrcode` exports `qr.json` instead of popping a GUI window when
+  `COIFESP_AUTH_SESSION_DIR` is set; all five platform `login_by_qrcode`
+  flows export logical cookies to `auth_state.json` after login success).
 
 Re-export `vendor/mediacrawler-local.patch` whenever the nested working tree changes,
 and recheck all five platforms whenever the upstream dependency is updated.
