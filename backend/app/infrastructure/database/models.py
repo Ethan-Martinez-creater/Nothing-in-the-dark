@@ -2934,10 +2934,10 @@ class InvestigationQualityRecord(Base):
     grade: Mapped[str] = mapped_column(
         String(24), nullable=False, default="insufficient_data", index=True
     )
-    dimensions_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    gaps_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    warnings_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    dimensions_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    gaps_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    warnings_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
     input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -2966,8 +2966,8 @@ class WorkspaceEntityRecord(Base):
         String(32), nullable=False, default="account", index=True
     )
     canonical_name: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    aliases_json: Mapped[list[str]] = mapped_column(JSON, default=list)
-    attributes_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    aliases_json: Mapped[list[str]] = mapped_column(_Utf8JSON, default=list)
+    attributes_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
     status: Mapped[str] = mapped_column(
         String(24), nullable=False, default="active", index=True
     )
@@ -3034,7 +3034,7 @@ class WorkspaceEntityCaseLinkRecord(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -3120,8 +3120,8 @@ class CrossInvestigationLinkRecord(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    evidence_refs_json: Mapped[list[object]] = mapped_column(JSON, default=list)
-    feature_scores_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    evidence_refs_json: Mapped[list[object]] = mapped_column(_Utf8JSON, default=list)
+    feature_scores_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
     first_seen_at: Mapped[datetime | None] = mapped_column(
@@ -3172,9 +3172,9 @@ class DerivedSignalRecord(Base):
     title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     why_it_matters: Mapped[str] = mapped_column(Text, nullable=False, default="")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    metric_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    evidence_refs_json: Mapped[list[object]] = mapped_column(JSON, default=list)
-    related_case_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    metric_snapshot_json: Mapped[dict[str, Any]] = mapped_column(_Utf8JSON, default=dict)
+    evidence_refs_json: Mapped[list[object]] = mapped_column(_Utf8JSON, default=list)
+    related_case_ids_json: Mapped[list[str]] = mapped_column(_Utf8JSON, default=list)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     detector_version: Mapped[str] = mapped_column(String(64), nullable=False)
     occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
