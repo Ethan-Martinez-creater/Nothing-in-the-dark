@@ -14,18 +14,18 @@ import pytest
 
 from app.core.config import Settings
 from app.infrastructure.database.platform_auth_repository import (
-    PlatformAuthRepository,
     STATUS_ACTIVE,
+    PlatformAuthRepository,
 )
 from app.services.platform_auth import (
-    LoginSession,
-    LoginSessionCoordinator,
-    PlatformAuthService,
     SESSION_AUTHENTICATED,
     SESSION_CANCELLED,
     SESSION_EXPIRED,
     SESSION_FAILED,
     SESSION_WAITING_SCAN,
+    LoginSession,
+    LoginSessionCoordinator,
+    PlatformAuthService,
 )
 from tests.memory_db import MemoryDatabase
 
@@ -98,7 +98,7 @@ async def test_ttl_expires_session(
     try:
         session = await coordinator.start("weibo")
         # 把过期时间拨到过去，watcher 首轮即 expired。
-        from datetime import timedelta, UTC, datetime
+        from datetime import UTC, datetime, timedelta
 
         session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         await asyncio.wait_for(session.watcher, timeout=5)
@@ -122,7 +122,9 @@ async def test_cancel_terminates_process(
         assert fake.terminated is True
         assert session.status == SESSION_CANCELLED
         # cancel 后 registry 已移除
-        with pytest.raises(Exception):
+        from app.core.errors import ApplicationError
+
+        with pytest.raises(ApplicationError):
             await coordinator.get(session.id)
     finally:
         await db.dispose()
@@ -212,3 +214,53 @@ async def test_qr_file_flips_to_waiting_scan(
         await coordinator.cancel(session.id)
     finally:
         await db.dispose()
+
+
+async def test_bootstrap_master_key_expression_roundtrips(tmp_path: Path) -> None:
+    """回归：bootstrap 必须用 get_secret_value() 传主密钥。
+
+    str(SecretStr) 返回掩码 '**********'——enabled 检查仍为真、二维码正常，
+    但 save_credential 加密时才以 "not valid base64" 失败（服务器实测踩坑）。
+    """
+    from app.infrastructure.security.platform_auth_cipher import PlatformAuthCipher
+
+    settings = _settings(tmp_path)
+    db = MemoryDatabase()
+    await db.create_schema()
+
+    # bootstrap 同款表达式：get_secret_value() 取真实值，加解密闭环可用。
+    service = PlatformAuthService(
+        PlatformAuthRepository(db),
+        settings.platform_auth_master_key.get_secret_value(),
+    )
+    try:
+        await service.save_credential(
+            "weibo",
+            {
+                "format_version": 1,
+                "platform": "weibo",
+                "cookies": [
+                    {
+                        "name": "SUB",
+                        "value": "opaque-token",
+                        "domain": ".weibo.com",
+                        "path": "/",
+                    }
+                ],
+            },
+        )
+        cookies = await service.load_cookies("weibo")
+        assert cookies == [
+            {
+                "name": "SUB",
+                "value": "opaque-token",
+                "domain": ".weibo.com",
+                "path": "/",
+            }
+        ]
+    finally:
+        await db.dispose()
+
+    # 反向锁定：掩码字符串必须被 cipher 拒绝，防止有人改回 str(SecretStr)。
+    with pytest.raises(Exception, match="not valid base64"):
+        PlatformAuthCipher(str(settings.platform_auth_master_key))

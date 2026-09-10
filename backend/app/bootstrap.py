@@ -168,9 +168,11 @@ class ApplicationContainer:
         # 平台认证：扫码登录 + 加密凭据存储（Phase 4）。需在 crawler
         # 构建之前装配（crawler 的凭据 resolver 依赖它）。
         self.platform_auth_repository = PlatformAuthRepository(self.database)
+        # 注意：SecretStr 必须用 get_secret_value() 取真实值——str(SecretStr)
+        # 返回掩码 '**********'，会在加密时才以 "invalid base64" 失败。
         self.platform_auth_service = PlatformAuthService(
             self.platform_auth_repository,
-            str(settings.platform_auth_master_key),
+            settings.platform_auth_master_key.get_secret_value(),
             enabled=settings.platform_auth_enabled,
         )
         self.login_session_coordinator = LoginSessionCoordinator(
