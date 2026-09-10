@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from app.core.config import Settings
 from app.core.errors import ApplicationError
@@ -211,6 +211,7 @@ class LoginSession:
     expires_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     session_dir: Path | None = None
     process: asyncio.subprocess.Process | None = None
+    probe_log: IO[Any] | None = None
     watcher: asyncio.Task[Any] | None = None
     qr_code: str | None = None
     error_code: str | None = None
@@ -300,7 +301,9 @@ class LoginSessionCoordinator:
     async def _spawn(self, session: LoginSession) -> None:
         settings = self._settings
         session_root = settings.platform_auth_session_root
-        session_dir = Path(session_root) / session.id
+        # 必须 resolve 为绝对路径：子进程 cwd 是 MediaCrawler 根目录，
+        # 相对路径（如 ./data/auth_sessions）会在错误位置写 qr.json。
+        session_dir = (Path(session_root) / session.id).resolve()
         session_dir.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(session_dir, 0o700)
@@ -343,20 +346,29 @@ class LoginSessionCoordinator:
             "--max_concurrency_num",
             "1",
         ]
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key.startswith(("COIFESP_", "MEDIACRAWLER_"))
-        }
+        # auth 子进程是受信的 MediaCrawler 代码：继承完整环境（实测过滤
+        # 环境会导致 Chrome 启动异常/页面加载失败），仅覆盖 auth 专用变量。
+        # 代码层保证不打印 cookie/环境（文档 10.1）。
+        environment = os.environ.copy()
         environment["COIFESP_AUTH_SESSION_DIR"] = str(session_dir)
         environment["COIFESP_AUTH_PLATFORM"] = session.platform
-        environment["PATH"] = os.environ.get("PATH", "")
+        # systemd 服务环境没有登录会话变量；Chrome/Playwright 需要
+        # XDG_RUNTIME_DIR。注意：**不要**设置 DBUS_SESSION_BUS_ADDRESS——
+        # 服务器无桌面会话时该 socket 不存在，Chrome 连接 D-Bus 失败会
+        # FATAL abort（实测 exit 21）。无 D-Bus 时 Chrome 正常工作。
+        environment.setdefault(
+            "XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"
+        )
+        # 诊断：auth 子进程输出写入 session 目录（bridge 不打印 cookie，
+        # 日志安全；终态 cleanup 时删除）。
+        probe_log = (session_dir / "auth_probe.log").open("ab")
+        session.probe_log = probe_log
         session.process = await asyncio.create_subprocess_exec(
             *command,
             cwd=str(crawler_root),
             env=environment,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=probe_log,
+            stderr=probe_log,
         )
 
     async def _watch(self, session: LoginSession) -> None:
@@ -436,17 +448,23 @@ class LoginSessionCoordinator:
 
     async def _terminate(self, session: LoginSession) -> None:
         process = session.process
-        if process is None or process.returncode is not None:
-            return
-        try:
-            process.terminate()
+        if process is not None and process.returncode is None:
             try:
-                await asyncio.wait_for(process.wait(), timeout=8)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-        except ProcessLookupError:
-            pass
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=8)
+                except TimeoutError:
+                    process.kill()
+                    await process.wait()
+            except ProcessLookupError:
+                pass
+        # 子进程已结束后释放诊断日志句柄（_spawn 每次会话打开一个新句柄）。
+        if session.probe_log is not None:
+            try:
+                session.probe_log.close()
+            except OSError:
+                pass
+            session.probe_log = None
 
     def _cleanup(self, session: LoginSession) -> None:
         if session.session_dir is None:

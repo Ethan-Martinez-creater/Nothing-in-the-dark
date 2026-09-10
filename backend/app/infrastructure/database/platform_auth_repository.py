@@ -7,7 +7,6 @@ Repository 只负责存取加密载荷与状态元数据；加解密由 Service/
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
