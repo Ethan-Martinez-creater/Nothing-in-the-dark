@@ -25,6 +25,38 @@ class _QuietLogger:
         pass
 
 
+def _stub_heavy_imports(monkeypatch: pytest.MonkeyPatch) -> None:
+    """加载真实 crawler_util 但断开 MediaCrawler 重依赖（PIL/cv2 等）。
+
+    tools 包用带 __path__ 的 stub 容器定位真实 crawler_util.py；相对导入
+    的 utils/httpx_util 用 stub 顶替，模块级 PIL/playwright 导入注入假模块。
+    """
+    tools_pkg = ModuleType("tools")
+    tools_pkg.__path__ = [str(VENDOR_ROOT / "tools")]
+    utils_stub = ModuleType("tools.utils")
+    utils_stub.logger = _QuietLogger()
+    httpx_util_stub = ModuleType("tools.httpx_util")
+    httpx_util_stub.make_async_client = lambda *a, **kw: None  # noqa: ARG005
+    monkeypatch.setitem(sys.modules, "tools", tools_pkg)
+    monkeypatch.setitem(sys.modules, "tools.utils", utils_stub)
+    monkeypatch.setitem(sys.modules, "tools.httpx_util", httpx_util_stub)
+
+    pil = ModuleType("PIL")
+    for name in ("Image", "ImageDraw", "ImageShow"):
+        sub = ModuleType(f"PIL.{name}")
+        setattr(pil, name, sub)
+        monkeypatch.setitem(sys.modules, f"PIL.{name}", sub)
+    monkeypatch.setitem(sys.modules, "PIL", pil)
+
+    playwright = ModuleType("playwright")
+    async_api = ModuleType("playwright.async_api")
+    for name in ("BrowserContext", "Cookie", "Page"):
+        setattr(async_api, name, type(name, (), {}))
+    playwright.async_api = async_api  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "playwright", playwright)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", async_api)
+
+
 def _load_bridge(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """加载 bridge 模块（tools 包以 stub 注入，避免 MediaCrawler 全量依赖）。"""
     tools_pkg = ModuleType("tools")
@@ -102,10 +134,8 @@ def test_show_qrcode_uses_bridge_without_gui(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """有 COIFESP_AUTH_SESSION_DIR 时 show_qrcode 走 bridge 且不弹窗。"""
-    monkeypatch.syspath_prepend(str(VENDOR_ROOT))
-    # 移除可能残留的 tools stub，加载真实 tools 包（依赖 PIL/playwright）。
-    monkeypatch.delitem(sys.modules, "tools", raising=False)
-    monkeypatch.delitem(sys.modules, "tools.utils", raising=False)
+    # stub 容器 + 真实 crawler_util.py（断开 PIL/cv2 等重依赖）。
+    _stub_heavy_imports(monkeypatch)
     import tools.crawler_util as crawler_util  # type: ignore[import-not-found]
 
     published: list[str] = []

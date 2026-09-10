@@ -395,6 +395,12 @@ class LoginSessionCoordinator:
                 ):
                     session.status = SESSION_FAILED
                     session.error_code = "platform_auth_login_failed"
+                    # 未导出 auth_state 就退出：要么登录被跳过且未导出
+                    # （旧版 browser_data 有登录态时），要么子进程出错。
+                    session.error_message = (
+                        "MediaCrawler exited without exporting login state "
+                        f"(exit code {session.process.returncode})"
+                    )
                     await self._terminate(session)
                     self._cleanup(session)
                     return
