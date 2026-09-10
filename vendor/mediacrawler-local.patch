@@ -2798,10 +2798,10 @@ index c0e9372..0aa9546 100644
 +        extension_file_name = f"video.mp4"
 +        await douyin_store.update_dy_aweme_video(aweme_id, content, extension_file_name)
 diff --git a/media_platform/douyin/login.py b/media_platform/douyin/login.py
-index 4b76d11..777b8eb 100644
+index 4b76d11..8e9cb1f 100644
 --- a/media_platform/douyin/login.py
 +++ b/media_platform/douyin/login.py
-@@ -1,274 +1,330 @@
+@@ -1,274 +1,351 @@
 -# -*- coding: utf-8 -*-
 -# Copyright (c) 2025 relakkes@gmail.com
 -#
@@ -3187,6 +3187,27 @@ index 4b76d11..777b8eb 100644
 +
 +        if cookie_dict.get("LOGIN_STATUS") == "1":
 +            return True
++
++        # COIFESP 诊断：每 15 次轮询输出一次页面 URL 与登录标记状态
++        #（只输出 URL 与标记值，不含 cookie 值），用于定位扫码后卡点。
++        check_login_state._poll_count = getattr(check_login_state, "_poll_count", 0) + 1
++        if check_login_state._poll_count % 15 == 0:
++            page_urls = []
++            has_user_login = "0"
++            for page in self.browser_context.pages:
++                try:
++                    page_urls.append(page.url)
++                    storage = await page.evaluate("() => window.localStorage")
++                    if storage.get("HasUserLogin") == "1":
++                        has_user_login = "1"
++                except Exception:
++                    page_urls.append("<unavailable>")
++            utils.logger.info(
++                "[DouYinLogin.check_login_state] waiting: LOGIN_STATUS=%r HasUserLogin=%r pages=%s",
++                cookie_dict.get("LOGIN_STATUS"),
++                has_user_login,
++                page_urls,
++            )
 +
 +        return False
 +
