@@ -4737,10 +4737,10 @@ index 940ab9f..c3a2ff0 100644
 +            await self.browser_context.close()
 +        utils.logger.info("[BaiduTieBaCrawler.close] Browser context closed ...")
 diff --git a/media_platform/tieba/login.py b/media_platform/tieba/login.py
-index a177293..2cc548e 100644
+index a177293..b33b08c 100644
 --- a/media_platform/tieba/login.py
 +++ b/media_platform/tieba/login.py
-@@ -1,132 +1,148 @@
+@@ -1,132 +1,215 @@
 -# -*- coding: utf-8 -*-
 -# Copyright (c) 2025 relakkes@gmail.com
 -#
@@ -4894,6 +4894,7 @@ index a177293..2cc548e 100644
 +
 +
 +import asyncio
++import functools
 +from typing import Optional
 +
 +from playwright.async_api import BrowserContext, Page
@@ -4905,6 +4906,14 @@ index a177293..2cc548e 100644
 +
 +class BaiduTieBaLogin(AbstractLogin):
 +    LOGIN_COOKIE_NAMES = {"STOKEN", "PTOKEN", "BDUSS", "BDUSS_BFESS"}
++    QRCODE_SELECTORS = (
++        "img.passport-loginChangeQrcodeCode-item",
++        ".tang-passport-QrcodeCode img",
++        "#qrcode img",
++        "img[class*='qrcode' i]",
++        "img[src*='qrcode']",
++        "img[src^='data:image']",
++    )
 +    LOGIN_ENTRY_SELECTORS = (
 +        "li.u_login",
 +        "a.u_login",
@@ -4986,14 +4995,30 @@ index a177293..2cc548e 100644
 +        utils.logger.info("[BaiduTieBaLogin.login_by_qrcode] Begin login baidutieba by qrcode ...")
 +        opened = await self._click_login_entry()
 +        if not opened:
++            # 弹窗入口失败：直接打开百度 passport 独立登录页（tpl=tb，登录后回跳贴吧）。
 +            utils.logger.warning(
-+                "[BaiduTieBaLogin.login_by_qrcode] Automatic login entry detection failed. "
-+                "Please click 登录 in the visible browser manually."
++                "[BaiduTieBaLogin.login_by_qrcode] login entry not found, "
++                "falling back to passport.baidu.com standalone page"
++            )
++            await self.context_page.goto(
++                "https://passport.baidu.com/v2/?login&tpl=tb&u=https%3A%2F%2Ftieba.baidu.com%2F",
++                wait_until="domcontentloaded",
++                timeout=60_000,
++            )
++            await asyncio.sleep(2)
++
++        base64_qrcode_img = await self._find_login_qrcode_image()
++        if not base64_qrcode_img:
++            raise RuntimeError(
++                "[BaiduTieBaLogin.login_by_qrcode] login qrcode not found on page"
 +            )
 +
++        # show login qrcode（bridge：写 qr.json 给 COIFESP 后端；headless 不弹窗）
++        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
++        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
++
 +        utils.logger.info(
-+            "[BaiduTieBaLogin.login_by_qrcode] Please scan the QR code or finish login "
-+            "in the visible browser, remaining time is 180s"
++            "[BaiduTieBaLogin.login_by_qrcode] Waiting for scan code login, remaining time is 180s"
 +        )
 +        try:
 +            await self._wait_for_login()
@@ -5010,6 +5035,48 @@ index a177293..2cc548e 100644
 +        # COIFESP auth bridge: export logical cookies after successful login
 +        from tools.coifesp_auth_bridge import export_cookies
 +        await export_cookies(self.browser_context, platform="tieba")
++
++    async def _find_login_qrcode_image(self) -> str:
++        """Find the login QR code image in the page or any nested frame.
++
++        Returns a base64 string (data URLs stripped of the prefix are
++        accepted by show_qrcode); http(s) sources are downloaded. Short
++        per-selector timeouts keep the whole scan under a few seconds.
++        """
++        import base64
++
++        import httpx
++
++        frames = [self.context_page, *self.context_page.frames]
++        for frame in frames:
++            # passport 页可能默认停在短信/密码 tab，先尝试切到扫码 tab。
++            for tab_selector in ("text=扫码登录", "text=二维码登录"):
++                try:
++                    tab = frame.locator(tab_selector).first
++                    await tab.click(timeout=1_000)
++                    await asyncio.sleep(1)
++                    break
++                except Exception:
++                    continue
++            for selector in self.QRCODE_SELECTORS:
++                try:
++                    locator = frame.locator(selector).first
++                    src = await locator.get_attribute("src", timeout=1_500)
++                except Exception:
++                    continue
++                if not src:
++                    continue
++                if src.startswith("data:image"):
++                    return src.split(",", 1)[-1]
++                if src.startswith("http"):
++                    try:
++                        async with httpx.AsyncClient(timeout=10) as client:
++                            resp = await client.get(src)
++                        if resp.status_code == 200:
++                            return base64.b64encode(resp.content).decode("utf-8")
++                    except Exception:
++                        continue
++        return ""
 +
 +    async def login_by_cookies(self):
 +        """login baidutieba website by cookies"""
