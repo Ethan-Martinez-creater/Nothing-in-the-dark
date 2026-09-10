@@ -120,6 +120,33 @@ def test_export_cookies_writes_auth_state(
         assert (tmp_path / "auth_state.json").stat().st_mode & 0o777 == 0o600
 
 
+def test_export_cookies_filters_invalid_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """name/value/domain 无效的 cookie（如百度的 nameless cookie）不导出。"""
+    bridge = _load_bridge(monkeypatch)
+    monkeypatch.setenv("COIFESP_AUTH_SESSION_DIR", str(tmp_path))
+    monkeypatch.setenv("COIFESP_AUTH_PLATFORM", "tieba")
+
+    class FakeContext:
+        async def cookies(self) -> list[dict[str, object]]:
+            return [
+                {"name": "", "value": "v", "domain": ".baidu.com", "path": "/"},
+                {"name": "BDUSS", "value": "", "domain": ".baidu.com", "path": "/"},
+                {"name": "STOKEN", "value": "ok"},  # 缺 domain
+                {
+                    "name": "PTOKEN",
+                    "value": "good",
+                    "domain": ".baidu.com",
+                    "path": "/",
+                },
+            ]
+
+    asyncio.run(bridge.export_cookies(FakeContext(), platform="tieba"))
+    state = json.loads((tmp_path / "auth_state.json").read_text(encoding="utf-8"))
+    assert [cookie["name"] for cookie in state["cookies"]] == ["PTOKEN"]
+
+
 def test_no_session_env_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
