@@ -336,6 +336,7 @@ class MediaCrawlerAdapter:
                 platform_root,
                 keywords,
                 cookie_override=resolved_cookie,
+                has_resolved_cookie=bool(resolved_cookie),
             )
             try:
                 return_code, stdout, stderr = await self._command_runner(
@@ -516,13 +517,17 @@ class MediaCrawlerAdapter:
             # 把不确定状态当成已登录。
             return False
 
-    def _effective_headless(self, platform: str) -> bool:
+    def _effective_headless(
+        self, platform: str, *, has_resolved_cookie: bool = False
+    ) -> bool:
         """凭据感知的 headless 决策。
 
         规则（与旧版差异：不再把 Chromium profile 中的 cookie 名称作为
         已登录依据）：
         - 配置为前台（headless=false）：保持前台；
-        - login_type=cookie 或平台已配置 cookie 字符串：保持后台；
+        - login_type=cookie、平台已配置静态 cookie 字符串、或 resolver
+          已解析出 DB 凭据：保持后台（headless 服务器无 GUI，凭据存在
+          时强制前台会让 Chrome 因缺少 X server 直接崩溃）；
         - 无任何应用凭据：返回 False，由上层决定（本地前台可弹窗扫码；
           服务器无 GUI 时应由认证层返回 auth_required，而非依赖 profile
           残留判断）。
@@ -531,7 +536,7 @@ class MediaCrawlerAdapter:
             return False
         if self._config.login_type == "cookie":
             return True
-        if self._configured_cookies(platform):
+        if has_resolved_cookie or self._configured_cookies(platform):
             return True
         return False
 
@@ -554,6 +559,7 @@ class MediaCrawlerAdapter:
         keywords: list[str] | None = None,
         *,
         cookie_override: str | None = None,
+        has_resolved_cookie: bool = False,
     ) -> list[str]:
         if cookie_override is not None:
             cookies = cookie_override
@@ -608,7 +614,11 @@ class MediaCrawlerAdapter:
             "--get_comment",
             str(bool(include_comments)).lower(),
             "--headless",
-            str(self._effective_headless(platform)).lower(),
+            str(
+                self._effective_headless(
+                    platform, has_resolved_cookie=has_resolved_cookie
+                )
+            ).lower(),
             "--max_concurrency_num",
             "1",
         ]

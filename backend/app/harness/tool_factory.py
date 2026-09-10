@@ -9,14 +9,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.application.platform_profile import PlatformProfileService
 from app.application.agent_database_service import AgentDatabaseReadService
+from app.application.platform_profile import PlatformProfileService
 from app.application.ports.crawler import CrawlRequest, SocialCrawlerPort
 from app.application.repositories import ApplicationRepository
 from app.core.errors import ApplicationError
+from app.harness.agents import ExpertKind, build_definition_for
 from app.harness.database_tools import register_database_tools
 from app.harness.progress import emit_progress
-from app.harness.agents import ExpertKind, build_definition_for
 from app.harness.search_optimizer import (
     generate_platform_keywords,
     rewrite_search_query,
@@ -36,11 +36,11 @@ from app.services.analysis import (
     verify_claims,
 )
 from app.services.classifiers import ModelSentimentClassifier
-from app.services.crawl_coverage import apply_coverage, format_coverage_memory
 from app.services.collection_filters import (
     apply_collection_exclusions,
     validate_collection_filters,
 )
+from app.services.crawl_coverage import apply_coverage, format_coverage_memory
 from app.services.platform_comparison import build_platform_comparison
 
 _DISPATCH_TIMEOUT_SECONDS = 600.0
@@ -596,7 +596,7 @@ def build_tool_registry(
                         )
                     posts_for_item = list(external.get("posts") or [])
                 except Exception as exc:  # noqa: BLE001
-                    last_error = str(exc).strip()[:400] or type(exc).__name__
+                    last_error = str(exc).strip()[:1500] or type(exc).__name__
                     await emit_progress(
                         {
                             "stage": "item_attempt_failed",
