@@ -277,7 +277,8 @@ class CollectionRunWorker:
                         "error",
                         platform,
                         attempt,
-                        str(exc).strip()[:400] or type(exc).__name__,
+                        # 保留子进程 stderr 尾部的真实堆栈（400 字符曾把根因截掉）。
+                        str(exc).strip()[:1500] or type(exc).__name__,
                     )
                 )
             finally:

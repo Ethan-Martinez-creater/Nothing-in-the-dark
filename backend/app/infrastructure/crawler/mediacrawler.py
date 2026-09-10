@@ -147,6 +147,13 @@ async def _run_command(
         for key, value in os.environ.items()
         if any(key.startswith(prefix) for prefix in _SANDBOX_ENV_PREFIXES)
     }
+    # systemd 服务环境没有登录会话变量；Chrome/Playwright 创建 browser
+    # context 时需要 XDG_RUNTIME_DIR，缺失会在 Launching browser 后立即
+    # 崩溃（实测五平台并发采集全败；登录子进程排障同因，见
+    # PlatformAuthCoordinator._spawn）。绝不设置 DBUS_SESSION_BUS_ADDRESS：
+    # 无桌面会话时该 socket 不存在，Chrome 连接 D-Bus 失败会 FATAL abort。
+    if os.name == "posix":
+        environment.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     if process_environment:
         environment.update(process_environment)
     process = await asyncio.create_subprocess_exec(
