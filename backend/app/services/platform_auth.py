@@ -182,6 +182,10 @@ class PlatformAuthService:
     async def mark_invalid(self, platform: str, *, error: str) -> None:
         await self._repository.mark_invalid(platform, error=error)
 
+    async def get_record(self, platform: str) -> Any:
+        """返回原始凭据记录（供 resolver 判断来源；不经 API 暴露）。"""
+        return await self._repository.get_by_platform(platform)
+
     async def mark_validated(self, platform: str) -> None:
         await self._repository.mark_validated(platform)
 
@@ -310,7 +314,7 @@ class LoginSessionCoordinator:
         entrypoint = (
             settings.mediacrawler_entrypoint
             or Path("./scripts/mediacrawler_entry.py")
-        )
+        ).resolve()  # 相对路径基于 backend cwd 解析为绝对路径（子进程 cwd 是 MediaCrawler 根）
         crawler_root = Path(settings.mediacrawler_root).resolve()  # noqa: ASYNC240 - 轻量本地路径解析
         code = PLATFORM_CODES[session.platform]
         command = [
