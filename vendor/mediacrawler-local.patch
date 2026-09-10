@@ -2798,10 +2798,10 @@ index c0e9372..0aa9546 100644
 +        extension_file_name = f"video.mp4"
 +        await douyin_store.update_dy_aweme_video(aweme_id, content, extension_file_name)
 diff --git a/media_platform/douyin/login.py b/media_platform/douyin/login.py
-index 4b76d11..453d501 100644
+index 4b76d11..938dd75 100644
 --- a/media_platform/douyin/login.py
 +++ b/media_platform/douyin/login.py
-@@ -1,274 +1,351 @@
+@@ -1,274 +1,362 @@
 -# -*- coding: utf-8 -*-
 -# Copyright (c) 2025 relakkes@gmail.com
 -#
@@ -3134,8 +3134,10 @@ index 4b76d11..453d501 100644
 +            The verification accuracy of the slider verification is not very good... If there are no special requirements, it is recommended not to use Douyin login, or use cookie login
 +        """
 +
-+        # popup login dialog
-+        await self.popup_login_dialog()
++        # popup login dialog（仅扫码模式需要弹窗；cookie 模式直接注入
++        # 凭据，弹窗探测在无头服务器上只会白耗 20s 超时）
++        if config.LOGIN_TYPE == "qrcode":
++            await self.popup_login_dialog()
 +
 +        # select login type
 +        if config.LOGIN_TYPE == "qrcode":
@@ -3427,6 +3429,15 @@ index 4b76d11..453d501 100644
 +                'domain': ".douyin.com",
 +                'path': "/"
 +            }])
++        # 注入 cookie 后必须导航到首页：douyin 前端检测到有效 sessionid
++        # 才会写 LOGIN_STATUS cookie / localStorage HasUserLogin——
++        # check_login_state 依据这些标记判断登录，缺这步永远等待超时。
++        await self.context_page.goto(
++            "https://www.douyin.com/",
++            wait_until="domcontentloaded",
++            timeout=60_000,
++        )
++        await asyncio.sleep(5)
 diff --git a/media_platform/tieba/core.py b/media_platform/tieba/core.py
 index 940ab9f..c3a2ff0 100644
 --- a/media_platform/tieba/core.py
