@@ -413,6 +413,11 @@ class LoginSessionCoordinator:
             raise
 
     def _refresh_qr(self, session: LoginSession) -> None:
+        # 终态不可逆：authenticated/failed 设置后，_terminate 等待子进程
+        # 退出期间（最长 8s）qr.json 仍在磁盘上，此时并发 GET 的轮询
+        # 不能把状态覆盖回 waiting_scan（实测导致 Modal 永不关闭）。
+        if session.status not in {SESSION_STARTING, SESSION_WAITING_SCAN}:
+            return
         if session.session_dir is None:
             return
         qr_file = session.session_dir / _QR_FILE
@@ -449,8 +454,10 @@ class LoginSessionCoordinator:
         else:
             session.status = SESSION_AUTHENTICATED
         finally:
-            await self._terminate(session)
+            # 先删消费完的临时文件再等子进程退出：terminate 的 await wait
+            # 期间轮询仍可能触发 _refresh_qr，文件先删可消除覆盖窗口。
             self._cleanup(session)
+            await self._terminate(session)
 
     async def _terminate(self, session: LoginSession) -> None:
         process = session.process
