@@ -2798,10 +2798,10 @@ index c0e9372..0aa9546 100644
 +        extension_file_name = f"video.mp4"
 +        await douyin_store.update_dy_aweme_video(aweme_id, content, extension_file_name)
 diff --git a/media_platform/douyin/login.py b/media_platform/douyin/login.py
-index 4b76d11..0b45bd9 100644
+index 4b76d11..777b8eb 100644
 --- a/media_platform/douyin/login.py
 +++ b/media_platform/douyin/login.py
-@@ -1,274 +1,278 @@
+@@ -1,274 +1,330 @@
 -# -*- coding: utf-8 -*-
 -# Copyright (c) 2025 relakkes@gmail.com
 -#
@@ -3196,27 +3196,79 @@ index 4b76d11..0b45bd9 100644
 +        try:
 +            # check dialog box is auto popup and wait for 10 seconds
 +            await self.context_page.wait_for_selector(dialog_selector, timeout=1000 * 10)
++            return
 +        except Exception as e:
 +            utils.logger.error(f"[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, error: {e}")
 +            utils.logger.info("[DouYinLogin.popup_login_dialog] login dialog box does not pop up automatically, we will manually click the login button")
++        try:
 +            login_button_ele = self.context_page.locator("xpath=//p[text() = '登录']")
-+            await login_button_ele.click()
++            await login_button_ele.click(timeout=10_000)
 +            await asyncio.sleep(0.5)
++            return
++        except Exception:
++            # 首页登录入口 selector 失效（页面改版）：直接打开 SSO 独立登录页，
++            # 该页默认展示扫码登录，二维码可被 login_by_qrcode 抓取。
++            utils.logger.warning(
++                "[DouYinLogin.popup_login_dialog] login button not found, "
++                "falling back to sso.douyin.com standalone login page"
++            )
++        await self.context_page.goto(
++            "https://sso.douyin.com/login/?service=https%3A%2F%2Fwww.douyin.com&next_url=https%3A%2F%2Fwww.douyin.com%2F",
++            wait_until="domcontentloaded",
++            timeout=60_000,
++        )
++        await asyncio.sleep(2)
 +
 +    async def login_by_qrcode(self):
 +        utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
-+        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
-+        base64_qrcode_img = await utils.find_login_qrcode(
-+            self.context_page,
-+            selector=qrcode_img_selector
-+        )
++        base64_qrcode_img = await self._find_login_qrcode_image()
 +        if not base64_qrcode_img:
 +            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
-+            sys.exit()
++            raise RuntimeError(
++                "[DouYinLogin.login_by_qrcode] login qrcode not found on page"
++            )
 +
 +        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
 +        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
 +        await asyncio.sleep(2)
++
++    async def _find_login_qrcode_image(self) -> str:
++        """Find the login QR image on the page or any nested frame.
++
++        弹窗与 SSO 独立页的 DOM 不同，多候选选择器 + 短超时扫描；
++        data:image 直接返回 base64，http(s) 源下载后转 base64。
++        """
++        import base64
++
++        import httpx
++
++        selectors = (
++            "xpath=//div[@id='animate_qrcode_container']//img",
++            "#animate_qrcode_container img",
++            "img[class*='qrcode' i]",
++            "img[src*='qrcode']",
++            "img[src^='data:image']",
++        )
++        for frame in [self.context_page, *self.context_page.frames]:
++            for selector in selectors:
++                try:
++                    locator = frame.locator(selector).first
++                    src = await locator.get_attribute("src", timeout=1_500)
++                except Exception:
++                    continue
++                if not src:
++                    continue
++                if src.startswith("data:image"):
++                    return src.split(",", 1)[-1]
++                if src.startswith("http"):
++                    try:
++                        async with httpx.AsyncClient(timeout=10) as client:
++                            resp = await client.get(src)
++                        if resp.status_code == 200:
++                            return base64.b64encode(resp.content).decode("utf-8")
++                    except Exception:
++                        continue
++        return ""
 +
 +    async def login_by_mobile(self):
 +        utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")
