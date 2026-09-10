@@ -8,10 +8,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.mcp.client import McpServerConfig
 
+# .env 必须按绝对路径解析：沙箱工具在受限工作目录的独立子进程里执行
+# （external_tools.run_external），相对路径会让子进程读不到配置——
+# MEDIACRAWLER_HEADLESS 退回默认 False，Chrome 在有头模式下于无显示器
+# 服务器必然崩溃（实测五平台采集全败的根因）。
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        env_file=(
+            str(_BACKEND_DIR / ".env"),
+            str(_BACKEND_DIR.parent / ".env"),
+        ),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

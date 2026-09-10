@@ -32,32 +32,55 @@ def _build_crawler() -> Any:
     def _env(name: str) -> str:
         return os.environ.get(name, "")
 
-    return MediaCrawlerAdapter(
-        MediaCrawlerConfig(
-            root=Path(_env("COIFESP_MEDIACRAWLER_ROOT") or "."),
-            output_root=Path(_env("COIFESP_MEDIACRAWLER_OUTPUT_ROOT") or "."),
-            python_executable=Path(
-                _env("COIFESP_MEDIACRAWLER_PYTHON_EXECUTABLE") or sys.executable
-            ),
-            entrypoint=(
-                Path(_env("COIFESP_MEDIACRAWLER_ENTRYPOINT"))
-                if _env("COIFESP_MEDIACRAWLER_ENTRYPOINT")
-                else None
-            ),
-            login_type=_env("COIFESP_MEDIACRAWLER_LOGIN_TYPE") or "qrcode",
-            headless=_env("COIFESP_MEDIACRAWLER_HEADLESS") != "false",
-            include_comments=_env("COIFESP_MEDIACRAWLER_INCLUDE_COMMENTS") == "1",
-            max_comments_per_post=int(_env("COIFESP_MEDIACRAWLER_MAX_COMMENTS_PER_POST") or 0),
-            timeout_seconds=int(_env("COIFESP_MEDIACRAWLER_TIMEOUT_SECONDS") or 120),
-            max_output_runs=int(_env("COIFESP_MEDIACRAWLER_MAX_OUTPUT_RUNS") or 1),
-            usage_mode=_env("COIFESP_MEDIACRAWLER_USAGE_MODE") or "acquire",
-            weibo_cookies=_env("COIFESP_MEDIACRAWLER_WEIBO_COOKIES"),
-            bilibili_cookies=_env("COIFESP_MEDIACRAWLER_BILIBILI_COOKIES"),
-            tieba_cookies=_env("COIFESP_MEDIACRAWLER_TIEBA_COOKIES"),
-            zhihu_cookies=_env("COIFESP_MEDIACRAWLER_ZHIHU_COOKIES"),
-            douyin_cookies=_env("COIFESP_MEDIACRAWLER_DOUYIN_COOKIES"),
+    config_kwargs: dict[str, Any] = {
+        "root": Path(_env("COIFESP_MEDIACRAWLER_ROOT") or "."),
+        "output_root": Path(_env("COIFESP_MEDIACRAWLER_OUTPUT_ROOT") or "."),
+        "python_executable": Path(
+            _env("COIFESP_MEDIACRAWLER_PYTHON_EXECUTABLE") or sys.executable
+        ),
+        "entrypoint": (
+            Path(_env("COIFESP_MEDIACRAWLER_ENTRYPOINT"))
+            if _env("COIFESP_MEDIACRAWLER_ENTRYPOINT")
+            else None
+        ),
+        "login_type": _env("COIFESP_MEDIACRAWLER_LOGIN_TYPE") or "qrcode",
+        "headless": _env("COIFESP_MEDIACRAWLER_HEADLESS") != "false",
+        "include_comments": _env("COIFESP_MEDIACRAWLER_INCLUDE_COMMENTS") == "1",
+        "max_comments_per_post": int(_env("COIFESP_MEDIACRAWLER_MAX_COMMENTS_PER_POST") or 0),
+        "timeout_seconds": int(_env("COIFESP_MEDIACRAWLER_TIMEOUT_SECONDS") or 120),
+        "max_output_runs": int(_env("COIFESP_MEDIACRAWLER_MAX_OUTPUT_RUNS") or 1),
+        "usage_mode": _env("COIFESP_MEDIACRAWLER_USAGE_MODE") or "acquire",
+        "weibo_cookies": _env("COIFESP_MEDIACRAWLER_WEIBO_COOKIES"),
+        "bilibili_cookies": _env("COIFESP_MEDIACRAWLER_BILIBILI_COOKIES"),
+        "tieba_cookies": _env("COIFESP_MEDIACRAWLER_TIEBA_COOKIES"),
+        "zhihu_cookies": _env("COIFESP_MEDIACRAWLER_ZHIHU_COOKIES"),
+        "douyin_cookies": _env("COIFESP_MEDIACRAWLER_DOUYIN_COOKIES"),
+    }
+    # 与主进程 bootstrap._build_crawler 对齐：注入 DB 凭据解析链。子进程
+    # Settings 经绝对路径读取 .env（master key 只存于 .env，不进沙箱环境
+    # 白名单）。缺凭据层时保持静态 cookie 的原有行为。
+    try:
+        from app.core.config import Settings
+        from app.infrastructure.database import Database
+        from app.infrastructure.database.platform_auth_repository import (
+            PlatformAuthRepository,
         )
-    )
+        from app.services.platform_auth import PlatformAuthService
+        from app.services.platform_credentials import PlatformCredentialResolver
+
+        settings = Settings()
+        database = Database(settings.database_url)
+        auth_service = PlatformAuthService(
+            PlatformAuthRepository(database),
+            settings.platform_auth_master_key.get_secret_value(),
+            enabled=settings.platform_auth_enabled,
+        )
+        credential_resolver = PlatformCredentialResolver(auth_service, settings)
+        config_kwargs["cookie_resolver"] = credential_resolver.resolve_cookie_string
+        config_kwargs["auth_failure_callback"] = credential_resolver.mark_failed
+    except Exception:  # noqa: BLE001 - 子进程凭据层缺失时降级为静态 cookie
+        pass
+    return MediaCrawlerAdapter(MediaCrawlerConfig(**config_kwargs))
 
 
 async def collect_social_posts(payload: dict[str, Any]) -> dict[str, Any]:

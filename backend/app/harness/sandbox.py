@@ -1024,7 +1024,7 @@ class SandboxedToolExecutor:
             if exit_code != 0:
                 detail = stderr.strip() or stdout.strip() or f"exit {exit_code}"
                 raise ApplicationError(
-                    f"sandbox tool {tool_name} failed: {detail[:500]}",
+                    f"sandbox tool {tool_name} failed: {detail[-2000:]}",
                     code="tool_sandbox_failed",
                 )
             try:
