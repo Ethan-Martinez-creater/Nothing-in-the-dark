@@ -42,16 +42,12 @@ describe('GlobalSidebar', () => {
     expect(labels).toEqual(['首页', '信号', '情报', '调查', '报告'])
   })
 
-  it('keeps administration collapsed by default and expands on demand', async () => {
+  // 管理入口已移至 GlobalTopbar 顶栏悬停菜单，侧边栏不应再渲染管理链接。
+  it('does not render administration links (moved to topbar)', async () => {
     const { wrapper } = await mountSidebar()
-    const toggle = wrapper.find('.gsidebar__admin-toggle')
-    expect(toggle.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.find('#gsidebar-admin-links').isVisible()).toBe(false)
-
-    await toggle.trigger('click')
-    expect(toggle.attributes('aria-expanded')).toBe('true')
-    const links = wrapper.findAll('.gsidebar__admin-link').map((node) => node.text())
-    expect(links).toEqual(['审批', '审核', '记忆', '安全', '可观测', '韧性'])
+    expect(wrapper.find('.gsidebar__admin-toggle').exists()).toBe(false)
+    expect(wrapper.find('.gsidebar__admin-link').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('审批')
   })
 
   it('emits new-investigation when the CTA is clicked', async () => {

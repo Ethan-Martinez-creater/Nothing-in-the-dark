@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Optimization V2 (M1.2)：全局一级导航。
-// 结构：Brand → Primary nav → Investigations 树（slot）→ Administration（折叠）→ footer。
-import { Boxes, ChevronDown, ChevronRight, MessageSquarePlus } from 'lucide-vue-next'
-import { ref } from 'vue'
+// 结构：Brand → Primary nav → Investigations 树（slot）→ footer。
+// 管理入口已移至 GlobalTopbar 顶栏悬停菜单，避免挤占调查列表空间。
+import { Boxes, MessageSquarePlus } from 'lucide-vue-next'
 import { RouterLink, useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -11,8 +11,6 @@ const emit = defineEmits<{
   (e: 'new-investigation'): void
   (e: 'open-skills'): void
 }>()
-
-const adminCollapsed = ref(true)
 
 const primaryNav = [
   { path: '/', label: '首页', match: (p: string) => p === '/' },
@@ -29,16 +27,6 @@ const primaryNav = [
     match: (p: string) => p.startsWith('/investigations') || p.startsWith('/cases'),
   },
   { path: '/reports', label: '报告', match: (p: string) => p.startsWith('/reports') },
-] as const
-
-const adminLinks = [
-  { path: '/admin/approvals', label: '审批' },
-  { path: '/admin/reviews', label: '审核' },
-  { path: '/admin/memories', label: '记忆' },
-  { path: '/admin/security', label: '安全' },
-  { path: '/admin/observability', label: '可观测' },
-  { path: '/admin/resilience', label: '韧性' },
-  { path: '/admin/platform-auth', label: '平台账号' },
 ] as const
 </script>
 
@@ -80,31 +68,6 @@ const adminLinks = [
     <div class="gsidebar__list">
       <slot />
     </div>
-
-    <nav class="gsidebar__admin" aria-label="管理">
-      <button
-        type="button"
-        class="gsidebar__admin-toggle"
-        :aria-expanded="!adminCollapsed"
-        aria-controls="gsidebar-admin-links"
-        @click="adminCollapsed = !adminCollapsed"
-      >
-        <span>管理</span>
-        <ChevronRight v-if="adminCollapsed" :size="14" />
-        <ChevronDown v-else :size="14" />
-      </button>
-      <div v-show="!adminCollapsed" id="gsidebar-admin-links" class="gsidebar__admin-links">
-        <RouterLink
-          v-for="link in adminLinks"
-          :key="link.path"
-          :to="link.path"
-          class="gsidebar__admin-link"
-          :class="{ 'gsidebar__admin-link--active': route.path === link.path }"
-        >
-          {{ link.label }}
-        </RouterLink>
-      </div>
-    </nav>
 
     <div class="gsidebar__footer">
       <slot name="footer" />
@@ -224,68 +187,6 @@ const adminLinks = [
   min-height: 0;
   overflow-y: auto;
   padding: 0 10px;
-}
-
-.gsidebar__admin {
-  margin-top: auto;
-  padding: 10px 12px 6px;
-  border-top: 1px solid var(--border);
-}
-
-.gsidebar__admin-toggle {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
-}
-
-.gsidebar__admin-toggle:hover {
-  background: var(--surface-strong);
-  color: var(--text);
-}
-
-.gsidebar__admin-toggle span {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.gsidebar__admin-links {
-  max-height: min(300px, 40vh);
-  overflow-y: auto;
-  padding-top: 4px;
-}
-
-.gsidebar__admin-link {
-  display: flex;
-  align-items: center;
-  padding: 7px 10px;
-  margin: 2px 0;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
-  text-decoration: none;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
-}
-
-.gsidebar__admin-link:hover {
-  background: var(--surface-strong);
-  color: var(--text);
-}
-
-.gsidebar__admin-link--active {
-  background: rgba(37, 99, 235, 0.1);
-  color: var(--accent-strong);
-  font-weight: 600;
 }
 
 .gsidebar__footer {

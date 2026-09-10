@@ -51,10 +51,12 @@ async function mountApp(initialPath = '/') {
         children: [
           { path: 'approvals', component: { template: '<div>approvals</div>' } },
           { path: 'reviews', component: { template: '<div>reviews</div>' } },
+          { path: 'notifications', component: { template: '<div>notifications</div>' } },
           { path: 'memories', component: { template: '<div>memories</div>' } },
           { path: 'security', component: { template: '<div>security</div>' } },
           { path: 'observability', component: { template: '<div>observability</div>' } },
           { path: 'resilience', component: { template: '<div>resilience</div>' } },
+          { path: 'platform-auth', component: { template: '<div>platform-auth</div>' } },
         ],
       },
     ],
@@ -138,19 +140,21 @@ describe('App investigation shell', () => {
     expect(wrapper.text()).toContain('项目内调查')
   })
 
-  it('keeps administration collapsed by default and lets users expand it', async () => {
+  it('renders the administration entry with all links in the topbar menu', async () => {
     const { wrapper } = await mountApp()
-    const toggle = wrapper.find('.gsidebar__admin-toggle')
+    expect(wrapper.find('.gtopbar__admin-toggle').exists()).toBe(true)
+    expect(wrapper.find('.gsidebar__admin-toggle').exists()).toBe(false)
+    const links = wrapper.findAll('.gtopbar__admin-link').map((node) => node.text())
+    expect(links).toEqual(['审批', '审核', '通知', '记忆', '安全', '可观测', '韧性', '平台账号'])
+  })
 
-    const links = wrapper.find('#gsidebar-admin-links')
-    expect(toggle.attributes('aria-expanded')).toBe('false')
-    expect((links.element as HTMLElement).style.display).toBe('none')
-
-    await toggle.trigger('click')
-
-    expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect((links.element as HTMLElement).style.display).not.toBe('none')
-    expect(wrapper.text()).toContain('审批')
+  it('marks the topbar administration entry active on admin routes', async () => {
+    const { wrapper, router } = await mountApp()
+    await router.push('/admin/approvals')
+    await flushPromises()
+    expect(wrapper.find('.gtopbar__admin-toggle').classes()).toContain(
+      'gtopbar__admin-toggle--active',
+    )
   })
 
   it('creates a project from the inline input', async () => {

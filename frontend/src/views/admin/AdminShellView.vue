@@ -16,6 +16,7 @@ const tabs = [
   { path: '/admin/security', label: '安全' },
   { path: '/admin/observability', label: '可观测' },
   { path: '/admin/resilience', label: '韧性' },
+  { path: '/admin/platform-auth', label: '平台账号' },
 ] as const
 
 const activePath = computed(() => route.path)
