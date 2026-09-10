@@ -2798,7 +2798,7 @@ index c0e9372..0aa9546 100644
 +        extension_file_name = f"video.mp4"
 +        await douyin_store.update_dy_aweme_video(aweme_id, content, extension_file_name)
 diff --git a/media_platform/douyin/login.py b/media_platform/douyin/login.py
-index 4b76d11..8e9cb1f 100644
+index 4b76d11..453d501 100644
 --- a/media_platform/douyin/login.py
 +++ b/media_platform/douyin/login.py
 @@ -1,274 +1,351 @@
@@ -3190,8 +3190,8 @@ index 4b76d11..8e9cb1f 100644
 +
 +        # COIFESP 诊断：每 15 次轮询输出一次页面 URL 与登录标记状态
 +        #（只输出 URL 与标记值，不含 cookie 值），用于定位扫码后卡点。
-+        check_login_state._poll_count = getattr(check_login_state, "_poll_count", 0) + 1
-+        if check_login_state._poll_count % 15 == 0:
++        self._poll_count = getattr(self, "_poll_count", 0) + 1
++        if self._poll_count % 15 == 0:
 +            page_urls = []
 +            has_user_login = "0"
 +            for page in self.browser_context.pages:
