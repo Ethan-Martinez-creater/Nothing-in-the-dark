@@ -812,14 +812,41 @@ tests/test_agent_replay.py  14 passed（observation replay + seeded rerun + diff
 | 服务器 Tier A 实测 | 待执行 | 两台服务器服务处于休眠，见下节 |
 | 迁移在 PostgreSQL 上的验证 | 待 CI | 本机无 PG；SQLite 无法执行 `CREATE EXTENSION vector` |
 
-## Server Verification（本轮）
+## Server Verification（本轮 · 已完成）
 
-两台服务器（阿里云 / 腾讯云）当前状态：`coifesp-backend` /
-`coifesp-mlworker` / `postgresql` 均已 disable + inactive，nginx 仅占位站点。
-代码版本：阿里云 `74b827d`（本轮起点）、腾讯云 `ddbe685`（落后）。
+两台服务器均已完成代码同步与 **Tier A 真实验证**（保持项目服务休眠，不启动
+systemd 服务与 nginx 站点，避免与用户安排的新项目部署冲突）：
 
-本轮新增内容尚未部署到服务器；服务器同步计划为：
-`git pull`（阿里云可直连 GitHub）或 bundle（腾讯云 GitHub 不可达）
-→ `alembic upgrade head` → 重启服务 → 在服务器上跑 Tier A contract suite
-（不需要 `LLM_API_KEY`，因此两台都能跑）。
+| 项 | 阿里云 ECS (4C8G) | 腾讯云 Lighthouse (2C2G) |
+|---|---|---|
+| 同步前 HEAD | `74b827d` | `ddbe685` |
+| 同步后 HEAD | `df03d20` | `c1a9763` |
+| 同步方式 | `git pull --ff-only`（GitHub 直连可达） | 增量 `git bundle` + `git fetch`（GitHub 不可达） |
+| 运行方式 | `pytest`（conda env `coifesp`，pytest 9.1.1） | `python -m app.scripts.run_agent_eval`（venv 无 dev 依赖） |
+| 数据集契约测试 | 14 passed in 3.26s | 通过 CLI 间接覆盖 |
+| **Tier A contract eval** | **48 passed in 46.20s** | **24/24 tasks 通过，hard gates = []** |
+
+腾讯云的 Tier A 报告（`/tmp/tencent_contract.json`）：
+
+```text
+suite_version              interview_agent_v1
+mode                       contract
+sample_size                24
+git_sha                    c1a9763dad89
+model                      contract-scripted-model
+agent.task_success_rate              1.0
+agent.critical_task_success_rate     1.0
+agent.forbidden_tool_violations      0.0
+agent.unexpected_case_scope_violation 0.0
+agent.invalid_citation_count         0.0
+hard_gate_violations       []
+```
+
+**这条链路验证的意义**：本机 → GitHub → Linux 服务器 → 真实验证的完整闭环成立，
+且**Tier A 不需要 `LLM_API_KEY`**，因此两台服务器（含 2C2G 的轻量机）都能独立执行；
+Linux 上同一套测试比本机 Windows 快约 5–7 倍（46s vs 217s）。
+
+两台服务器的服务状态**保持停用**（`coifesp-backend` / `coifesp-mlworker` /
+`postgresql` disabled + inactive，nginx 仅占位站点），符合"这段时间不再启动旧项目"的安排。
+
 
