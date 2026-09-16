@@ -854,21 +854,61 @@ B1/B2/B3 三场景 contract 模式全部通过，hard gates PASS
 tests/test_agent_replay.py  14 passed（observation replay + seeded rerun + diff）
 ```
 
-## CI Gate（待 GitHub 实际运行）
+## CI Gate（已完成 ✅）
 
-三个 workflow 已提交且 YAML 校验通过；需要在 GitHub 上实际触发一次
-（push 或手动 dispatch）才能满足计划第 78 节"至少实际运行一次成功"。
-当前状态：**待验证**。
+GitHub Actions 实际运行成功：
+
+```text
+run: 35138131136  "ci: pin Node 24 to match the frontend's real requirement"
+结论: success (3m40s)
+  ✓ Frontend (typecheck + lint + test + build)              59s
+  ✓ Backend  (tests + migration + Tier A contract eval)   2m22s
+  artifact: agent-eval-contract（已上传）
+```
+
+**这条运行的额外价值**：Backend job 里的 **migration smoke 跑在
+`pgvector/pgvector:pg16` service 上**，因此 `alembic upgrade head` 在真实
+PostgreSQL 上被验证通过——这正是本机无法验证的部分（本机无 PG，且 SQLite
+无法执行 `CREATE EXTENSION vector`）。
+
+### 首次 CI 失败与修复（真实排障记录）
+
+首次 CI 运行（`df03d20`）**失败**：frontend job 36/36 测试文件报
+
+```text
+TypeError: webidl.util.markAsUncloneable is not a function
+  ❯ new CacheStorage node_modules/undici/lib/web/cache/cachestorage.js
+  ❯ Object.<anonymous> node_modules/jsdom/lib/api.js
+```
+
+根因：workflow 写死 `node-version: "20"`，而项目实际在 **Node 24** 上开发，
+`jsdom ^30` / `undici` 需要更新的运行时。本机因此掩盖了这个问题。
+
+修复（commit `9b66c82`）：
+
+1. `ci.yml` / `full-regression.yml` 的 `NODE_VERSION` 改为 `24`，并在 workflow 里
+   用注释记录确切报错，避免以后被人误改回去；
+2. `frontend/package.json` 增加 `engines.node >= 22.12`——把要求写进项目，
+   而不是隐含在 runner 镜像里。
+
+**这次失败本身就是"CI 与开发环境差异"的实例**，与服务器上那 10 个既有失败
+（真实 `.env` 泄漏进测试）属于同一类问题，因此保留在 delivery 里而不是抹掉。
+
 
 ## 尚未完成的验证项（如实列出）
 
-| 项 | 状态 | 原因 |
+| 项 | 状态 | 说明 |
 |---|---|---|
-| backend 全量 pytest | 运行中 | 本机 Windows 耗时数小时 |
-| Tier B real-model baseline | **BLOCKED** | 环境未配置 `LLM_API_KEY`；入口已就绪 |
-| CI workflow 实际运行 | 待验证 | 需要 GitHub 侧触发 |
-| 服务器 Tier A 实测 | 待执行 | 两台服务器服务处于休眠，见下节 |
-| 迁移在 PostgreSQL 上的验证 | 待 CI | 本机无 PG；SQLite 无法执行 `CREATE EXTENSION vector` |
+| backend 全量 pytest | **DONE（Linux）** | 1307 passed / 10 failed（10 个为既有环境问题，已对照验证）/ 2 skipped，23:20 |
+| 前端 Gate | **DONE** | typecheck / lint / 223 tests / build 全绿 |
+| Tier A Eval Gate | **DONE** | 本机 + 两台服务器均通过 |
+| Replay Gate | **DONE** | 14 项测试（observation replay / seeded rerun / diff） |
+| Benchmark Gate | **DONE** | B1/B2/B3 contract 模式全通过 |
+| CI workflow 实际运行 | **DONE** | run 35138131136 success (3m40s) |
+| 迁移在 PostgreSQL 上的验证 | **DONE（CI）** | CI 用 pgvector service 跑 `alembic upgrade head` 通过 |
+| 服务器 Tier A 实测 | **DONE** | 阿里云 48 passed；腾讯云 24/24 |
+| Tier B real-model baseline | **BLOCKED** | 未配置 `LLM_API_KEY`；入口已就绪，见下方说明 |
+| 10 个服务器环境相关测试失败 | **KNOWN ISSUE（本轮不修）** | 属既有问题，模块在本轮 Scope 之外 |
 
 ## Server Verification（本轮 · 已完成）
 
