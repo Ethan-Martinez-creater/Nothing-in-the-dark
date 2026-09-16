@@ -1,0 +1,120 @@
+name: Agent Evaluation (Tier B, real model)
+
+# 真实模型评测：manual 或定时，永不进入 PR 门禁。
+# 需要仓库 secret `LLM_API_KEY`；未配置时明确跳过（不伪造结果）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_label:
+        description: "候选版本标签（写入报告与 baseline 对比）"
+        required: false
+        default: "manual"
+      tasks:
+        description: "逗号分隔的 task 子集（留空 = 全部 24 个）"
+        required: false
+        default: ""
+      max_tasks:
+        description: "最多跑前 N 个任务（成本控制，0 = 不限制）"
+        required: false
+        default: "0"
+  schedule:
+    # 每周一/三/五 02:00 UTC（计划建议每周 3 次，而非每个 PR）
+    - cron: "0 2 * * 1,3,5"
+
+concurrency:
+  group: agent-eval-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Check real-model credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has_key: ${{ steps.check.outputs.has_key }}
+    steps:
+      - id: check
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          if [ -n "${LLM_API_KEY}" ]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::LLM_API_KEY secret is not configured; Tier B cannot run. Add the secret to enable real-model evaluation."
+          fi
+
+  tier-b:
+    name: Tier B real-model golden eval
+    needs: preflight
+    if: needs.preflight.outputs.has_key == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: coifesp_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d coifesp_eval"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/coifesp_eval
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+      LLM_FAST_MODEL: ${{ secrets.LLM_FAST_MODEL }}
+      DEMO_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev --frozen
+
+      - name: Migration
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      - name: Tier B golden suite
+        working-directory: backend
+        run: |
+          uv run python -m app.scripts.run_agent_eval \
+            --mode real_model \
+            --candidate-label "${{ github.event.inputs.candidate_label || 'scheduled' }}" \
+            --tasks "${{ github.event.inputs.tasks }}" \
+            --max-tasks "${{ github.event.inputs.max_tasks || 0 }}" \
+            --output artifacts/agent_eval/real_model.json \
+            --fail-on-hard-gate
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-real-model
+          path: backend/artifacts/agent_eval/
+          if-no-files-found: warn
+
+  skipped:
+    name: Tier B skipped (no credentials)
+    needs: preflight
+    if: needs.preflight.outputs.has_key != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Tier B real-model evaluation was skipped: LLM_API_KEY is not configured."
+          echo "The workflow itself is valid and will run once the secret is added."

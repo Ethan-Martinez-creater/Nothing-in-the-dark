@@ -1,0 +1,132 @@
+name: CI
+
+# PR / push 门禁：不需要任何真实模型 key、平台 Cookie 或扫码登录。
+# Agent 评测运行的是 Tier A（contract，scripted model）。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  backend:
+    name: Backend (tests + migration + Tier A contract eval)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # 项目迁移含 pgvector 的 CREATE EXTENSION，SQLite 无法承载完整
+        # migration smoke，因此 PR 用 pgvector 镜像做真实迁移验证。
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: coifesp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d coifesp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/coifesp_ci
+      DEMO_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev --frozen
+
+      - name: Migration smoke (fresh database to head)
+        working-directory: backend
+        run: |
+          uv run alembic upgrade head
+          uv run alembic current
+
+      - name: Agent evaluation + evaluation/governance tests
+        working-directory: backend
+        run: |
+          uv run pytest -q \
+            tests/test_agent_golden_dataset.py \
+            tests/test_agent_fixture_seed.py \
+            tests/test_agent_eval_evaluators.py \
+            tests/test_agent_replay.py \
+            tests/test_agent_eval_contract.py \
+            tests/test_evaluation_framework.py \
+            tests/test_evaluation_gates.py
+
+      - name: Agent runtime and policy tests
+        working-directory: backend
+        run: |
+          uv run pytest -q \
+            tests/test_production_entry.py \
+            tests/test_tool_registry.py \
+            tests/test_approval_policy.py \
+            tests/test_agent_loop.py \
+            tests/test_durable_runtime.py \
+            tests/test_expert_agents.py
+
+      - name: Tier A contract eval report
+        working-directory: backend
+        run: |
+          uv run python -m app.scripts.run_agent_eval \
+            --mode contract \
+            --candidate-label "pr-${{ github.sha }}" \
+            --output artifacts/agent_eval/contract.json \
+            --fail-on-hard-gate
+
+      - name: Upload contract eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-contract
+          path: backend/artifacts/agent_eval/
+          if-no-files-found: warn
+
+  frontend:
+    name: Frontend (typecheck + lint + test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

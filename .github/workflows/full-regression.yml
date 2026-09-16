@@ -1,0 +1,132 @@
+name: Full Regression
+
+# 全量回归：manual 或 nightly。不把真实社交平台采集作为必需步骤。
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_browser_smoke:
+        description: "是否运行部署形态的 HTTP smoke（demo 模式起服务）"
+        required: false
+        default: "true"
+  schedule:
+    # 每日 03:00 UTC
+    - cron: "0 3 * * *"
+
+concurrency:
+  group: full-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  backend-full:
+    name: Backend full pytest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: coifesp_regression
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d coifesp_regression"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/coifesp_regression
+      DEMO_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev --frozen
+      - name: Migration verification (fresh DB to head)
+        working-directory: backend
+        run: |
+          uv run alembic upgrade head
+          uv run alembic current
+      - name: Full backend test suite
+        working-directory: backend
+        run: uv run pytest -q
+
+  frontend-full:
+    name: Frontend full checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  deployment-smoke:
+    name: Deployment-shaped HTTP smoke (demo mode)
+    needs: [backend-full]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_browser_smoke != 'false' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite+aiosqlite:///./data/smoke.db
+      DEMO_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev --frozen
+      - name: Boot backend in demo mode and probe production entry
+        working-directory: backend
+        run: |
+          mkdir -p data
+          uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          SERVER_PID=$!
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/system/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          echo "--- health ---"
+          curl -fsS http://127.0.0.1:8000/api/v1/system/health
+          echo
+          echo "--- capabilities (production entry must be messages) ---"
+          curl -fsS http://127.0.0.1:8000/api/v1/system/capabilities
+          echo
+          echo "--- create case + start agent run ---"
+          CASE_ID=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/cases \
+            -H 'content-type: application/json' \
+            -d '{"topic":"回归冒烟","platforms":["weibo"]}' | python -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          echo "case: ${CASE_ID}"
+          curl -fsS -X POST "http://127.0.0.1:8000/api/v1/cases/${CASE_ID}/messages" \
+            -H 'content-type: application/json' \
+            -d '{"content":"这个调查目前有多少条数据？"}' | head -c 400
+          echo
+          kill "${SERVER_PID}" || true
+      - name: Note on live platform collection
+        run: |
+          echo "Live social-platform collection is intentionally NOT part of this workflow."
+          echo "Real platform credentials / QR login / crawler runs are manual live smoke only."
