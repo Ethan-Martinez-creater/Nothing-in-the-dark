@@ -81,6 +81,39 @@ PostgreSQL + pgvector / SQLite（开发）
 FastAPI 或 Vue。SQLite 用于降低本地启动门槛；生产环境使用 PostgreSQL 与完整 Alembic
 迁移链。
 
+## Interview / Architecture Tour
+
+如果你想快速了解这套 Agent 系统的工程能力与可复现评测结果，建议从下面三份文档开始：
+
+- [docs/interview/README.md](docs/interview/README.md) —— 项目定位、五个核心工程能力、
+  阅读顺序与最新评测结果（含样本量与运行上下文）
+- [docs/interview/architecture.md](docs/interview/architecture.md) —— Mermaid 主链路图与
+  四条必须讲清的边界（A2A 为本地兼容边界、非微服务、多 Agent 的分层含义、
+  Debate 不自动改写状态）
+- [docs/interview/benchmark.md](docs/interview/benchmark.md) —— 三个固定基准场景
+  （B1 Grounded Investigation / B2 Cross-Investigation / B3 Adversarial Review）
+  的可复现结果，以及"contract 模式不等于 real-model benchmark"的诚实性声明
+
+配套的评测与回归入口：
+
+```bash
+cd backend
+# Tier A contract eval（scripted model + 真实 runtime，无需任何 API key）
+uv run python -m app.scripts.run_agent_eval --mode contract --output artifacts/agent_eval/contract.json
+
+# Canonical benchmark（B1/B2/B3，冻结 fixture）
+uv run python -m app.scripts.run_agent_benchmark --mode contract
+
+# 真实模型评测（需要 LLM_API_KEY）
+uv run python -m app.scripts.run_agent_eval --mode real_model --candidate-label v1-baseline
+```
+
+其余深挖材料：[deep-dive-15min.md](docs/interview/deep-dive-15min.md)、
+[failure-stories.md](docs/interview/failure-stories.md)、
+[tradeoffs.md](docs/interview/tradeoffs.md)、
+[golden-dataset.md](docs/interview/golden-dataset.md)、
+[demo-5min.md](docs/interview/demo-5min.md)。
+
 ## 仓库内容
 
 ```text
