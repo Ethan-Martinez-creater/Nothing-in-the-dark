@@ -766,16 +766,74 @@ npm run build       PASS (built in 28.49s)
 时的资源竞争——router 测试首次导航需 ~2.5s，高负载下超时。
 结论：不是代码缺陷，但值得记录：**该测试对机器负载敏感，CI 上不要与其他重型 job 并行。**
 
-## 后端 Gate（进行中）
+## 后端 Gate（已完成，在 Linux 服务器上执行）
+
+本机（Windows）无法在合理时间内跑完全量：`timeout 5400` 在 **90 分钟 / 32%** 处
+被强杀（前 32% 全绿，无失败）。原因是 Windows + SQLite 文件 I/O：单个
+`create_schema()` 即需数十秒。因此全量 gate 改在**阿里云服务器**上执行，
+这也符合"本机 → GitHub → Linux → 真实验证"的链路要求。
 
 ```text
-命令: uv run --extra dev pytest -q
-状态: 运行中（后台），134 个测试文件
+环境: 阿里云 ECS，conda env coifesp，Python 3.12.14，pytest 9.1.1
+命令: python -m pytest -q
+结果: 1307 passed, 10 failed, 2 skipped in 1400.38s (23:20)
 ```
 
-本机为 Windows + SQLite 文件 I/O，`create_schema()` 单次即需数十秒，
-因此全量耗时以小时计（Linux CI 会显著更快，见 ci.yml）。
-结果将在完成后补记于本节。
+**速度对比**：同一套测试 Linux 23 分钟 vs Windows 90 分钟才到 32%，约 6 倍差距。
+
+### 10 个失败的定性（已对照验证，属既有问题）
+
+失败清单：
+
+```text
+tests/test_knowledge_api.py::test_memory_document_and_case_scoped_retrieval
+tests/test_llm_gateway.py::test_concurrency_capped_by_semaphore
+tests/test_mediacrawler_adapter.py::{test_cookie_mode_requires_platform_cookie,
+  test_headless_keeps_background_when_platform_logged_in,
+  test_headless_falls_back_to_background_on_cookie_read_error,
+  test_collect_passes_login_aware_headless_to_command}
+tests/test_mediacrawler_run_env.py::test_run_command_keeps_existing_xdg_runtime_dir
+tests/test_memory_governance.py::test_memory_governance_api
+tests/test_memory_lifecycle.py::test_domain_memory_isolated_from_case
+tests/test_rag_extended_sources.py::test_api_evidence_search_platform_filter
+```
+
+**对照实验（关键证据）**：在服务器上 `git checkout 74b827d`（本轮起点）后跑
+完全相同的 10 个测试，结果**同样 10 failed, 18 passed**。因此它们
+**不是本轮引入的回归**，而是既有的"部署环境 vs 开发机"差异。
+
+**根因方向**（已定位到的具体报错）：
+
+1. `test_mediacrawler_*` 四个失败：`ApplicationError: Platform weibo requires login`
+   —— 服务器的真实 `.env` 里有平台认证 / 登录类型配置，**真实配置泄漏进测试环境**，
+   使测试"干净环境"的隔离假设失效；本机 `.env` 是精简版，所以本机通过。
+2. `test_llm_gateway`：`KeyError: 'tools'`（测试与实现的契约在该环境下不一致）。
+3. `test_knowledge_api` / `test_memory_*` / `test_rag_*`：`assert 400 == 201`
+   （请求被真实配置或缺少的依赖拒绝，如 embedding worker 未启动）。
+4. `test_mediacrawler_run_env::test_run_command_keeps_existing_xdg_runtime_dir`：
+   `assert '/run/user/0' == '/run/user/custom'`——这是我在前序会话写的测试，
+   在 Windows 上因 `os.name != "posix"` 跳过该分支而通过，在 Linux 上暴露了
+   环境变量白名单过滤与 `setdefault` 的交互问题。
+
+**本轮的处置：如实记录，不修**。理由：这些模块（mediacrawler / memory / RAG /
+llm_gateway）不属于本轮 Scope，`Scope Freeze` 明确禁止改 Collection 算法、
+Memory 语义等业务行为；且它们与本轮新增的 `app/evaluation/` 完全无交集。
+这是一个**需要单独一轮修复的真实问题**（核心是测试与真实 `.env` 的隔离策略）。
+
+### 服务器测试残留清理
+
+- 删除了测试在服务器上误创建的 `backend/E:/Graduate_work_folder/Agent_develop/
+  Project/COIFESP_Agent/...` 目录（Windows 风格路径在 Linux 上被当字面量创建的
+  历史残留，与第 4 条失败同源）。
+- `coifesp-*` 临时目录残留数为 0；已跟踪文件工作区干净。
+- 清理后资源：used 1.6Gi / 7.3Gi（测试进程已退出）。
+
+### 两台服务器状态（保持不变）
+
+`coifesp-backend` / `coifesp-mlworker` / `postgresql` 均 **inactive + disabled**，
+nginx 仅占位站点——符合"这段时间不再启动旧项目"的安排，本轮的所有验证都是
+以独立进程/CLI 方式执行的，**没有恢复任何常驻服务**。
+
 
 ## Tier A Eval Gate（已完成）
 
