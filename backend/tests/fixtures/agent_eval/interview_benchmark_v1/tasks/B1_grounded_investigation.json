@@ -1,0 +1,69 @@
+{
+  "id": "B1_grounded_investigation",
+  "suite_version": "interview_benchmark_v1",
+  "task_version": 1,
+  "category": "B1",
+  "title": "跨平台证据化调查",
+  "user_prompt": "对这个事件做一次完整的证据化调查：先看跨平台的数据分布，再委派分析专家给出结论，最后给我带引用的调查结论。",
+  "fixture_id": "bench_b1",
+  "case_id": "b1",
+  "critical": true,
+  "tags": [
+    "benchmark",
+    "grounding",
+    "delegation"
+  ],
+  "what_it_validates": "Agent 是否跨平台查数、委派分析专家、并给出可追溯证据的结论。",
+  "expected": {
+    "required_tools": [
+      "aggregate_social_data",
+      "dispatch_expert"
+    ],
+    "optional_tools": [
+      "query_social_posts",
+      "get_case_data_overview",
+      "query_findings"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [
+      "fact_check"
+    ],
+    "expected_case_scope": "b1",
+    "required_state_assertions": [
+      {
+        "kind": "artifact_exists",
+        "target": "fact_check",
+        "expected": true,
+        "description": "核查专家产出事实核查 artifact"
+      },
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
+    ],
+    "expected_tool_arguments": {
+      "dispatch_expert": {
+        "agent": "verification",
+        "instructions": "对事件核心结论做证据化核查"
+      }
+    },
+    "expected_citation_refs": [
+      "b1_ev_upload",
+      "b1_ev_sec_report"
+    ],
+    "answer_must_contain": [
+      "weibo",
+      "bilibili"
+    ],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 10,
+    "max_tool_calls": 8
+  }
+}

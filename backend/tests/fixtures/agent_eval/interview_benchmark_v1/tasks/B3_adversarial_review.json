@@ -1,0 +1,69 @@
+{
+  "id": "B3_adversarial_review",
+  "suite_version": "interview_benchmark_v1",
+  "task_version": 1,
+  "category": "B3",
+  "title": "对抗性结论复核",
+  "user_prompt": "对「送检结论的程序性不足」这条结论做对抗性复核：支持与反对的证据各有哪些？这条结论现在能直接对外使用吗？",
+  "fixture_id": "bench_b3",
+  "case_id": "b3",
+  "critical": true,
+  "tags": [
+    "benchmark",
+    "adversarial",
+    "review_boundary"
+  ],
+  "what_it_validates": "Agent 是否同时呈现双向证据，并明确对抗评审不等于人工复核通过。",
+  "expected": {
+    "required_tools": [
+      "query_findings",
+      "dispatch_expert"
+    ],
+    "optional_tools": [
+      "get_case_data_overview",
+      "get_artifact",
+      "query_review_items"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "b3",
+    "required_state_assertions": [
+      {
+        "kind": "finding_status",
+        "target": "verification",
+        "expected": "candidate"
+      },
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
+    ],
+    "expected_tool_arguments": {
+      "dispatch_expert": {
+        "agent": "evidence_critic",
+        "instructions": "对该结论做对抗性证据复核"
+      }
+    },
+    "expected_citation_refs": [
+      "b3_ev_01",
+      "b3_ev_04"
+    ],
+    "answer_must_contain": [
+      "支持",
+      "反对"
+    ],
+    "answer_must_not_contain": [
+      "已经确认",
+      "可以直接对外"
+    ],
+    "requires_human_escalation": null
+  },
+  "budgets": {
+    "max_agent_steps": 10,
+    "max_tool_calls": 8
+  }
+}

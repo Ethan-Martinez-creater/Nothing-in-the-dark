@@ -171,6 +171,22 @@ async def seed_fixture(
                     )
                 ref_map[f"post:{post['key']}"] = record_id
 
+        # 媒体资产：跨调查的 shared_media detector 依赖 normalized_url / phash。
+        for media in investigation.get("media", []) or []:
+            record = await repository.create_media_asset(
+                case_id=case.id,
+                post_id=ref_map.get(f"post:{media['post_key']}")
+                if media.get("post_key")
+                else None,
+                platform=media.get("platform", "weibo"),
+                media_type=media.get("media_type", "image"),
+                url=media["url"],
+                normalized_url=media["normalized_url"],
+                file_sha256=media.get("file_sha256"),
+                phash=media.get("phash"),
+            )
+            ref_map[f"media:{media['key']}"] = record.id
+
         for claim in investigation.get("claims", []) or []:
             record = await repository.create_claim(
                 case_id=case.id,

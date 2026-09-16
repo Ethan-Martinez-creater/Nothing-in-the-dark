@@ -21,6 +21,18 @@ from typing import Any, Iterable, Mapping
 
 SUITE_VERSION = "interview_agent_v1"
 
+#: Benchmark suite（Phase 6）：三个固定场景，不追求数量。
+BENCHMARK_SUITE_VERSION = "interview_benchmark_v1"
+BENCHMARK_B1_GROUNDED = "B1"
+BENCHMARK_B2_CROSS = "B2"
+BENCHMARK_B3_ADVERSARIAL = "B3"
+BENCHMARK_CATEGORY_TITLES: dict[str, str] = {
+    BENCHMARK_B1_GROUNDED: "B1 Grounded Investigation",
+    BENCHMARK_B2_CROSS: "B2 Cross-Investigation Intelligence",
+    BENCHMARK_B3_ADVERSARIAL: "B3 Adversarial Review",
+}
+BENCHMARK_CATEGORIES: tuple[str, ...] = tuple(BENCHMARK_CATEGORY_TITLES)
+
 #: 6 个固定类别，每类 4 个任务。
 CATEGORY_DATABASE_GROUNDING = "G1"
 CATEGORY_TOOL_ROUTING = "G2"
@@ -351,12 +363,18 @@ def validate_suite(
     *,
     known_tools: Iterable[str] | None = None,
     enforce_counts: bool = True,
+    allowed_categories: Iterable[str] | None = None,
 ) -> list[str]:
-    """返回问题列表（空 = 通过）。不抛异常，便于测试输出全部问题。"""
+    """返回问题列表（空 = 通过）。不抛异常，便于测试输出全部问题。
+
+    ``allowed_categories`` 为空时用 golden suite 的 6 类；benchmark suite 传入
+    ``BENCHMARK_CATEGORIES`` 并关闭 ``enforce_counts``。
+    """
     problems: list[str] = []
     known = set(known_tools) if known_tools is not None else None
+    categories = tuple(allowed_categories) if allowed_categories else CATEGORIES
 
-    if suite.suite_version != SUITE_VERSION:
+    if enforce_counts and suite.suite_version != SUITE_VERSION:
         problems.append(
             f"suite_version mismatch: {suite.suite_version} != {SUITE_VERSION}"
         )
@@ -369,7 +387,7 @@ def validate_suite(
         if task.id in seen_ids:
             problems.append(f"duplicate task id: {task.id}")
         seen_ids.add(task.id)
-        if task.category not in CATEGORIES:
+        if task.category not in categories:
             problems.append(f"{task.id}: unknown category {task.category!r}")
         if not task.user_prompt.strip():
             problems.append(f"{task.id}: empty user_prompt")
@@ -421,6 +439,15 @@ def validate_suite(
                 problems.append(
                     f"category {category} has {count} tasks (expected {TASKS_PER_CATEGORY})"
                 )
+    else:
+        # benchmark suite：要求每个声明的场景恰好一个任务。
+        present = {task.category for task in suite.tasks}
+        missing = sorted(set(categories) - present)
+        if missing:
+            problems.append(f"missing benchmark scenarios: {missing}")
+        extra = sorted(present - set(categories))
+        if extra:
+            problems.append(f"unexpected benchmark scenarios: {extra}")
     return problems
 
 

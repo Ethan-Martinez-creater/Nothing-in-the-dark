@@ -1,0 +1,23 @@
+{
+  "suite_version": "interview_benchmark_v1",
+  "task": "agent_benchmark",
+  "source": "synthetic frozen fixture (虚构合成，无真实主体)",
+  "license": "internal-eval-fixture",
+  "schema_version": "1.0",
+  "created_at": "2026-09-16",
+  "task_count": 3,
+  "categories": {
+    "B1": "B1 Grounded Investigation",
+    "B2": "B2 Cross-Investigation Intelligence",
+    "B3": "B3 Adversarial Review"
+  },
+  "fixtures": {
+    "bench_b1": "2 平台 32 帖 + 8 证据 + 3 结论 + 1 报告",
+    "bench_b2": "3 调查 + 共享账号 + 共享媒体 + observed/candidate relation + signal",
+    "bench_b3": "1 结论 + 13 条混合 stance 证据"
+  },
+  "notes": [
+    "Benchmark 全部使用冻结 fixture，执行时绝不联网。",
+    "指标必须连同 sample size / suite version / model / git SHA / date 展示。"
+  ]
+}

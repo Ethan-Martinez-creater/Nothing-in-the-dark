@@ -115,3 +115,7 @@ deploy.env
 deploy1.env
 deploy*.env
 .browser_target.tmp
+
+# Agent eval / benchmark run artifacts (only curated results go to docs/)
+/backend/artifacts/
+/artifacts/

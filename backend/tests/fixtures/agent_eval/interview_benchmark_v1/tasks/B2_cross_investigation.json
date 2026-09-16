@@ -1,0 +1,47 @@
+{
+  "id": "B2_cross_investigation",
+  "suite_version": "interview_benchmark_v1",
+  "task_version": 1,
+  "category": "B2",
+  "title": "跨调查关联情报",
+  "user_prompt": "这几个调查之间有没有关联？请给出关联类型、强度，以及是否有候选关系需要人工确认。",
+  "fixture_id": "bench_b2",
+  "case_id": "b2_a",
+  "critical": true,
+  "tags": [
+    "benchmark",
+    "cross_investigation"
+  ],
+  "what_it_validates": "Agent 是否识别跨调查的共享账号/共享媒体，并区分 observed 与 candidate 关系。",
+  "expected": {
+    "required_tools": [
+      "query_related_investigations"
+    ],
+    "optional_tools": [
+      "query_workspace_entities",
+      "query_signals",
+      "get_investigation_quality"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "b2_a",
+    "required_state_assertions": [
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 10,
+    "max_tool_calls": 8
+  }
+}
