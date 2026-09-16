@@ -1,23 +1,40 @@
 {
   "id": "G1_04",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 2,
   "category": "G1",
   "title": "主张与证据清点",
-  "user_prompt": "目前围绕这个事件整理出了哪些待核实主张？每条主张下面挂了多少证据？",
+  "user_prompt": "目前已经形成了哪些结论？各自的评审状态是什么？请只报数据库里真实存在的。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "grounding", "claim_evidence"],
-  "what_it_validates": "Agent 是否分别查询 claims 与 evidence 两张真实来源，而不是混为一谈或编造数量。",
+  "tags": [
+    "read_only",
+    "grounding",
+    "claim_evidence"
+  ],
+  "what_it_validates": "Agent 是否分别查询 findings 与 review items 两个真实来源，而不是把候选结论说成已确认。",
   "expected": {
-    "required_tools": ["query_claims", "query_evidence"],
-    "optional_tools": ["get_case_data_overview"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_findings",
+      "query_review_items"
+    ],
+    "optional_tools": [
+      "get_case_data_overview",
+      "query_case_activity"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],

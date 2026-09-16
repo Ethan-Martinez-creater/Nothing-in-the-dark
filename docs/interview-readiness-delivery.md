@@ -304,3 +304,152 @@ fixture 不含任何真实平台 URL、schema 序列化往返、坏数据被校�
 ```text
 feat(eval): add versioned agent golden dataset
 ```
+
+---
+
+# Phase 2 — End-to-End Agent Evaluation
+
+## Implementation
+
+建立 Tier A（contract）与 Tier B（real_model）两条 E2E 评测链路，全部复用
+**真实 production runtime**：`GraphWorker` + `AgentRunService` + `build_tool_registry`
++ `ApprovalPolicyEngine` + run/event/tool_call 持久化。Tier A 只把 `LLMGateway`
+换成 scripted 实现，不新建第二套 runtime / tool system / evaluation system。
+
+新增模块（`backend/app/evaluation/`）：
+
+```text
+agent_trace.py       轨迹层：ToolCallView / ArtifactView / FindingView / ApprovalView /
+                     ReviewItemView / AgentTrace / CaseStateSnapshot / StateDiff
+                     + collect_trace() / capture_state() / diff_snapshots()
+agent_evaluators.py  E1–E10 确定性 evaluator（纯函数，无 LLM）
+agent_fixture_seed.py fixtures.json → 真实 DB（全部走生产 repository/service）
+agent_eval.py        AgentSuiteRunner（contract/real_model）+ ContractGateway +
+                     报告结构 + 指标聚合 + hard gate
+```
+
+服务与入口：
+
+```text
+backend/app/application/agent_evaluation_service.py
+    AgentEvaluationService.run_agent_suite / persist_report / gate_inputs
+    → 结果写入现有 evaluation_runs（不新建第二套评测系统）
+backend/app/scripts/run_agent_eval.py
+    CLI：--mode contract|real_model，--output 生成 report.json + report.md，
+        --fail-on-hard-gate 供 CI 使用
+```
+
+Evaluator 清单（计划第 26 节要求的 9 个 + case scope）：
+
+| ID | metric | 判定方式 |
+|---|---|---|
+| E1 | agent.task_success | state assertions + required artifacts + 已回答（期望审批时接受 waiting_approval 停等） |
+| E2 | agent.required_tool_coverage | required_called / required |
+| E3 | agent.forbidden_tool_violations | 违规调用计数（必须 0） |
+| E4 | agent.tool_argument_accuracy | 真实 ToolSpec.input_model 的 schema 校验 + limit 上界 |
+| E5 | agent.unexpected_mutation_count | pre/post 快照 diff（artifact 增长不计） |
+| E6 | agent.invalid_citation_count | 回答中的 id token 必须真实存在（幻觉检测） |
+| E7 | agent.evidence_grounding | 期望 evidence 是否经 ref_map 落到回答中 |
+| E8 | agent.human_escalation_correctness | 只看**本次运行**产生的审批/评审（不误判 fixture 历史数据） |
+| E9 | agent.efficiency | steps / tool_calls / latency / tokens / cost |
+| E10 | agent.unexpected_case_scope_violation | 工具参数中的 case_id 必须等于期望 case |
+
+## Changed Files
+
+```text
+新增 backend/app/evaluation/agent_trace.py
+新增 backend/app/evaluation/agent_evaluators.py
+新增 backend/app/evaluation/agent_fixture_seed.py
+新增 backend/app/evaluation/agent_eval.py
+新增 backend/app/application/agent_evaluation_service.py
+新增 backend/app/scripts/run_agent_eval.py
+新增 backend/tests/test_agent_eval_evaluators.py（21 个单测）
+新增 backend/tests/test_agent_eval_contract.py（17 个 Tier A 端到端测试）
+新增 backend/tests/test_agent_fixture_seed.py（5 个 seed 测试）
+修改 backend/app/evaluation/agent_dataset.py（新增 expected_tool_arguments）
+修改 backend/tests/fixtures/agent_eval/interview_agent_v1/tasks/*.json（12 个任务权限边界修正，task_version → 2）
+修改 docs/interview-readiness-delivery.md
+```
+
+## Tests
+
+```text
+tests/test_agent_eval_evaluators.py  21 passed in 0.32s
+tests/test_agent_fixture_seed.py      5 passed in 3.72s
+tests/test_agent_eval_contract.py    17 passed in 217.32s（含 24 任务全量 suite）
+```
+
+Tier A 24 任务实测结果：
+
+```text
+agent.task_success_rate                  1.0      (24/24)
+agent.required_tool_coverage             1.0
+agent.tool_argument_accuracy             1.0
+agent.critical_task_success_rate         1.0      (G5 4/4)
+agent.forbidden_tool_violations          0.0
+agent.invalid_citation_count             0.0
+agent.unexpected_mutation_count          0.0
+agent.unexpected_case_scope_violation    0.0
+agent.avg_steps                          2.12
+agent.avg_tool_calls                     1.12
+agent.p50_latency_ms                     742.5
+agent.p95_latency_ms                     2827.8
+hard gates                               [] (pass)
+```
+
+满足计划第 75 节的 Tier A Eval Gate：24/24 可执行、critical 100%、
+forbidden/scope/citation 违规全 0。
+
+## 实施中发现并修正的真实架构约束（重要）
+
+1. **coordinator 的工具白名单是硬边界**：`build_coordinator_definition()`
+   只允许 22 个工具；`classify_sentiment` / `reconstruct_propagation` /
+   `verify_claims` / `build_report` / `query_claims` / `query_evidence` 都**不在**
+   coordinator 手里，它们属于 6 个专家 agent。首轮 12 个任务因越权调用失败——
+   runtime 正确地丢弃了越权工具调用（这是安全行为，不是 bug）。
+   修正方式：任务改为声明 `dispatch_expert`（专家层工具进入 optional 或由子 run
+   覆盖），并新增 `expected_tool_arguments` 字段声明委派目标。
+2. **`dispatch_expert` 同步等待子 run**（`await _wait_for_child`），
+   因此 runner 必须用后台 `worker.start()` 循环驱动；用 `tick(wait=True)`
+   会在主 run 等待子 run 时死锁（子 run 永远无法被 claim）。
+3. **专家子 run 的产物要合并进 trace**：`propagation_reconstruction` /
+   `report` 等 artifact 挂在子 run 上，`collect_trace` 需要遍历
+   `list_child_runs` 才能让 artifact 断言生效。
+4. **子 run 与主 run 共用 gateway 实例**：Tier A 的 scripted gateway 必须按
+   system prompt 做角色隔离，否则专家调用会吃掉主 run 的脚本步骤
+   （表现为最终回答退化成 `{"done": true}`）。
+5. **runtime 先写终态、后收尾**：`status=completed` 之后还有 emit `agent_end`
+   与释放 lease，此时 `worker.stop()` 会 cancel 该 task，触发 CancelledError
+   分支把已完成 run 误标成 `cancelled`。修复：用 lease 释放作为收尾信号。
+6. **`no_mutation` 与 E5 必须同口径**：artifact 是工具正常产物，两处都排除。
+
+## Server Verification
+
+本 Phase 未在服务器执行：Tier A 需要运行完整 backend（SQLAlchemy + 真实
+Tool Registry + LangGraph），服务器当前处于休眠状态（服务 disable + nginx 占位页）。
+计划在 Phase 5 完成后、Phase 9 期间统一做服务器最小真实验证
+（`git pull` → migration → restart → 在服务器上跑 Tier A contract suite）。
+
+## Known Limitations
+
+1. **Tier A 的回答由脚本构造**：E7 在 Tier A 验证的是"引用链路可解析"，
+   真正的 grounding 质量必须由 Tier B（真实模型）证明。README/Benchmark 不得
+   把 Tier A 说成 real-model 结果。
+2. **Tier B 需要真实 LLM key**：入口已就绪（`--mode real_model`，复用生产
+   `OpenAICompatibleGateway`），但本机与 CI 尚未配置 key，属 BLOCKED，
+   将在有 key 的环境（阿里云服务器）执行并记录 baseline。
+3. **专家子 run 的工具调用**不参与 E2/E3/E4/E10 判定（那些判定针对 coordinator
+   层）；子 run 的工具序列完整记录在 `trace.child_tool_calls`，供 Phase 4 的
+   Replay diff 使用。
+4. **E9 的 token/cost 在 Tier A 恒为 0**（scripted 模型无真实用量）；
+   Tier B 才有意义。
+5. 24 任务是小样本，指标必须连同 sample size 展示（计划第 57 节）；
+   `AgentEvaluationService.gate_inputs` 显式不传 sample_sizes，避免现有门禁的
+   `<30` 样本下限规则误报。
+
+## Commit
+
+```text
+feat(eval): run production agent runtime against golden tasks
+feat(eval): add deterministic trajectory evaluators
+```

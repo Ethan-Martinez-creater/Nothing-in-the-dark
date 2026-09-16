@@ -1,28 +1,50 @@
 {
   "id": "G2_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 2,
   "category": "G2",
   "title": "事实核查路由",
   "user_prompt": "这两条相互矛盾的说法，哪一条更站得住？帮我做一次事实核查。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "routing", "verification"],
-  "what_it_validates": "面对矛盾主张核验诉求，Agent 是否选择核查工具并落到 claim/evidence，而不是泛泛而谈。",
+  "tags": [
+    "read_only",
+    "routing",
+    "verification"
+  ],
+  "what_it_validates": "面对矛盾主张核验诉求，协调者是否委派 verification 专家而不是自己下结论。",
   "expected": {
-    "required_tools": ["verify_claims"],
-    "optional_tools": ["query_claims", "query_evidence"],
-    "forbidden_tools": ["reconstruct_propagation", "collect_social_posts", "start_social_collection"],
+    "required_tools": [
+      "dispatch_expert"
+    ],
+    "optional_tools": [
+      "query_findings",
+      "get_artifact"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_arguments": {
+      "dispatch_expert": {
+        "agent": "verification",
+        "instructions": "对该事件的核心主张做事实核查"
+      }
+    }
   },
   "budgets": {
     "max_agent_steps": 8,

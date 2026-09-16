@@ -136,6 +136,11 @@ class AgentExpectedBehavior:
     answer_must_contain: tuple[str, ...] = ()
     answer_must_not_contain: tuple[str, ...] = ()
     requires_human_escalation: bool | None = None
+    #: 任务级的工具参数声明（如 dispatch_expert 的 agent/instructions）。
+    #: Tier A 用它生成 scripted 调用；E4 用它校验参数是否符合期望。
+    expected_tool_arguments: dict[str, dict[str, object]] = field(
+        default_factory=dict
+    )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -151,6 +156,9 @@ class AgentExpectedBehavior:
             "answer_must_contain": list(self.answer_must_contain),
             "answer_must_not_contain": list(self.answer_must_not_contain),
             "requires_human_escalation": self.requires_human_escalation,
+            "expected_tool_arguments": {
+                key: dict(value) for key, value in self.expected_tool_arguments.items()
+            },
         }
 
     @classmethod
@@ -178,6 +186,11 @@ class AgentExpectedBehavior:
                 if payload.get("requires_human_escalation") is not None
                 else None
             ),
+            expected_tool_arguments={
+                str(key): dict(value)
+                for key, value in (payload.get("expected_tool_arguments") or {}).items()
+                if isinstance(value, Mapping)
+            },
         )
 
 

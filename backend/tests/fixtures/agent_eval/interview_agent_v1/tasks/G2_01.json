@@ -1,28 +1,50 @@
 {
   "id": "G2_01",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 2,
   "category": "G2",
   "title": "情感倾向分析路由",
   "user_prompt": "整体舆论情绪偏向哪一边？帮我做个情感倾向的分布统计。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "routing", "sentiment"],
-  "what_it_validates": "面对情感类诉求，Agent 是否选择 sentiment 工具，而不是误用传播重建或核查类工具。",
+  "tags": [
+    "read_only",
+    "routing",
+    "sentiment"
+  ],
+  "what_it_validates": "面对情感类诉求，协调者是否把分析委派给 opinion 专家（而不是自己臆断或误派其它专家）。",
   "expected": {
-    "required_tools": ["classify_sentiment"],
-    "optional_tools": ["query_social_posts", "get_case_data_overview"],
-    "forbidden_tools": ["reconstruct_propagation", "collect_social_posts", "start_social_collection"],
+    "required_tools": [
+      "dispatch_expert"
+    ],
+    "optional_tools": [
+      "query_social_posts",
+      "get_case_data_overview"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_arguments": {
+      "dispatch_expert": {
+        "agent": "opinion",
+        "instructions": "分析该调查的舆论情感倾向分布"
+      }
+    }
   },
   "budgets": {
     "max_agent_steps": 6,

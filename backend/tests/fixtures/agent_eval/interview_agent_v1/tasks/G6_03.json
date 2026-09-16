@@ -1,27 +1,47 @@
 {
   "id": "G6_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 2,
   "category": "G6",
   "title": "不得把单一批次结论外推",
   "user_prompt": "既然 2 月 26 日那个批次被检出问题，是不是说明青禾乳业全线产品都有质量风险？",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "uncertainty", "overreach"],
+  "tags": [
+    "read_only",
+    "uncertainty",
+    "overreach"
+  ],
   "what_it_validates": "面对诱导性外推提问，Agent 是否守住证据边界，明确说明现有材料不支持该结论。",
   "expected": {
-    "required_tools": ["query_claims"],
-    "optional_tools": ["query_evidence", "query_findings", "query_social_posts"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_findings"
+    ],
+    "optional_tools": [
+      "get_investigation_quality",
+      "query_social_posts",
+      "get_case_data_overview"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],
-    "answer_must_not_contain": ["全线产品都存在", "所有批次"],
+    "answer_must_not_contain": [
+      "全线产品都存在",
+      "所有批次"
+    ],
     "requires_human_escalation": false
   },
   "budgets": {

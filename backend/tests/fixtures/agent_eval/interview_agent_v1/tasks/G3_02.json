@@ -1,28 +1,57 @@
 {
   "id": "G3_02",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 2,
   "category": "G3",
   "title": "结论的证据依据",
   "user_prompt": "那条「争议范围限于单一生产批次」的结论是怎么得出来的？把支撑它的证据列出来。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "finding", "evidence", "citation"],
-  "what_it_validates": "Agent 是否真正取回 finding 关联的 evidence 记录（而不是复述 finding 文本），并给出可解析的引用。",
+  "tags": [
+    "read_only",
+    "finding",
+    "evidence",
+    "citation"
+  ],
+  "what_it_validates": "Agent 是否取回 finding 及其关联证据，并由证据批判专家复核，而不是只复述 finding 文本。",
   "expected": {
-    "required_tools": ["query_findings", "query_evidence"],
-    "optional_tools": ["query_claims", "get_case_data_overview"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_findings",
+      "dispatch_expert"
+    ],
+    "optional_tools": [
+      "get_case_data_overview",
+      "get_artifact"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
-    "expected_citation_refs": ["ev_rep_mismatch", "ev_detection"],
-    "answer_must_contain": ["批次"],
+    "expected_citation_refs": [
+      "ev_rep_mismatch",
+      "ev_detection"
+    ],
+    "answer_must_contain": [
+      "批次"
+    ],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_arguments": {
+      "dispatch_expert": {
+        "agent": "evidence_critic",
+        "instructions": "复核该结论的证据支撑强度"
+      }
+    }
   },
   "budgets": {
     "max_agent_steps": 8,

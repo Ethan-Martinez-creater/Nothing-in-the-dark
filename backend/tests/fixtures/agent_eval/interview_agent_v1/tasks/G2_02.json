@@ -1,29 +1,58 @@
 {
   "id": "G2_02",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 2,
   "category": "G2",
   "title": "传播路径重建路由",
   "user_prompt": "这条爆料是怎么扩散开的？我想知道帖子和帖子之间的传播关系。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "routing", "propagation"],
-  "what_it_validates": "面对传播关系类诉求，Agent 是否选择传播重建工具，而不是误用情感分类或核查工具。",
+  "tags": [
+    "read_only",
+    "routing",
+    "propagation"
+  ],
+  "what_it_validates": "面对传播关系类诉求，协调者是否委派 propagation 专家并产出传播图 artifact。",
   "expected": {
-    "required_tools": ["reconstruct_propagation"],
-    "optional_tools": ["query_social_posts", "query_propagation"],
-    "forbidden_tools": ["classify_sentiment", "collect_social_posts", "start_social_collection"],
-    "required_artifact_types": ["propagation_graph"],
+    "required_tools": [
+      "dispatch_expert"
+    ],
+    "optional_tools": [
+      "query_social_posts",
+      "get_artifact"
+    ],
+    "forbidden_tools": [
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [
+      "propagation_reconstruction"
+    ],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "artifact_exists", "target": "propagation_graph", "expected": true},
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      },
+      {
+        "kind": "artifact_exists",
+        "target": "propagation_reconstruction",
+        "expected": true,
+        "description": "专家子 run 产出的 artifact 计入 run 树"
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_arguments": {
+      "dispatch_expert": {
+        "agent": "propagation",
+        "instructions": "重建该事件的传播路径"
+      }
+    }
   },
   "budgets": {
     "max_agent_steps": 8,
