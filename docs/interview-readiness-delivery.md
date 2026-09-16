@@ -569,3 +569,257 @@ tests/test_agent_replay.py  14 passed in 98.59s
 feat(eval): integrate agent metrics with release gate
 feat(eval): add trace replay and run diff
 ```
+
+---
+
+# Phase 6 — Canonical Benchmark
+
+## Implementation
+
+`interview_benchmark_v1`：三个固定场景，全部冻结 fixture（虚构合成数据），
+执行时不联网、不依赖平台 Cookie。
+
+| 场景 | fixture | 满足计划要求 |
+|---|---|---|
+| B1 Grounded Investigation | `bench_b1` | 2 平台、**32 帖**（要求 30–50）、8 条证据、**3 条结论**（要求 ≥3） |
+| B2 Cross-Investigation | `bench_b2` | **3 个调查**、共享账号、**共享媒体**（相同 normalized_url + file_sha256）、observed + candidate 关系、1 条 signal |
+| B3 Adversarial Review | `bench_b3` | 1 条结论对 **13 条**证据（要求 >12），supports/contradicts/context 三类齐全 |
+
+- `agent_dataset.py` 扩展：benchmark 套件支持（类别 B1/B2/B3；校验改为
+  "每个场景恰好一个任务"而不是 24 任务固定分布）。
+- `agent_fixture_seed.py` 扩展：media asset 写入（`create_media_asset`），
+  让共享媒体检测有真实数据。
+- `scripts/run_agent_benchmark.py`：contract/real_model 双模式，输出
+  `artifacts/benchmark/<timestamp>/{report.json,report.md,traces/}`，
+  含计划第 58 节的 Failure Analysis（expected / actual / tool trace / root cause）。
+- 报告强制携带 sample size / suite version / model / git SHA / date；
+  `docs/interview/benchmark.md` 由**真实运行结果**生成。
+
+## Changed Files
+
+```text
+新增 backend/tests/fixtures/agent_eval/interview_benchmark_v1/{manifest.json,fixtures.json,tasks/*.json}
+新增 backend/app/scripts/run_agent_benchmark.py
+新增 backend/tests/test_agent_benchmark.py（5 个测试）
+新增 docs/interview/benchmark.md（由真实运行生成）
+修改 backend/app/evaluation/agent_dataset.py（benchmark 套件支持）
+修改 backend/app/evaluation/agent_fixture_seed.py（media asset 支持）
+修改 .gitignore（artifacts/ 不入库，只提交精选 markdown）
+```
+
+## Tests
+
+```text
+tests/test_agent_benchmark.py  5 passed in 48.22s
+```
+
+覆盖：三场景结构、benchmark 校验、fixture 满足计划规模要求（含共享媒体 hash 相同）、
+B2 端到端执行、报告携带完整上下文（sample size / git SHA / suite version）。
+
+## 实跑结果（contract 模式）
+
+```text
+sample_size = 3
+hard gates  = PASS
+agent.task_success_rate        1.0   (3/3)
+agent.required_tool_coverage   1.0
+agent.tool_argument_accuracy   1.0
+agent.invalid_citation_count   0.0
+agent.unexpected_mutation_count 0.0
+agent.avg_steps                2.67
+agent.avg_tool_calls           1.67
+agent.p50_latency_ms           2780.0
+agent.p95_latency_ms           2794.4
+```
+
+## Server Verification
+
+未在服务器执行；benchmark 的两种模式都只依赖冻结 fixture 与真实 runtime。
+
+## Known Limitations
+
+1. **contract 模式不是 real-model benchmark**：B1/B2/B3 的 contract 结果只证明
+   编排合同与硬门禁；`docs/interview/benchmark.md` 用独立章节显式声明这一点，
+   避免被误读。
+2. real_model baseline 因缺少 `LLM_API_KEY` 处于 **BLOCKED**；
+   `--baseline-id` 的对比需要先有 `artifacts/benchmark/baseline.json`。
+3. B1 的 fixture 是合成数据（32 帖/8 证据），规模满足计划下限但不代表线上分布。
+4. 三个场景均为 `critical=True`，即任一场景失败都会触发 hard gate BLOCK——
+   这是刻意的（基准场景不应默默失败）。
+
+## Commit
+
+```text
+feat(benchmark): add canonical agent benchmark (B1/B2/B3)
+```
+
+---
+
+# Phase 7 — Interview Demo & Engineering Narrative
+
+## Implementation
+
+`docs/interview/` 共 8 份文档（计划要求 7 份 + 1 份自动生成的 golden-dataset）：
+
+```text
+README.md            定位 / 五个核心工程能力 / 阅读顺序 / 最新结果（含诚实性声明）
+architecture.md      Mermaid 主链路图 + 四条边界（A2A 本地兼容边界等）
+benchmark.md         可复现结果 + 诚实性声明（由真实运行生成）
+golden-dataset.md    24 个任务清单（由数据集自动生成）
+demo-5min.md         5 分钟固定脚本 + 无网络离线替代方案
+deep-dive-15min.md   四个工程主题
+failure-stories.md   5 个真实故障（现象/根因/修复/取舍/经验）
+tradeoffs.md         计划要求的 7 个取舍问答（每个都写出代价）
+```
+
+主 `README.md` 新增 **Interview / Architecture Tour** 章节（按计划不重写 README），
+链接三份核心文档与可运行的 eval/benchmark 命令。
+
+## 反过度声明的具体处理
+
+- A2A 一律写 **A2A-compatible integration boundary**，并引用
+  `a2a/gateway.py` 里"remote gateway 未部署、配置后返回 501"的事实；
+- benchmark.md 用独立章节声明 **contract 模式 ≠ real-model benchmark**；
+- README 的评测摘要表把"mode"列与样本量放在百分比之前；
+- failure-stories 包含"我们做错了什么"（诊断代码自身的 `NameError`、
+  把登录态当成可搬运目录、把有界扫描当 truth set）。
+
+## Tests
+
+文档阶段无新增测试；文档中引用的数字均来自真实运行或代码常量
+（134 个后端测试文件、36 个前端测试文件、239 个路由、129 张表、54 个迁移、
+32 个工具、6 个专家 agent、4 条 SLO）。
+
+## Server Verification
+
+不适用（纯文档）。
+
+## Known Limitations
+
+1. demo 脚本中的界面路径基于当前前端结构，若 UI 改版需要同步更新。
+2. deep-dive 里引用的代码位置会随重构漂移，未做自动校验。
+
+## Commit
+
+```text
+docs: add interview architecture and demo package
+```
+
+---
+
+# Phase 8 — Optional Production Closure
+
+## 决定：不做（保持凭据架构稳定）
+
+计划第 69–71 节把 `PlatformAuthService.validate()` 定义为**可选**项，
+前提是 Phase 1–7 全部完成。当前状态与决定：
+
+- `backend/app/services/platform_auth.py:196 validate()` 仍返回
+  `validation_not_implemented`；
+- 失效检测目前是**内嵌在采集路径**里的（`CredentialResolver` 在采集时解密注入，
+  失败会走 `auth_failure_callback` 把凭据标记为 invalid 并留下错误信息）；
+- 因此"凭据是否还有效"这件事**已经有真实信号**，只是没有一个独立的、用户可主动
+  触发的轻量校验入口。
+
+**不做本轮的理由**：
+
+1. Interview Readiness 的主 Gate 是"可测量 / 可复现 / 可比较 / 可回归"，Phase 1–7
+   已覆盖；validate 不产生新的工程证明维度；
+2. 它必须逐平台实现"最小 authenticated check"，每个平台的稳定轻量接口都不同，
+   而**做错的风险大于收益**：计划第 70 节明确禁止"为验证登录状态而完整采集"、
+   禁止伪造 valid。仓促实现的半成品 probe 反而可能对平台产生异常流量；
+3. 凭据架构（AES-256-GCM + 服务端扫码 + resolver 注入）刚在多轮修复后稳定，
+   本轮冻结期内不宜再动认证链路（Scope Freeze 第 9 节）。
+
+**记录为有意跳过**，而不是遗漏：若将来要做，正确姿势是
+`decrypt credential → 最小 authenticated check → valid/expired/unknown`，
+没有稳定接口的平台一律返回 `unknown`。
+
+## Server Verification
+
+不适用。
+
+## Known Limitations
+
+- 用户无法主动校验凭据有效性；只能通过一次真实使用（采集）间接发现失效。
+
+## Commit
+
+无（有意不实施）。
+
+---
+
+# Phase 9 — Final Verification
+
+## 前端 Gate（已完成）
+
+```text
+npm run typecheck   PASS（无输出）
+npm run lint        PASS（无输出，--max-warnings=0）
+npm test            36 files / 223 tests PASS
+npm run build       PASS (built in 28.49s)
+```
+
+**一个真实观察（不是掩饰）**：首次跑 `npm test` 时出现 2 个失败
+（`src/router/index.test.ts` 的 legacy redirect 契约），单独跑该文件 5/5 通过，
+随后两次全量重跑也全部通过（36/36）。原因是**该测试与 backend 全量 pytest 并行执行**
+时的资源竞争——router 测试首次导航需 ~2.5s，高负载下超时。
+结论：不是代码缺陷，但值得记录：**该测试对机器负载敏感，CI 上不要与其他重型 job 并行。**
+
+## 后端 Gate（进行中）
+
+```text
+命令: uv run --extra dev pytest -q
+状态: 运行中（后台），134 个测试文件
+```
+
+本机为 Windows + SQLite 文件 I/O，`create_schema()` 单次即需数十秒，
+因此全量耗时以小时计（Linux CI 会显著更快，见 ci.yml）。
+结果将在完成后补记于本节。
+
+## Tier A Eval Gate（已完成）
+
+```text
+tests/test_agent_eval_contract.py  22 passed
+24/24 tasks 可执行，critical 4/4，forbidden/scope/citation/mutation 全 0
+```
+
+## Benchmark Gate（已完成）
+
+```text
+B1/B2/B3 三场景 contract 模式全部通过，hard gates PASS
+```
+
+## Replay Gate（已完成）
+
+```text
+tests/test_agent_replay.py  14 passed（observation replay + seeded rerun + diff）
+```
+
+## CI Gate（待 GitHub 实际运行）
+
+三个 workflow 已提交且 YAML 校验通过；需要在 GitHub 上实际触发一次
+（push 或手动 dispatch）才能满足计划第 78 节"至少实际运行一次成功"。
+当前状态：**待验证**。
+
+## 尚未完成的验证项（如实列出）
+
+| 项 | 状态 | 原因 |
+|---|---|---|
+| backend 全量 pytest | 运行中 | 本机 Windows 耗时数小时 |
+| Tier B real-model baseline | **BLOCKED** | 环境未配置 `LLM_API_KEY`；入口已就绪 |
+| CI workflow 实际运行 | 待验证 | 需要 GitHub 侧触发 |
+| 服务器 Tier A 实测 | 待执行 | 两台服务器服务处于休眠，见下节 |
+| 迁移在 PostgreSQL 上的验证 | 待 CI | 本机无 PG；SQLite 无法执行 `CREATE EXTENSION vector` |
+
+## Server Verification（本轮）
+
+两台服务器（阿里云 / 腾讯云）当前状态：`coifesp-backend` /
+`coifesp-mlworker` / `postgresql` 均已 disable + inactive，nginx 仅占位站点。
+代码版本：阿里云 `74b827d`（本轮起点）、腾讯云 `ddbe685`（落后）。
+
+本轮新增内容尚未部署到服务器；服务器同步计划为：
+`git pull`（阿里云可直连 GitHub）或 bundle（腾讯云 GitHub 不可达）
+→ `alembic upgrade head` → 重启服务 → 在服务器上跑 Tier A contract suite
+（不需要 `LLM_API_KEY`，因此两台都能跑）。
+
