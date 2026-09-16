@@ -1,0 +1,35 @@
+{
+  "id": "G4_01",
+  "suite_version": "interview_agent_v1",
+  "task_version": 1,
+  "category": "G4",
+  "title": "关联调查发现",
+  "user_prompt": "这个调查和其他调查有没有关联？如果有关联，是怎么关联上的？",
+  "fixture_id": "case_cross",
+  "case_id": "cross_a",
+  "critical": false,
+  "tags": ["read_only", "cross_investigation"],
+  "what_it_validates": "Agent 是否查询跨调查链接并区分 observed 与 candidate 关系。",
+  "expected": {
+    "required_tools": ["query_related_investigations"],
+    "optional_tools": ["get_case_data_overview", "query_workspace_entities"],
+    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_artifact_types": [],
+    "expected_case_scope": "cross_a",
+    "required_state_assertions": [
+      {"kind": "no_mutation", "target": "case", "expected": true}
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 6,
+    "max_tool_calls": 5,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

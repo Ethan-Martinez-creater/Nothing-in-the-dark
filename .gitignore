@@ -112,3 +112,6 @@ backend/_sel_loop.py
 
 # SSH deployment connection info (sensitive, never commit)
 deploy.env
+deploy1.env
+deploy*.env
+.browser_target.tmp

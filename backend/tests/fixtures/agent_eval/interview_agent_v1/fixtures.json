@@ -1,0 +1,698 @@
+{
+  "_note": "interview_agent_v1 冻结 fixture。全部数据为虚构合成内容（品牌、账号、数字均为编造），不涉及真实主体，评测时不得联网采集。引用字段使用逻辑 key（*_key），由 seed 阶段解析为真实 DB id。",
+  "_schema": {
+    "investigations[].accounts[]": "key/platform/native_id/name/normalized_name",
+    "investigations[].posts[]": "key/platform/native_id/author/author_id/content/published_at/engagement/content_type/comments[]",
+    "investigations[].claims[]": "key/text",
+    "investigations[].evidence[]": "key/claim_key?/source_type/source_post_key?/stance/excerpt/relevance",
+    "investigations[].findings[]": "key/kind/title/statement/confidence/evidence_refs[{evidence_key,relation}]/status",
+    "investigations[].review_items[]": "key/object_type/object_id_key/summary/status/priority/risk_level"
+  },
+
+  "case_grounding": {
+    "description": "主调查：单一事件的跨平台事实基础（G1/G2/G3/G5/G6 共用）。含 2 平台 10 条帖子、2 个账号、3 条 claim、5 条 evidence、2 个 finding、1 份带引用的报告。",
+    "investigations": [
+      {
+        "key": "grounding",
+        "topic": "青禾乳业酸奶添加剂争议",
+        "title": "青禾乳业酸奶添加剂争议",
+        "description": "2026 年 3 月，网络流传青禾乳业风味酸奶添加剂超标，涉及第三方检测报告与官方回应。",
+        "platforms": ["weibo", "bilibili"],
+        "time_start": "2026-03-01",
+        "time_end": "2026-03-20",
+        "accounts": [
+          {
+            "key": "acct_official",
+            "platform": "weibo",
+            "native_id": "qh-official-001",
+            "name": "青禾乳业官方",
+            "normalized_name": "青禾乳业官方"
+          },
+          {
+            "key": "acct_whistle",
+            "platform": "weibo",
+            "native_id": "food-watch-8821",
+            "name": "食品观察站",
+            "normalized_name": "食品观察站"
+          }
+        ],
+        "posts": [
+          {
+            "key": "gr_p1",
+            "platform": "weibo",
+            "native_id": "gr-weibo-1001",
+            "author": "食品观察站",
+            "author_id": "food-watch-8821",
+            "content": "【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。",
+            "published_at": "2026-03-05T09:12:00+00:00",
+            "engagement": 48200,
+            "content_type": "post",
+            "metrics": {"reposts": 12400, "comments": 6800, "likes": 29000},
+            "comments": [
+              {
+                "native_id": "gr-c-1001-1",
+                "content": "支持曝光，家里刚买了两箱",
+                "author_id": "user-7781",
+                "author_name": "普通消费者甲",
+                "published_at": "2026-03-05T09:40:00+00:00",
+                "metrics": {"likes": 320}
+              },
+              {
+                "native_id": "gr-c-1001-2",
+                "content": "检测方法是否合规需要确认，单一样本不能说明批次问题",
+                "author_id": "user-3390",
+                "author_name": "理性讨论者",
+                "published_at": "2026-03-05T10:05:00+00:00",
+                "metrics": {"likes": 1200}
+              }
+            ]
+          },
+          {
+            "key": "gr_p2",
+            "platform": "weibo",
+            "native_id": "gr-weibo-1002",
+            "author": "青禾乳业官方",
+            "author_id": "qh-official-001",
+            "content": "关于网传检测结果的说明：我司已委托两家具备 CMA 资质的机构对同批次产品复检，预计 3 月 8 日前公布结果。目前生产与销售正常。",
+            "published_at": "2026-03-05T14:30:00+00:00",
+            "engagement": 21500,
+            "content_type": "post",
+            "metrics": {"reposts": 4300, "comments": 5100, "likes": 12100}
+          },
+          {
+            "key": "gr_p3",
+            "platform": "bilibili",
+            "native_id": "gr-bili-2001",
+            "author": "实验室老王",
+            "author_id": "lab-wang-556",
+            "content": "【实测】我用市售检测条复现青禾酸奶菌落测试，结果与网传报告不一致，视频含完整操作过程与对照实验。",
+            "published_at": "2026-03-06T11:20:00+00:00",
+            "engagement": 92400,
+            "content_type": "video",
+            "metrics": {"views": 78000, "danmaku": 2400, "likes": 12000},
+            "comments": [
+              {
+                "native_id": "gr-c-2001-1",
+                "content": "对照实验设计得不错，但采样批次信息缺失",
+                "author_id": "user-1145",
+                "author_name": "生物系学生",
+                "published_at": "2026-03-06T12:00:00+00:00",
+                "metrics": {"likes": 890}
+              }
+            ]
+          },
+          {
+            "key": "gr_p4",
+            "platform": "bilibili",
+            "native_id": "gr-bili-2002",
+            "author": "食品法规解读",
+            "author_id": "foodlaw-220",
+            "content": "菌落总数超标的法定判定口径解析：国标对风味酸奶的限值与复检程序说明，附条文出处。",
+            "published_at": "2026-03-07T08:45:00+00:00",
+            "engagement": 18600,
+            "content_type": "video",
+            "metrics": {"views": 15200, "danmaku": 410, "likes": 2600}
+          },
+          {
+            "key": "gr_p5",
+            "platform": "weibo",
+            "native_id": "gr-weibo-1003",
+            "author": "青禾乳业官方",
+            "author_id": "qh-official-001",
+            "content": "复检结果公告：两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格。检测报告编号见附图。",
+            "published_at": "2026-03-08T10:00:00+00:00",
+            "engagement": 33800,
+            "content_type": "post",
+            "metrics": {"reposts": 7200, "comments": 9400, "likes": 17200}
+          },
+          {
+            "key": "gr_p6",
+            "platform": "weibo",
+            "native_id": "gr-weibo-1004",
+            "author": "食品观察站",
+            "author_id": "food-watch-8821",
+            "content": "回应青禾乳业复检公告：我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断。",
+            "published_at": "2026-03-08T16:20:00+00:00",
+            "engagement": 26900,
+            "content_type": "post",
+            "metrics": {"reposts": 5100, "comments": 4200, "likes": 17600}
+          },
+          {
+            "key": "gr_p7",
+            "platform": "bilibili",
+            "native_id": "gr-bili-2003",
+            "author": "消费维权笔记",
+            "author_id": "rights-note-771",
+            "content": "从这次事件看第三方送检的流程漏洞：样品公证、批次锁定、留样封存三个环节缺失会带来什么后果。",
+            "published_at": "2026-03-09T19:05:00+00:00",
+            "engagement": 12300,
+            "content_type": "video",
+            "metrics": {"views": 10400, "danmaku": 260, "likes": 1900}
+          },
+          {
+            "key": "gr_p8",
+            "platform": "weibo",
+            "native_id": "gr-weibo-1005",
+            "author": "普通消费者甲",
+            "author_id": "user-7781",
+            "content": "两家机构复检合格，但我想知道 2 月 26 日批次到底还有没有在售，超市货架上还有同批次产品。",
+            "published_at": "2026-03-10T09:30:00+00:00",
+            "engagement": 8400,
+            "content_type": "post",
+            "metrics": {"reposts": 1100, "comments": 1600, "likes": 5700}
+          },
+          {
+            "key": "gr_p9",
+            "platform": "bilibili",
+            "native_id": "gr-bili-2004",
+            "author": "实验室老王",
+            "author_id": "lab-wang-556",
+            "content": "跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。",
+            "published_at": "2026-03-12T15:40:00+00:00",
+            "engagement": 64800,
+            "content_type": "video",
+            "metrics": {"views": 56000, "danmaku": 1800, "likes": 8600}
+          },
+          {
+            "key": "gr_p10",
+            "platform": "weibo",
+            "native_id": "gr-weibo-1006",
+            "author": "食品观察站",
+            "author_id": "food-watch-8821",
+            "content": "我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。",
+            "published_at": "2026-03-14T11:00:00+00:00",
+            "engagement": 19700,
+            "content_type": "post",
+            "metrics": {"reposts": 3600, "comments": 2800, "likes": 13300}
+          }
+        ],
+        "claims": [
+          {
+            "key": "claim_batch",
+            "text": "2026 年 2 月 26 日生产的青禾乳业风味酸奶存在菌落总数超标问题"
+          },
+          {
+            "key": "claim_retest",
+            "text": "青禾乳业同批次留样经两家 CMA 机构复检合格"
+          },
+          {
+            "key": "claim_scope",
+            "text": "争议集中在 2 月 26 日单一生产批次，尚无证据表明其他批次存在同类问题"
+          }
+        ],
+        "evidence": [
+          {
+            "key": "ev_detection",
+            "claim_key": "claim_batch",
+            "source_type": "social_post",
+            "source_post_key": "gr_p1",
+            "stance": "supports",
+            "excerpt": "我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍",
+            "relevance": 0.92
+          },
+          {
+            "key": "ev_retest_notice",
+            "claim_key": "claim_retest",
+            "source_type": "social_post",
+            "source_post_key": "gr_p5",
+            "stance": "supports",
+            "excerpt": "两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格",
+            "relevance": 0.95
+          },
+          {
+            "key": "ev_rep_mismatch",
+            "claim_key": "claim_scope",
+            "source_type": "social_post",
+            "source_post_key": "gr_p6",
+            "stance": "contradicts",
+            "excerpt": "我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断",
+            "relevance": 0.88
+          },
+          {
+            "key": "ev_lab_repro",
+            "claim_key": "claim_retest",
+            "source_type": "social_post",
+            "source_post_key": "gr_p9",
+            "stance": "supports",
+            "excerpt": "我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格",
+            "relevance": 0.85
+          },
+          {
+            "key": "ev_regulator",
+            "claim_key": "claim_scope",
+            "source_type": "social_post",
+            "source_post_key": "gr_p10",
+            "stance": "context",
+            "excerpt": "已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论",
+            "relevance": 0.7
+          }
+        ],
+        "findings": [
+          {
+            "key": "finding_batch_scope",
+            "kind": "verification",
+            "title": "争议范围限于单一生产批次",
+            "statement": "现有公开材料只能支持「2026-02-26 批次存在争议」这一范围，没有任何公开证据表明其他批次或全线产品存在同类问题。",
+            "confidence": 0.72,
+            "evidence_refs": [
+              {"evidence_key": "ev_rep_mismatch", "relation": "supports"},
+              {"evidence_key": "ev_detection", "relation": "context"},
+              {"evidence_key": "ev_regulator", "relation": "context"}
+            ],
+            "status": "candidate"
+          },
+          {
+            "key": "finding_procedure",
+            "kind": "opinion",
+            "title": "第三方送检缺乏批次锁定程序",
+            "statement": "爆料方的送检流程缺少样品公证与批次锁定环节，这使其结论在与厂商复检结果冲突时无法独立成立。",
+            "confidence": 0.65,
+            "evidence_refs": [
+              {"evidence_key": "ev_rep_mismatch", "relation": "supports"},
+              {"evidence_key": "ev_lab_repro", "relation": "contradicts"}
+            ],
+            "status": "under_review"
+          }
+        ],
+        "review_items": [
+          {
+            "key": "review_procedure",
+            "object_type": "finding",
+            "object_id_key": "finding_procedure",
+            "summary": "送检程序类结论需要人工复核",
+            "status": "unreviewed",
+            "priority": 2,
+            "risk_level": "medium"
+          }
+        ],
+        "report": {
+          "title": "青禾乳业酸奶添加剂争议 · 阶段报告",
+          "executive_summary": "争议聚焦于 2026-02-26 生产批次。爆料方送检结论与厂商复检结论冲突，冲突根源是送检批次是否一致尚未公开确认。",
+          "sections": [
+            {
+              "id": "s1",
+              "title": "事件时间线",
+              "content": "3 月 5 日爆料方发布送检结论；同日厂商宣布复检；3 月 8 日厂商公布复检合格。",
+              "evidence_refs": ["ev_detection", "ev_retest_notice"]
+            },
+            {
+              "id": "s2",
+              "title": "结论冲突与范围界定",
+              "content": "爆料方指出送检批次为 2 月 26 日批次，与厂商复检批次是否一致需公开批次号确认。",
+              "evidence_refs": ["ev_rep_mismatch", "ev_regulator"]
+            }
+          ],
+          "citation_refs": ["ev_detection", "ev_retest_notice", "ev_rep_mismatch", "finding_batch_scope"]
+        }
+      }
+    ]
+  },
+
+  "case_cross": {
+    "description": "跨调查情报：3 个关联调查（G4 共用）。含共享账号、共享媒体指纹、candidate relation、workspace entity 与 derived signal。",
+    "investigations": [
+      {
+        "key": "cross_a",
+        "topic": "青禾乳业代言人争议",
+        "title": "青禾乳业代言人争议",
+        "description": "代言人过往言论被翻出引发的品牌关联讨论。",
+        "platforms": ["weibo", "zhihu"],
+        "time_start": "2026-03-02",
+        "time_end": "2026-03-18",
+        "accounts": [
+          {
+            "key": "acct_bridge",
+            "platform": "weibo",
+            "native_id": "media-bridge-4457",
+            "name": "热点搬运工",
+            "normalized_name": "热点搬运工"
+          }
+        ],
+        "posts": [
+          {
+            "key": "ca_p1",
+            "platform": "weibo",
+            "native_id": "ca-weibo-3001",
+            "author": "热点搬运工",
+            "author_id": "media-bridge-4457",
+            "content": "青禾乳业代言人三年前的一条旧微博被翻出，评论区已吵翻天。",
+            "published_at": "2026-03-02T10:00:00+00:00",
+            "engagement": 41000,
+            "content_type": "post",
+            "metrics": {"reposts": 9800, "comments": 5400, "likes": 25800}
+          },
+          {
+            "key": "ca_p2",
+            "platform": "zhihu",
+            "native_id": "ca-zhihu-4001",
+            "author": "品牌观察",
+            "author_id": "brand-watch-991",
+            "content": "代言人风险与品牌关联：从近年案例看代言人舆情对乳企销量的实际影响周期。",
+            "published_at": "2026-03-04T14:00:00+00:00",
+            "engagement": 15600,
+            "content_type": "post",
+            "metrics": {"upvotes": 2100, "comments": 340}
+          },
+          {
+            "key": "ca_p3",
+            "platform": "weibo",
+            "native_id": "ca-weibo-3002",
+            "author": "热点搬运工",
+            "author_id": "media-bridge-4457",
+            "content": "同一批营销号在多个平台同步发布高度相似文案，配图为同一张未标注来源的合成图。",
+            "published_at": "2026-03-11T09:20:00+00:00",
+            "engagement": 33200,
+            "content_type": "post",
+            "metrics": {"reposts": 7600, "comments": 3900, "likes": 21700}
+          }
+        ],
+        "claims": [
+          {
+            "key": "claim_actor",
+            "text": "同一账号在多个调查事件中重复出现并承担搬运角色"
+          }
+        ],
+        "evidence": [
+          {
+            "key": "ev_actor_repeat",
+            "claim_key": "claim_actor",
+            "source_type": "social_post",
+            "source_post_key": "ca_p3",
+            "stance": "supports",
+            "excerpt": "同一批营销号在多个平台同步发布高度相似文案",
+            "relevance": 0.8
+          }
+        ],
+        "findings": [
+          {
+            "key": "finding_actor",
+            "kind": "manual",
+            "title": "存在跨事件重复搬运账号",
+            "statement": "账号「热点搬运工」在两个独立调查事件中都承担了首发搬运角色，需要判断其是否为有组织传播节点。",
+            "confidence": 0.55,
+            "evidence_refs": [{"evidence_key": "ev_actor_repeat", "relation": "supports"}],
+            "status": "under_review"
+          }
+        ]
+      },
+      {
+        "key": "cross_b",
+        "topic": "青禾乳业供应链质疑",
+        "title": "青禾乳业供应链质疑",
+        "description": "关于代工厂产能与原料来源的质疑讨论。",
+        "platforms": ["weibo", "bilibili"],
+        "time_start": "2026-03-06",
+        "time_end": "2026-03-19",
+        "accounts": [
+          {
+            "key": "acct_bridge_b",
+            "platform": "weibo",
+            "native_id": "media-bridge-4457",
+            "name": "热点搬运工",
+            "normalized_name": "热点搬运工"
+          }
+        ],
+        "posts": [
+          {
+            "key": "cb_p1",
+            "platform": "weibo",
+            "native_id": "cb-weibo-5001",
+            "author": "热点搬运工",
+            "author_id": "media-bridge-4457",
+            "content": "网传青禾乳业代工厂同时为三家品牌代工，配图与此前另一事件使用同一张图。",
+            "published_at": "2026-03-06T13:10:00+00:00",
+            "engagement": 28700,
+            "content_type": "post",
+            "metrics": {"reposts": 6400, "comments": 3100, "likes": 19200}
+          },
+          {
+            "key": "cb_p2",
+            "platform": "bilibili",
+            "native_id": "cb-bili-6001",
+            "author": "供应链观察",
+            "author_id": "supply-chain-663",
+            "content": "乳业代工模式科普：代工并不等于质量风险，关键看质控体系与批次留样制度。",
+            "published_at": "2026-03-08T20:00:00+00:00",
+            "engagement": 21400,
+            "content_type": "video",
+            "metrics": {"views": 18900, "danmaku": 520, "likes": 3400}
+          }
+        ],
+        "claims": [
+          {
+            "key": "claim_media_reuse",
+            "text": "两个不同事件的传播材料使用了同一张图片"
+          }
+        ],
+        "evidence": [
+          {
+            "key": "ev_media_reuse",
+            "claim_key": "claim_media_reuse",
+            "source_type": "social_post",
+            "source_post_key": "cb_p1",
+            "stance": "supports",
+            "excerpt": "配图与此前另一事件使用同一张图",
+            "relevance": 0.75
+          }
+        ],
+        "findings": [
+          {
+            "key": "finding_media",
+            "kind": "manual",
+            "title": "传播材料存在跨事件复用",
+            "statement": "两个事件的首发帖使用了同一张未标注来源的合成图，提示存在共用素材库或同一运营方。",
+            "confidence": 0.5,
+            "evidence_refs": [{"evidence_key": "ev_media_reuse", "relation": "supports"}],
+            "status": "candidate"
+          }
+        ]
+      },
+      {
+        "key": "cross_c",
+        "topic": "同类品牌对比讨论",
+        "title": "同类品牌对比讨论",
+        "description": "对照组调查：同赛道其他品牌的正常讨论，用于验证 cross detection 不误报。",
+        "platforms": ["zhihu"],
+        "time_start": "2026-03-03",
+        "time_end": "2026-03-15",
+        "posts": [
+          {
+            "key": "cc_p1",
+            "platform": "zhihu",
+            "native_id": "cc-zhihu-7001",
+            "author": "乳品评测",
+            "author_id": "dairy-review-118",
+            "content": "五款市售风味酸奶的成分表横向对比，含糖量与蛋白质含量差异说明。",
+            "published_at": "2026-03-03T11:30:00+00:00",
+            "engagement": 9800,
+            "content_type": "post",
+            "metrics": {"upvotes": 1400, "comments": 210}
+          }
+        ]
+      }
+    ],
+    "workspace_entities": [
+      {
+        "key": "ent_bridge",
+        "entity_type": "account",
+        "canonical_name": "热点搬运工",
+        "platform": "weibo",
+        "native_id": "media-bridge-4457",
+        "case_keys": ["cross_a", "cross_b"],
+        "aliases": ["热点搬运工", "hotspot-mover"]
+      }
+    ],
+    "cross_links": [
+      {
+        "left_case_key": "cross_a",
+        "right_case_key": "cross_b",
+        "relation_type": "shared_actor",
+        "status": "observed",
+        "score": 0.82,
+        "evidence_count": 2,
+        "evidence_refs": [
+          {"type": "social_post", "case_key": "cross_a", "post_key": "ca_p3"},
+          {"type": "social_post", "case_key": "cross_b", "post_key": "cb_p1"}
+        ],
+        "feature_scores": {"shared_actor_count": 1.0, "shared_media": 0.4},
+        "algorithm_version": "v1"
+      },
+      {
+        "left_case_key": "cross_a",
+        "right_case_key": "cross_c",
+        "relation_type": "shared_content",
+        "status": "candidate",
+        "score": 0.31,
+        "evidence_count": 1,
+        "evidence_refs": [
+          {"type": "social_post", "case_key": "cross_c", "post_key": "cc_p1"}
+        ],
+        "feature_scores": {"content_similarity": 0.31},
+        "algorithm_version": "v1"
+      }
+    ],
+    "signals": [
+      {
+        "fingerprint": "sig-cross-actor-v1",
+        "case_key": "cross_a",
+        "source_type": "cross_investigation",
+        "source_id": "cross_a::cross_b",
+        "signal_type": "shared_actor_spread",
+        "severity": "high",
+        "title": "同一账号在两个独立事件中首发搬运",
+        "why_it_matters": "跨事件重复出现提示可能存在有组织传播，需要在结论中区分自发扩散与集中投放。",
+        "confidence": 0.78,
+        "metric_snapshot": {"shared_actor_count": 1, "case_count": 2},
+        "evidence_refs": [{"type": "social_post", "post_key": "ca_p3"}],
+        "related_case_keys": ["cross_b"],
+        "detector_version": "v1"
+      }
+    ]
+  },
+
+  "case_review": {
+    "description": "对抗评审：单一 finding 对 13 条 evidence（supports/context/contradicts 混合），用于 B3 与 G3/G5 的引用与边界验证。数据自包含（不引用其他 fixture 的 post），3 个 claim × 5 条 post 产生 13 条同 case evidence。",
+    "investigations": [
+      {
+        "key": "review",
+        "topic": "酸奶检测流程争议复核",
+        "title": "酸奶检测流程争议复核",
+        "description": "围绕单一 finding 的证据对抗复核场景。",
+        "platforms": ["weibo", "bilibili"],
+        "time_start": "2026-03-05",
+        "time_end": "2026-03-16",
+        "posts": [
+          {
+            "key": "rv_p1",
+            "platform": "weibo",
+            "native_id": "rv-weibo-8001",
+            "author": "食品观察站",
+            "author_id": "food-watch-8821",
+            "content": "检测报告原始数据披露：样本编号、培养基批次与读数记录完整呈现，但未见样品公证文书。",
+            "published_at": "2026-03-05T09:00:00+00:00",
+            "engagement": 15300,
+            "content_type": "post",
+            "metrics": {"reposts": 3200, "comments": 1800, "likes": 10300}
+          },
+          {
+            "key": "rv_p2",
+            "platform": "bilibili",
+            "native_id": "rv-bili-9001",
+            "author": "实验室老王",
+            "author_id": "lab-wang-556",
+            "content": "复现实验全过程：同批次样品在两个不同实验室的平行测试结果均为合格。",
+            "published_at": "2026-03-07T10:00:00+00:00",
+            "engagement": 27600,
+            "content_type": "video",
+            "metrics": {"views": 24100, "danmaku": 700, "likes": 4100}
+          },
+          {
+            "key": "rv_p3",
+            "platform": "weibo",
+            "native_id": "rv-weibo-8002",
+            "author": "普通消费者甲",
+            "author_id": "user-7781",
+            "content": "监管部门的核查进度公告：已受理举报并将于 30 个工作日内反馈。",
+            "published_at": "2026-03-13T15:00:00+00:00",
+            "engagement": 6100,
+            "content_type": "post",
+            "metrics": {"reposts": 900, "comments": 1200, "likes": 4000}
+          },
+          {
+            "key": "rv_p4",
+            "platform": "weibo",
+            "native_id": "rv-weibo-8003",
+            "author": "青禾乳业官方",
+            "author_id": "qh-official-001",
+            "content": "复检说明：两家 CMA 机构对 2 月 26 日批次留样复检结论为符合 GB 19302 限值要求。",
+            "published_at": "2026-03-08T10:00:00+00:00",
+            "engagement": 19600,
+            "content_type": "post",
+            "metrics": {"reposts": 4100, "comments": 2500, "likes": 13000}
+          },
+          {
+            "key": "rv_p5",
+            "platform": "bilibili",
+            "native_id": "rv-bili-9002",
+            "author": "食品法规解读",
+            "author_id": "foodlaw-220",
+            "content": "第三方送检要成立需要满足三个程序要件：样品公证、批次锁定与留样封存，缺一不可。",
+            "published_at": "2026-03-09T08:30:00+00:00",
+            "engagement": 11200,
+            "content_type": "video",
+            "metrics": {"views": 9800, "danmaku": 240, "likes": 1700}
+          }
+        ],
+        "claims": [
+          {
+            "key": "claim_review_target",
+            "text": "爆料方送检结论在程序上不足以独立否定厂商复检结论"
+          },
+          {
+            "key": "claim_review_conflict",
+            "text": "同一批次出现相反检测结论，冲突根源在于批次是否一致"
+          },
+          {
+            "key": "claim_review_scope",
+            "text": "现有材料不足以对 2 月 26 日批次之外的产品作出判断"
+          }
+        ],
+        "evidence": [
+          {"key": "rv_ev_01", "claim_key": "claim_review_target", "source_type": "social_post", "source_post_key": "rv_p1", "stance": "supports", "excerpt": "检测报告原始数据披露完整，但未见样品公证文书", "relevance": 0.81},
+          {"key": "rv_ev_02", "claim_key": "claim_review_target", "source_type": "social_post", "source_post_key": "rv_p5", "stance": "supports", "excerpt": "第三方送检要成立需要满足三个程序要件：样品公证、批次锁定与留样封存", "relevance": 0.83},
+          {"key": "rv_ev_03", "claim_key": "claim_review_target", "source_type": "social_post", "source_post_key": "rv_p2", "stance": "contradicts", "excerpt": "同批次样品在两个不同实验室的平行测试结果均为合格", "relevance": 0.86},
+          {"key": "rv_ev_04", "claim_key": "claim_review_target", "source_type": "social_post", "source_post_key": "rv_p4", "stance": "contradicts", "excerpt": "两家 CMA 机构复检结论为符合 GB 19302 限值要求", "relevance": 0.9},
+          {"key": "rv_ev_05", "claim_key": "claim_review_target", "source_type": "social_post", "source_post_key": "rv_p3", "stance": "context", "excerpt": "监管部门已受理举报并将于 30 个工作日内反馈", "relevance": 0.64},
+          {"key": "rv_ev_06", "claim_key": "claim_review_conflict", "source_type": "social_post", "source_post_key": "rv_p1", "stance": "context", "excerpt": "样本编号与培养基批次记录完整呈现", "relevance": 0.72},
+          {"key": "rv_ev_07", "claim_key": "claim_review_conflict", "source_type": "social_post", "source_post_key": "rv_p2", "stance": "supports", "excerpt": "平行测试结果与原始爆料结论不一致", "relevance": 0.84},
+          {"key": "rv_ev_08", "claim_key": "claim_review_conflict", "source_type": "social_post", "source_post_key": "rv_p4", "stance": "supports", "excerpt": "复检针对 2 月 26 日批次留样", "relevance": 0.88},
+          {"key": "rv_ev_09", "claim_key": "claim_review_conflict", "source_type": "social_post", "source_post_key": "rv_p5", "stance": "context", "excerpt": "批次锁定是判定结论成立的前提条件", "relevance": 0.76},
+          {"key": "rv_ev_10", "claim_key": "claim_review_scope", "source_type": "social_post", "source_post_key": "rv_p3", "stance": "context", "excerpt": "官方核查结论尚未产生（30 个工作日窗口内）", "relevance": 0.6},
+          {"key": "rv_ev_11", "claim_key": "claim_review_scope", "source_type": "social_post", "source_post_key": "rv_p4", "stance": "supports", "excerpt": "复检范围限定于 2 月 26 日批次留样", "relevance": 0.79},
+          {"key": "rv_ev_12", "claim_key": "claim_review_scope", "source_type": "social_post", "source_post_key": "rv_p5", "stance": "context", "excerpt": "仅凭单批次结论无法外推到全线产品", "relevance": 0.68},
+          {"key": "rv_ev_13", "claim_key": "claim_review_scope", "source_type": "social_post", "source_post_key": "rv_p2", "stance": "context", "excerpt": "复现实验同样只覆盖单一批次样品", "relevance": 0.66}
+        ],
+        "findings": [
+          {
+            "key": "finding_review_target",
+            "kind": "verification",
+            "title": "送检结论的程序性不足",
+            "statement": "爆料方送检结论在程序上不足以独立否定厂商复检结论：其样本批次锁定与公证环节缺失，且有独立复现实验得出相反结果。",
+            "confidence": 0.68,
+            "evidence_refs": [
+              {"evidence_key": "rv_ev_01", "relation": "supports"},
+              {"evidence_key": "rv_ev_06", "relation": "supports"},
+              {"evidence_key": "rv_ev_11", "relation": "supports"},
+              {"evidence_key": "rv_ev_02", "relation": "contradicts"},
+              {"evidence_key": "rv_ev_05", "relation": "contradicts"},
+              {"evidence_key": "rv_ev_07", "relation": "contradicts"},
+              {"evidence_key": "rv_ev_03", "relation": "context"},
+              {"evidence_key": "rv_ev_04", "relation": "context"},
+              {"evidence_key": "rv_ev_08", "relation": "context"},
+              {"evidence_key": "rv_ev_09", "relation": "context"},
+              {"evidence_key": "rv_ev_10", "relation": "context"},
+              {"evidence_key": "rv_ev_12", "relation": "context"},
+              {"evidence_key": "rv_ev_13", "relation": "context"}
+            ],
+            "status": "candidate"
+          }
+        ]
+      }
+    ]
+  },
+
+  "case_empty": {
+    "description": "缺数据场景（G6）：调查存在但无任何 posts/evidence/finding，用于验证 agent 明确报告数据不足而非编造。",
+    "investigations": [
+      {
+        "key": "empty",
+        "topic": "新线索占位调查",
+        "title": "新线索占位调查",
+        "description": "刚创建、尚未采集任何数据的调查。",
+        "platforms": ["weibo"],
+        "time_start": "2026-03-15",
+        "time_end": "2026-03-20"
+      }
+    ]
+  }
+}

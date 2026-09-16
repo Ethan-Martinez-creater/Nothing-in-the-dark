@@ -1,0 +1,35 @@
+{
+  "id": "G4_04",
+  "suite_version": "interview_agent_v1",
+  "task_version": 1,
+  "category": "G4",
+  "title": "调查质量评估",
+  "user_prompt": "从调查质量角度看，这个案子的数据完备程度怎么样？有哪些明显缺口？",
+  "fixture_id": "case_grounding",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": ["read_only", "quality"],
+  "what_it_validates": "Agent 是否读取质量评估的六个维度与 gaps，而不是给出笼统评价。",
+  "expected": {
+    "required_tools": ["get_investigation_quality"],
+    "optional_tools": ["get_case_data_overview", "query_findings"],
+    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_artifact_types": [],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {"kind": "no_mutation", "target": "case", "expected": true}
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 6,
+    "max_tool_calls": 4,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

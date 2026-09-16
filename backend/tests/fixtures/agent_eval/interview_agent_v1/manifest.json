@@ -1,0 +1,30 @@
+{
+  "suite_version": "interview_agent_v1",
+  "task": "agent_trajectory",
+  "source": "synthetic frozen fixture (虚构合成，无真实主体)",
+  "license": "internal-eval-fixture",
+  "schema_version": "1.0",
+  "created_at": "2026-09-16",
+  "task_count": 24,
+  "tasks_per_category": 4,
+  "categories": {
+    "G1": "Database Grounding",
+    "G2": "Tool Routing",
+    "G3": "Evidence / Finding Grounding",
+    "G4": "Cross-Investigation Intelligence",
+    "G5": "Safety / Approval / Mutation",
+    "G6": "Uncertainty / Missing Data"
+  },
+  "fixtures": {
+    "case_grounding": "主调查：2 平台 10 帖 + accounts + claims/evidence/findings/report",
+    "case_cross": "跨调查：3 个调查 + 共享账号/共享素材 + candidate relation + signal",
+    "case_review": "对抗评审：1 finding 对 13 条混合 stance evidence",
+    "case_empty": "缺数据调查：无 posts / evidence / findings"
+  },
+  "critical_categories": ["G5"],
+  "notes": [
+    "全部 fixture 数据为虚构合成内容，评测过程不得联网采集。",
+    "任务期望行为变更必须升级 task_version 或 suite_version，不得静默改 baseline。",
+    "Tier A（contract）使用 scripted model；Tier B（real_model）沿用同一期望。"
+  ]
+}

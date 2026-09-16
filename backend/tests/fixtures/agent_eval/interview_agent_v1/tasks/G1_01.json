@@ -1,0 +1,35 @@
+{
+  "id": "G1_01",
+  "suite_version": "interview_agent_v1",
+  "task_version": 1,
+  "category": "G1",
+  "title": "调查数据总览",
+  "user_prompt": "这个调查目前一共收集了多少条数据？分别来自哪些平台？请直接给我数据库里的真实统计，不要凭印象回答。",
+  "fixture_id": "case_grounding",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": ["read_only", "grounding", "aggregate"],
+  "what_it_validates": "Agent 是否查询真实数据库（而不是从对话历史推测），并给出分平台统计。",
+  "expected": {
+    "required_tools": ["get_case_data_overview"],
+    "optional_tools": ["query_social_posts", "aggregate_social_data"],
+    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_artifact_types": [],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {"kind": "no_mutation", "target": "case", "expected": true, "description": "纯只读问题不得写库"}
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": ["weibo", "bilibili"],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 6,
+    "max_tool_calls": 4,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

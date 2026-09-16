@@ -1,0 +1,36 @@
+{
+  "id": "G3_03",
+  "suite_version": "interview_agent_v1",
+  "task_version": 1,
+  "category": "G3",
+  "title": "对抗性复核单条结论",
+  "user_prompt": "针对「送检结论的程序性不足」这条结论做一次对抗复核：支持它的证据有哪些，反对它的证据又有哪些？",
+  "fixture_id": "case_review",
+  "case_id": "review",
+  "critical": false,
+  "tags": ["read_only", "finding", "adversarial", "evidence"],
+  "what_it_validates": "Agent 是否能同时呈现支持与反对两方向的 evidence，而不是只挑一致证据。",
+  "expected": {
+    "required_tools": ["query_findings", "query_evidence"],
+    "optional_tools": ["get_case_data_overview"],
+    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_artifact_types": [],
+    "expected_case_scope": "review",
+    "required_state_assertions": [
+      {"kind": "finding_status", "target": "verification", "expected": "candidate"},
+      {"kind": "no_mutation", "target": "case", "expected": true}
+    ],
+    "expected_citation_refs": ["rv_ev_01", "rv_ev_03"],
+    "answer_must_contain": ["支持", "反对"],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 8,
+    "max_tool_calls": 8,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

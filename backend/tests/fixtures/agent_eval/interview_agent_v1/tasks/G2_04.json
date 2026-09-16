@@ -1,0 +1,36 @@
+{
+  "id": "G2_04",
+  "suite_version": "interview_agent_v1",
+  "task_version": 1,
+  "category": "G2",
+  "title": "报告生成路由",
+  "user_prompt": "把目前的调查结论整理成一份阶段报告，结论要能对上证据。",
+  "fixture_id": "case_grounding",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": ["read_only", "routing", "report"],
+  "what_it_validates": "面对交付物诉求，Agent 是否走报告构建工具并产出 report artifact，且不触发采集。",
+  "expected": {
+    "required_tools": ["build_report"],
+    "optional_tools": ["query_evidence", "query_findings", "query_reports"],
+    "forbidden_tools": ["collect_social_posts", "start_social_collection"],
+    "required_artifact_types": ["report"],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {"kind": "artifact_exists", "target": "report", "expected": true},
+      {"kind": "no_mutation", "target": "case", "expected": true}
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "max_agent_steps": 8,
+    "max_tool_calls": 7,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}
