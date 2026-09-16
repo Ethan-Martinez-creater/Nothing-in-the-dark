@@ -226,3 +226,102 @@ class AgentEvaluationService:
             "enabled": True,
             "version": 1,
         }
+
+    # -- baseline / candidate 回归 ----------------------------------------
+
+    def compare_to_baseline(
+        self,
+        report: AgentEvaluationReport,
+        baseline_metrics: dict[str, float],
+    ) -> dict[str, object]:
+        """计划第 33 节的 candidate regression 规则。
+
+        现有 ``ReleaseGate`` 的 ``relative_regression_limits`` 只表达"越大越好"
+        的指标（下降超限即违规）；延迟与成本是"越小越好"，需要独立的上限判定，
+        因此在服务层显式实现，不修改现有门禁语义。
+        """
+        checks: list[dict[str, object]] = []
+        for metric in DEFAULT_AGENT_REGRESSION_LIMITS:
+            limit = DEFAULT_AGENT_REGRESSION_LIMITS[metric]
+            baseline_value = baseline_metrics.get(metric)
+            candidate_value = report.metrics.get(metric)
+            if baseline_value is None or candidate_value is None:
+                continue
+            drop = float(baseline_value) - float(candidate_value)
+            checks.append(
+                {
+                    "metric": metric,
+                    "kind": "max_drop",
+                    "baseline": baseline_value,
+                    "candidate": candidate_value,
+                    "limit": limit,
+                    "passed": drop <= limit + 1e-9,
+                    "detail": f"drop={round(drop, 4)}",
+                }
+            )
+
+        latency_ratio = 1.25
+        cost_ratio = 1.25
+        baseline_p95 = baseline_metrics.get("agent.p95_latency_ms")
+        candidate_p95 = report.metrics.get("agent.p95_latency_ms")
+        if baseline_p95 and candidate_p95 is not None:
+            ratio = float(candidate_p95) / float(baseline_p95)
+            checks.append(
+                {
+                    "metric": "agent.p95_latency_ms",
+                    "kind": "max_ratio",
+                    "baseline": baseline_p95,
+                    "candidate": candidate_p95,
+                    "limit": latency_ratio,
+                    "passed": ratio <= latency_ratio + 1e-9,
+                    "detail": f"ratio={round(ratio, 4)}",
+                }
+            )
+
+        baseline_cost = baseline_metrics.get("agent.avg_cost_usd")
+        candidate_cost = report.metrics.get("agent.avg_cost_usd")
+        if baseline_cost and candidate_cost is not None:
+            ratio = float(candidate_cost) / float(baseline_cost)
+            # 成本超 25% 时，只有任务成功率显著提升（+5pp）才允许通过。
+            success_gain = float(report.metrics.get("agent.task_success_rate", 0)) - float(
+                baseline_metrics.get("agent.task_success_rate", 0)
+            )
+            allowed = ratio <= cost_ratio + 1e-9 or success_gain >= 0.05
+            checks.append(
+                {
+                    "metric": "agent.avg_cost_usd",
+                    "kind": "max_ratio_with_success_exemption",
+                    "baseline": baseline_cost,
+                    "candidate": candidate_cost,
+                    "limit": cost_ratio,
+                    "success_gain": round(success_gain, 4),
+                    "passed": allowed,
+                    "detail": f"ratio={round(ratio, 4)} success_gain={round(success_gain, 4)}",
+                }
+            )
+
+        violations = [item for item in checks if not item["passed"]]
+        return {
+            "checks": checks,
+            "violations": violations,
+            "passed": not violations,
+            "baseline_sample_size": None,
+            "candidate_sample_size": report.sample_size,
+        }
+
+    async def load_baseline_metrics(self, suite: str = SUITE_VERSION) -> dict[str, float]:
+        """读取最近一次 baseline 运行的指标（现有 evaluation_runs 表）。"""
+        runs = await self._repository.list_evaluation_runs(suite=suite, limit=50)
+        for run in runs:
+            config = dict(run.config or {})
+            if config.get("baseline_of"):
+                continue
+            aggregate = dict(run.aggregate or {})
+            metrics = {
+                key: float(value)
+                for key, value in aggregate.items()
+                if isinstance(value, (int, float))
+            }
+            if metrics:
+                return metrics
+        return {}

@@ -453,3 +453,119 @@ Tool Registry + LangGraph），服务器当前处于休眠状态（服务 disabl
 feat(eval): run production agent runtime against golden tasks
 feat(eval): add deterministic trajectory evaluators
 ```
+
+---
+
+# Phase 3 — Baseline / Candidate + Existing Release Gate
+
+## Implementation
+
+**不新建第二套门禁**：Agent 指标沿用现有 `release_gates` / `evaluation_runs`
+表与 `EvaluationService.evaluate_gates` 判定路径。
+
+- `AgentEvaluationService.persist_report()`：报告写入现有 `evaluation_runs`
+  （`aggregate` = agent 指标，`config` = mode/suite/git_sha/baseline_metrics），
+  并自动注册 `interview_agent_v1` 的 dataset manifest。
+- `AgentEvaluationService.gate_inputs()`：产出 `ReleaseGate.evaluate` 的输入。
+  **显式不传 sample_sizes** —— 现有门禁对 <30 样本会报 `insufficient_sample`，
+  而 24 任务是小样本设计（计划固定 24，不扩大），样本量改由报告显式携带。
+- `AgentEvaluationService.default_gate_definition()`：可写入现有 `release_gates`
+  的 agent gate（`agent.forbidden_tool_violations` / `unexpected_case_scope_violation`
+  / `unexpected_mutation_count` / `invalid_citation_count` = 0 容忍上限，
+  `critical_task_success_rate` = 1.0）。
+- `compare_to_baseline()`：计划第 33 节的 candidate regression 规则。
+  现有 `relative_regression_limits` 只表达"越大越好"的指标，延迟/成本需要
+  "越小越好"的上限判定，因此在服务层独立实现（含"成本超 25% 但成功率 +5pp
+  可放行"的豁免规则），不修改现有门禁语义。
+
+## Tests
+
+```text
+tests/test_agent_eval_contract.py  22 passed in 195.21s
+```
+
+新增覆盖：默认 gate 的 0 容忍阈值、同指标零回归通过、成功率下降 >2pp 判回归、
+p95 延迟 1.3x 与成本 2x 判回归、成本超限但成功率 +5pp 放行。
+
+## Server Verification
+
+未在服务器执行（与 Phase 2 同因：服务器服务处于休眠）。门禁接入为纯后端逻辑，
+在 Phase 9 的服务器验证中随 Tier A 一并执行。
+
+## Known Limitations
+
+1. `load_baseline_metrics()` 目前取"最近一次非 baseline 运行"的 aggregate；
+   首次基线需要人工指定并标注 `baseline_of`，尚无自动 baseline 提升策略。
+2. 延迟/成本的回归判定在服务层而非 gate 表里，因此不会出现在
+   `evaluation_gate_results` 记录中（仅存在于 compare 结果里）。
+
+---
+
+# Phase 4 — Trace Replay & Regression
+
+## Implementation
+
+新增 `backend/app/evaluation/agent_manifest.py` 与 `agent_replay_service.py`：
+
+- **Replay Bundle**（计划第 36 节）：run_id / task_id / suite_version / mode /
+  user_prompt / case_id / git_sha / model_name / coordinator_prompt_hash /
+  tool_schema_hash / tool 序列 / 参数 / 观察 / 最终回答 / artifact kinds / metrics /
+  failure categories。
+- **敏感字段脱敏**：按 key 模式（cookie / token / credential / authorization /
+  api_key / secret / password / session_id / master_key）整体替换，并对字符串值
+  里的 `Authorization: Bearer …`、`sessionid=…` 形态做正则抹除；
+  `bundle_contains_secret()` 作为"假脱敏"自检。
+- **Tool schema hash**（计划第 39 节）：工具名 + input JSON schema + permissions +
+  side effect + approval/risk/execution class 的 canonical JSON → SHA256。
+- **Observation Replay**：`FrozenObservations` 按 (tool, 参数指纹) 索引源观察；
+  `build_frozen_registry()` **复制真实 ToolSpec 契约**、只替换 handler 为冻结结果。
+  candidate 调用源未记录的工具或参数时抛 `FrozenObservationMissing` 并累积到
+  `observations.misses`（因为 handler 异常会让 run 失败、tool_calls 不落库，
+  必须单独留证），replay notes 中显式列出未命中的工具。绝不回退执行真实工具。
+- **Seeded Full Rerun**：在冻结 fixture 上通过 `AgentSuiteRunner` 完整重跑。
+- **Diff**（计划第 40 节）：tool_sequence_diff / tool_argument_diff / artifact_diff /
+  citation_diff / metrics_delta / task_success_delta / latency_delta_ms /
+  token_delta / cost_delta / judge_delta（judge 未启用时为空），
+  输出 JSON + Markdown（`write_replay_artifacts`）。
+
+## Changed Files
+
+```text
+新增 backend/app/evaluation/agent_manifest.py
+新增 backend/app/evaluation/agent_replay_service.py
+新增 backend/tests/test_agent_replay.py（14 个测试）
+修改 backend/app/application/agent_evaluation_service.py（baseline 对比）
+修改 backend/tests/test_agent_eval_contract.py（+5 个 gate/baseline 测试）
+修改 docs/interview-readiness-delivery.md
+```
+
+## Tests
+
+```text
+tests/test_agent_replay.py  14 passed in 98.59s
+```
+
+覆盖：脱敏（键 + 值形态 + 自检）、tool schema hash 随契约变化、
+序列/参数/artifact/citation diff 语义、冻结观察命中与未命中、
+冻结 registry 保留真实契约、`seeded_full_rerun` 零 diff、
+未记录工具不执行真实工具且 notes 显式暴露、未知 replay mode 被拒。
+
+## Server Verification
+
+未在服务器执行。Replay 的两种模式都只依赖冻结 fixture 与真实 runtime，
+不访问公网；服务器验证安排在 Phase 9。
+
+## Known Limitations
+
+1. **Observation Replay 的 candidate 决策仍由脚本或注入的 gateway 提供**：
+   完整的"prompt 变化 → 决策变化"对比需要 Tier B 真实模型（当前无 key，BLOCKED）。
+2. 冻结观察的匹配基于"工具名 + 参数指纹"，同一工具的重复调用按顺序消费；
+   若 candidate 改变了调用顺序且参数相同，会命中后一个观察（diff 仍会体现序列变化）。
+3. `judge_delta` 预留但恒为空（LLM judge 默认关闭）。
+
+## Commit
+
+```text
+feat(eval): integrate agent metrics with release gate
+feat(eval): add trace replay and run diff
+```

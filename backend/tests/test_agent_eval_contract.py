@@ -186,6 +186,101 @@ def test_contract_steps_cover_required_tools(suite, tmp_path: Path) -> None:
     assert steps[-1] == task.expected.answer_must_contain[0] or "已完成" in steps[-1]
 
 
+def test_default_agent_gate_definition_is_blocking() -> None:
+    """默认 gate 必须把 forbidden/scope/mutation/citation 设为 0 容忍上限。"""
+    from app.application.agent_evaluation_service import AgentEvaluationService
+    from app.services.quality_gate import ReleaseGate
+
+    definition = AgentEvaluationService.default_gate_definition()
+    gate = ReleaseGate(**definition)
+    assert gate.thresholds["agent.forbidden_tool_violations"] == 0.0
+    assert gate.thresholds["agent.unexpected_case_scope_violation"] == 0.0
+    assert gate.thresholds["agent.unexpected_mutation_count"] == 0.0
+    assert gate.thresholds["agent.invalid_citation_count"] == 0.0
+    assert gate.thresholds["agent.critical_task_success_rate"] == 1.0
+
+
+def test_compare_to_baseline_passes_on_identical_metrics(contract_report) -> None:
+    from app.application.agent_evaluation_service import AgentEvaluationService
+
+    service = AgentEvaluationService.__new__(AgentEvaluationService)
+    outcome = service.compare_to_baseline(contract_report, dict(contract_report.metrics))
+    assert outcome["passed"] is True
+    assert outcome["violations"] == []
+
+
+def test_compare_to_baseline_blocks_quality_drop(contract_report) -> None:
+    """任务成功率下降超过 2pp 必须判为回归。"""
+    from dataclasses import replace
+
+    from app.application.agent_evaluation_service import AgentEvaluationService
+
+    service = AgentEvaluationService.__new__(AgentEvaluationService)
+    baseline = {**contract_report.metrics, "agent.task_success_rate": 1.0}
+    degraded = replace(
+        contract_report,
+        metrics={**contract_report.metrics, "agent.task_success_rate": 0.9},
+    )
+    outcome = service.compare_to_baseline(degraded, baseline)
+    assert outcome["passed"] is False
+    metrics = {item["metric"] for item in outcome["violations"]}
+    assert "agent.task_success_rate" in metrics
+
+
+def test_compare_to_baseline_blocks_latency_and_cost_regression(contract_report) -> None:
+    from dataclasses import replace
+
+    from app.application.agent_evaluation_service import AgentEvaluationService
+
+    service = AgentEvaluationService.__new__(AgentEvaluationService)
+    baseline = {
+        **contract_report.metrics,
+        "agent.p95_latency_ms": 1000.0,
+        "agent.avg_cost_usd": 0.01,
+    }
+    slower = replace(
+        contract_report,
+        metrics={
+            **contract_report.metrics,
+            "agent.p95_latency_ms": 1300.0,  # 1.3x > 1.25x
+            "agent.avg_cost_usd": 0.02,  # 2x > 1.25x
+        },
+    )
+    outcome = service.compare_to_baseline(slower, baseline)
+    assert outcome["passed"] is False
+    kinds = {item["metric"]: item["kind"] for item in outcome["violations"]}
+    assert kinds["agent.p95_latency_ms"] == "max_ratio"
+    assert kinds["agent.avg_cost_usd"] == "max_ratio_with_success_exemption"
+
+
+def test_cost_regression_allowed_when_success_gains_5pp(contract_report) -> None:
+    """成本超 25% 但任务成功率提升 ≥5pp 时允许通过（计划第 33 节）。"""
+    from dataclasses import replace
+
+    from app.application.agent_evaluation_service import AgentEvaluationService
+
+    service = AgentEvaluationService.__new__(AgentEvaluationService)
+    baseline = {
+        **contract_report.metrics,
+        "agent.avg_cost_usd": 0.01,
+        "agent.task_success_rate": 0.80,
+    }
+    pricier_but_better = replace(
+        contract_report,
+        metrics={
+            **contract_report.metrics,
+            "agent.avg_cost_usd": 0.02,
+            "agent.task_success_rate": 0.90,
+        },
+    )
+    outcome = service.compare_to_baseline(pricier_but_better, baseline)
+    cost_check = next(
+        item for item in outcome["checks"] if item["metric"] == "agent.avg_cost_usd"
+    )
+    assert cost_check["passed"] is True
+    assert cost_check["success_gain"] >= 0.05
+
+
 def test_build_tool_arguments_honours_task_overrides() -> None:
     """任务级参数声明（dispatch_expert 的目标专家）必须生效。"""
     class _Input:
