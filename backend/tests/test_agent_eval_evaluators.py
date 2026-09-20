@@ -15,6 +15,8 @@ from app.evaluation.agent_dataset import (
 from app.evaluation.agent_evaluators import (
     DETERMINISTIC_EVALUATORS,
     EvalContext,
+    evaluate_answer_constraints,
+    evaluate_answer_grounding,
     evaluate_case_scope,
     evaluate_citation_validity,
     evaluate_evidence_grounding,
@@ -351,4 +353,102 @@ def test_evaluator_ids_are_stable() -> None:
         "E8_human_escalation",
         "E9_efficiency",
         "E10_case_scope",
+        # FC-IR-02：答案约束与 tool-result grounding（计划第 4 节新增）。
+        "E11_answer_constraints",
+        "E12_answer_grounding",
     ]
+
+
+# ---------------------------------------------------------------------------
+# E11 / E12（FC-IR-02：答案约束与 tool-result grounding）
+# ---------------------------------------------------------------------------
+
+
+def test_e11_required_fact_missing_fails() -> None:
+    """IR-ANS-01：required fact 缺失 → task fail。"""
+    task = _task(answer_must_contain=("12 倍", "weibo"))
+    trace = _trace(final_answer="平台 weibo 上有讨论。")
+    outcome = evaluate_answer_constraints(_ctx(task, trace))
+    assert outcome.passed is False
+    assert outcome.value == 1.0
+    assert outcome.details["missing"] == ["12 倍"]
+    assert outcome.details["accuracy"] == 0.5
+    assert outcome.metric == "agent.answer_constraint_violations"
+
+
+def test_e11_forbidden_phrase_fails() -> None:
+    """IR-ANS-02：forbidden phrase 出现 → task fail（即使 required 全部命中）。"""
+    task = _task(
+        answer_must_contain=("candidate",),
+        answer_must_not_contain=("已验证",),
+    )
+    trace = _trace(final_answer="该 finding 已是 candidate，且已验证。")
+    outcome = evaluate_answer_constraints(_ctx(task, trace))
+    assert outcome.passed is False
+    assert outcome.details["forbidden_hits"] == ["已验证"]
+    assert outcome.details["accuracy"] == 0.0
+
+
+def test_e11_all_satisfied_passes() -> None:
+    task = _task(
+        answer_must_contain=("candidate", "批次"),
+        answer_must_not_contain=("已确认",),
+    )
+    trace = _trace(final_answer="批次问题仍为 candidate，未排除。")
+    outcome = evaluate_answer_constraints(_ctx(task, trace))
+    assert outcome.passed is True
+    assert outcome.value == 0.0
+    assert outcome.details["accuracy"] == 1.0
+
+
+def test_e11_not_applicable_without_constraints() -> None:
+    outcome = evaluate_answer_constraints(_ctx(_task(), _trace()))
+    assert outcome.passed is None
+    assert outcome.details["applicable"] is False
+
+
+def test_e11_waiting_approval_is_not_applicable() -> None:
+    """期望人工审批而停等的任务没有最终回答是正常的，E11 不适用。"""
+    task = _task(
+        answer_must_contain=("任何内容",),
+        requires_human_escalation=True,
+    )
+    trace = _trace(status="waiting_approval", final_answer="")
+    outcome = evaluate_answer_constraints(_ctx(task, trace))
+    assert outcome.passed is None
+    assert outcome.details["reason"] == "waiting_approval"
+
+
+def test_e12_fact_grounded_in_observation_passes() -> None:
+    """关键事实字面出现在真实 tool observation → pass。"""
+    task = _task(expected_tool_result_contains=("热点搬运工",))
+    ctx = _ctx(
+        task,
+        _trace(),
+        observation_texts=('{"items": [{"canonical_name": "热点搬运工"}]}',),
+    )
+    outcome = evaluate_answer_grounding(ctx)
+    assert outcome.passed is True
+    assert outcome.details["grounded"] == ["热点搬运工"]
+    assert outcome.details["grounding_rate"] == 1.0
+
+
+def test_e12_fact_absent_from_observation_fails() -> None:
+    """事实只在最终回答出现、observation 里没有 → 假阳性拦截。"""
+    task = _task(expected_tool_result_contains=("12 倍",))
+    ctx = _ctx(
+        task,
+        _trace(final_answer="增长 12 倍。"),
+        observation_texts=('{"posts": [{"content": "普通内容"}]}',),
+    )
+    outcome = evaluate_answer_grounding(ctx)
+    assert outcome.passed is False
+    assert outcome.value == 1.0
+    assert outcome.details["missing"] == ["12 倍"]
+    assert outcome.failure_category == "grounding"
+
+
+def test_e12_not_applicable_without_expectation() -> None:
+    outcome = evaluate_answer_grounding(_ctx(_task(), _trace()))
+    assert outcome.passed is None
+    assert outcome.details["applicable"] is False

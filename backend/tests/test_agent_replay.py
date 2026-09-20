@@ -510,3 +510,104 @@ def test_replay_rejects_unknown_mode(tmp_path: Path) -> None:
             await service.replay_run(bundle, replay_mode="video")
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# FC-IR-04：Replay provenance 必须真实
+# ---------------------------------------------------------------------------
+
+
+def test_ir_replay_02_coordinator_prompt_hash_tracks_production_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IR-REPLAY-02：修改生产 coordinator prompt → hash 必须改变。"""
+    from app.harness import agents
+    from app.evaluation.agent_manifest import production_coordinator_prompt_hash
+
+    original = production_coordinator_prompt_hash()
+    monkeypatch.setattr(
+        agents, "COORDINATOR_INSTRUCTIONS", agents.COORDINATOR_INSTRUCTIONS + "X"
+    )
+    try:
+        assert production_coordinator_prompt_hash() != original
+    finally:
+        monkeypatch.undo()
+    assert production_coordinator_prompt_hash() == original
+
+
+def test_ir_replay_03_prompt_hash_ignores_golden_expected_behavior() -> None:
+    """IR-REPLAY-03：expected behavior 改动不影响 coordinator prompt hash。"""
+    from app.evaluation.agent_dataset import AgentExpectedBehavior
+    from app.evaluation.agent_manifest import production_coordinator_prompt_hash
+
+    baseline = production_coordinator_prompt_hash()
+    # 构造两份截然不同的 expected behavior；hash 必须保持与生产 prompt 一致。
+    AgentExpectedBehavior(required_tools=("a",)).to_dict()
+    AgentExpectedBehavior(
+        required_tools=("x", "y"), answer_must_contain=("完全不同",)
+    ).to_dict()
+    assert production_coordinator_prompt_hash() == baseline
+
+
+def test_ir_replay_01_seeded_rerun_recomputes_candidate_schema_hash(
+    tmp_path: Path,
+) -> None:
+    """IR-REPLAY-01：full rerun 的 candidate tool_schema_hash 来自真实重算。
+
+    source bundle 故意携带伪造 hash；candidate 必须输出当前装配的真实
+    hash，使 ``schema_changed`` 为 True（照抄 source 会造成假阴性）。
+    """
+    database, report = _run_single_task(tmp_path, "G3_01")
+    try:
+        result = report.task_results[0]
+        bundle = ReplayBundle(
+            run_id=result.run_id,
+            task_id=result.task_id,
+            suite_version=report.suite_version,
+            mode=report.mode,
+            user_prompt="这个调查目前已经形成了哪些结论？",
+            case_id=result.case_id,
+            git_sha=report.git_sha,
+            model_name="contract-scripted-model",
+            coordinator_prompt_hash="forged-source-prompt-hash",
+            tool_schema_hash="forged-source-schema-hash",
+            tool_sequence=tuple(
+                item["tool"] for item in result.trace_bundle["tool_calls"]
+            ),
+            tool_arguments=tuple(
+                dict(item["arguments"]) for item in result.trace_bundle["tool_calls"]
+            ),
+            tool_observations=tuple(
+                {
+                    "tool": item["tool"],
+                    "status": item.get("status"),
+                    "result": None,
+                    "error_code": item.get("error_code"),
+                    "duration_ms": item.get("duration_ms"),
+                    "cached": item.get("cached", False),
+                    "approval_id": item.get("approval_id"),
+                }
+                for item in result.trace_bundle["tool_calls"]
+            ),
+            final_response=str(result.trace_bundle["final_answer"]),
+            artifact_kinds=tuple(
+                item["kind"] for item in result.trace_bundle["artifacts"]
+            ),
+            metrics={"tool_call_count": 0, "latency_ms": 0},
+        )
+        service = AgentReplayService(suite=load_suite(), database=database)
+        replayed = asyncio.run(
+            service.replay_run(bundle, replay_mode=SEEDED_FULL_RERUN)
+        )
+        candidate = replayed.candidate_bundle
+        # candidate hash 必须真实重算：不等于伪造的 source hash。
+        assert candidate.tool_schema_hash != "forged-source-schema-hash"
+        assert candidate.tool_schema_hash == report.tool_schema_hash
+        assert replayed.diff.schema_changed is True
+        # prompt provenance 来自生产 coordinator prompt，不是 source 也不是 expected。
+        from app.evaluation.agent_manifest import production_coordinator_prompt_hash
+
+        assert candidate.coordinator_prompt_hash == production_coordinator_prompt_hash()
+        assert candidate.coordinator_prompt_hash != "forged-source-prompt-hash"
+    finally:
+        asyncio.run(database.dispose())
