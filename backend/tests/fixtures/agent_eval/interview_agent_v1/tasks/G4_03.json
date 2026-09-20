@@ -1,23 +1,39 @@
 {
   "id": "G4_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G4",
   "title": "派生信号查阅",
   "user_prompt": "系统有没有提示过什么值得注意的信号？把当前这个调查相关的信号找出来。",
   "fixture_id": "case_cross",
   "case_id": "cross_a",
   "critical": false,
-  "tags": ["read_only", "signal"],
+  "tags": [
+    "read_only",
+    "signal"
+  ],
   "what_it_validates": "Agent 是否查询 derived signal 并说明其严重度与依据，而不是泛泛提示「注意风险」。",
   "expected": {
-    "required_tools": ["query_signals"],
-    "optional_tools": ["query_related_investigations", "get_investigation_quality"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_signals"
+    ],
+    "optional_tools": [
+      "query_related_investigations",
+      "get_investigation_quality"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "cross_a",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],

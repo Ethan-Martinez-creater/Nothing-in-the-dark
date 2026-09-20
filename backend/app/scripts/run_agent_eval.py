@@ -33,7 +33,6 @@ from app.evaluation.agent_eval import (
     CONTRACT_MODE,
     REAL_MODEL_MODE,
     AgentEvaluationReport,
-    AgentSuiteRunner,
 )
 
 
@@ -56,6 +55,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="逗号分隔的 task id 子集（默认全部 24 个）",
     )
     parser.add_argument("--candidate-label", default="candidate")
+    parser.add_argument(
+        "--baseline-label",
+        default="baseline",
+        help="candidate-label 等于该值时，本 run 作为 baseline 持久化（跳过回归比较）",
+    )
     parser.add_argument("--database-url", default="", help="默认使用临时 SQLite")
     parser.add_argument("--output", default="", help="报告 JSON 输出路径")
     parser.add_argument(
@@ -67,7 +71,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fail-on-hard-gate",
         action="store_true",
-        help="hard gate 违规时以退出码 1 结束（CI 使用）",
+        help="agent hard gate / existing release gate / 回归比较任一失败时退出码 1（CI 使用）",
     )
     return parser
 
@@ -97,7 +101,15 @@ def _build_real_model_gateway() -> Any:
     return gateway
 
 
-def _render_markdown(report: AgentEvaluationReport, model_label: str) -> str:
+def _render_markdown(
+    report: AgentEvaluationReport,
+    model_label: str,
+    *,
+    run_id: str = "",
+    role: str = "candidate",
+    gate_results: list[dict[str, object]] | None = None,
+    regression: dict[str, object] | None = None,
+) -> str:
     metrics = report.metrics
     lines = [
         "# Agent Evaluation Report",
@@ -107,12 +119,16 @@ def _render_markdown(report: AgentEvaluationReport, model_label: str) -> str:
         f"| suite_version | `{report.suite_version}` |",
         f"| mode | `{report.mode}` |",
         f"| candidate | `{report.candidate_label}` |",
+        f"| role | `{role}` |",
         f"| model | `{model_label}` |",
         f"| git SHA | `{report.git_sha}` |",
         f"| sample size | {report.sample_size} |",
         f"| started | {report.started_at} |",
         f"| finished | {report.finished_at} |",
         f"| hard gates | {'PASS' if report.passed else 'BLOCK'} |",
+        f"| evaluation_run | `{run_id or '—'}` |",
+        f"| tool_schema_hash | `{report.tool_schema_hash[:16] or '—'}` |",
+        f"| coordinator_prompt_hash | `{report.coordinator_prompt_hash[:16] or '—'}` |",
         "",
         "## 核心指标",
         "",
@@ -125,6 +141,25 @@ def _render_markdown(report: AgentEvaluationReport, model_label: str) -> str:
         lines += ["", "## Hard gate violations", ""]
         for item in report.hard_gate_violations:
             lines.append(f"- `{item.get('metric')}` = {item.get('value')} (limit {item.get('limit') or item.get('required')})")
+    if gate_results:
+        lines += ["", "## Existing Release Gate", ""]
+        for gate in gate_results:
+            lines.append(
+                f"- `{gate.get('gate_name')}` decision=**{gate.get('decision')}** "
+                f"— {gate.get('reason') or 'ok'}"
+            )
+    if regression is not None:
+        lines += ["", "## Baseline Regression Compare", ""]
+        lines.append(
+            f"- overall: **{'PASS' if regression.get('passed') else 'BLOCK'}**"
+        )
+        for check in regression.get("checks", []):
+            marker = "✓" if check.get("passed") else "✗"
+            lines.append(
+                f"- {marker} `{check.get('metric')}` "
+                f"baseline={check.get('baseline')} candidate={check.get('candidate')} "
+                f"({check.get('detail')})"
+            )
     failures = [r for r in report.task_results if not r.succeeded]
     if failures:
         lines += ["", "## 失败任务", ""]
@@ -141,9 +176,18 @@ def _render_markdown(report: AgentEvaluationReport, model_label: str) -> str:
 
 
 async def _run(args: argparse.Namespace) -> int:
-    from app.infrastructure.database import Database
+    """FC-IR-03：CLI 必须走既有主链。
 
-    suite = load_suite(suite_version=args.suite_version)
+    load suite → AgentEvaluationService.run_agent_suite → persist_report
+    （现有 evaluation_runs）→ 确保现有 Release Gate → EvaluationService
+    .evaluate_gates → 有 baseline 时 compare_to_baseline → 综合退出码。
+    """
+    from app.application.agent_evaluation_service import AgentEvaluationService
+    from app.application.evaluation_service import EvaluationService
+    from app.application.repositories import ApplicationRepository
+    from app.infrastructure.database import Database
+    from app.services.quality_gate import GATE_BLOCK
+
     database_url, _tmp = _resolve_database_url(args.database_url)
     database = Database(database_url)
     await database.create_schema()
@@ -156,30 +200,86 @@ async def _run(args: argparse.Namespace) -> int:
             "fast"
         ) if hasattr(gateway, "model_for") else "production-gateway"
 
+    service = AgentEvaluationService(database, gateway=gateway)
+    repository = ApplicationRepository(database)
+
     try:
-        runner = AgentSuiteRunner(
-            suite=suite,
-            database=database,
-            mode=args.mode,
-            gateway=gateway,
-            candidate_label=args.candidate_label,
-        )
+        suite = load_suite(suite_version=args.suite_version)
         task_ids = [item for item in args.tasks.split(",") if item.strip()] or None
         if task_ids and args.max_tasks:
             task_ids = task_ids[: args.max_tasks]
         elif args.max_tasks:
             task_ids = [task.id for task in suite.tasks][: args.max_tasks]
-        report = await runner.run(
-            task_ids=task_ids,
+
+        report = await service.run_agent_suite(
+            args.suite_version,
+            mode=args.mode,
+            candidate_label=args.candidate_label,
             candidate_version=args.candidate_label,
+            task_ids=task_ids,
         )
+
+        # baseline / candidate 语义：第一次以 baseline label 运行时创建基准；
+        # 没有历史 baseline 的 candidate 不伪造 regression compare。
+        is_baseline_run = args.candidate_label == args.baseline_label
+        baseline_metrics = await service.load_baseline_metrics(report.suite_version)
+        role = "baseline" if is_baseline_run else "candidate"
+        persisted = await service.persist_report(
+            report,
+            role=role,
+            baseline_metrics=(
+                None if is_baseline_run or not baseline_metrics else baseline_metrics
+            ),
+        )
+        run_id = str(persisted["run_id"])
+
+        # 确保该 suite 存在既有 Release Gate（首次写入定义，之后复用）。
+        # 门禁只对完整 suite 运行评估：subset run 的聚合指标不全，
+        # missing metric 会被误 block（诚实跳过，不伪造通过）。
+        is_full_suite = task_ids is None or len(task_ids) == len(suite.tasks)
+        gate_results: list[dict[str, object]] = []
+        if is_full_suite:
+            existing_gates = await repository.list_release_gates(
+                suite=report.suite_version
+            )
+            if not existing_gates:
+                await repository.create_release_gate(
+                    AgentEvaluationService.default_gate_definition(
+                        report.suite_version
+                    )
+                )
+            gate_results = await EvaluationService(repository).evaluate_gates(
+                run_id
+            )
+
+        regression: dict[str, object] | None = None
+        if not is_baseline_run and baseline_metrics:
+            regression = service.compare_to_baseline(report, baseline_metrics)
     finally:
         await database.dispose()
 
+    gate_blocked = [
+        gate for gate in gate_results if gate.get("decision") == GATE_BLOCK
+    ]
+    regression_failed = regression is not None and not regression.get("passed")
+    overall_ok = report.passed and not gate_blocked and not regression_failed
+
     payload = report.to_dict()
     payload["model"] = model_label
+    payload["evaluation_run_id"] = run_id
+    payload["role"] = role
+    payload["gate_results"] = gate_results
+    payload["baseline_regression"] = regression
+    payload["overall_passed"] = overall_ok
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
-    markdown = _render_markdown(report, model_label)
+    markdown = _render_markdown(
+        report,
+        model_label,
+        run_id=run_id,
+        role=role,
+        gate_results=gate_results,
+        regression=regression,
+    )
 
     if args.output:
         out = Path(args.output)
@@ -190,8 +290,14 @@ async def _run(args: argparse.Namespace) -> int:
     else:
         print(rendered)
 
-    if args.fail_on_hard_gate and not report.passed:
-        print("hard gate violated", file=sys.stderr)
+    print(
+        f"evaluation_run={run_id} role={role} "
+        f"agent_hard_gates={'PASS' if report.passed else 'BLOCK'} "
+        f"release_gates={'PASS' if not gate_blocked else 'BLOCK'} "
+        f"regression={'n/a' if regression is None else ('PASS' if regression.get('passed') else 'BLOCK')}"
+    )
+    if args.fail_on_hard_gate and not overall_ok:
+        print("release gate chain violated", file=sys.stderr)
         return 1
     return 0
 

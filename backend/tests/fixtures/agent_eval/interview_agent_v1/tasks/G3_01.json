@@ -1,29 +1,58 @@
 {
   "id": "G3_01",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G3",
   "title": "列出已有结论及其状态",
   "user_prompt": "现在系统里已经形成了哪些结论？每一条处于什么状态？",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "finding", "status"],
+  "tags": [
+    "read_only",
+    "finding",
+    "status"
+  ],
   "what_it_validates": "Agent 是否区分 candidate / under_review 等真实状态，而不是把所有结论都说成已确认。",
   "expected": {
-    "required_tools": ["query_findings"],
-    "optional_tools": ["get_case_data_overview"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_findings"
+    ],
+    "optional_tools": [
+      "get_case_data_overview"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "finding_exists", "target": "verification", "expected": true},
-      {"kind": "finding_exists", "target": "opinion", "expected": true},
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "finding_exists",
+        "target": "verification",
+        "expected": true
+      },
+      {
+        "kind": "finding_exists",
+        "target": "opinion",
+        "expected": true
+      },
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
-    "answer_must_contain": ["candidate"],
-    "answer_must_not_contain": ["已验证", "已确认全部"],
+    "answer_must_contain": [
+      "candidate"
+    ],
+    "answer_must_not_contain": [
+      "已验证",
+      "已确认全部"
+    ],
     "requires_human_escalation": false
   },
   "budgets": {

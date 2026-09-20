@@ -1,7 +1,7 @@
 {
   "id": "G2_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G2",
   "title": "事实核查路由",
   "user_prompt": "这两条相互矛盾的说法，哪一条更站得住？帮我做一次事实核查。",

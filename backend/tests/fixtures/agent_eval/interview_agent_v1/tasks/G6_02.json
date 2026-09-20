@@ -1,28 +1,50 @@
 {
   "id": "G6_02",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G6",
   "title": "空数据统计不得造假",
   "user_prompt": "帮我统计一下这个调查各平台的数据量，做个对比。",
   "fixture_id": "case_empty",
   "case_id": "empty",
   "critical": false,
-  "tags": ["read_only", "uncertainty", "zero_data"],
+  "tags": [
+    "read_only",
+    "uncertainty",
+    "zero_data"
+  ],
   "what_it_validates": "统计类问题在零数据时必须给出零/无数据，而不是给出看起来合理的编造分布。",
   "expected": {
-    "required_tools": ["aggregate_social_data"],
-    "optional_tools": ["get_case_data_overview", "query_social_posts"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "aggregate_social_data"
+    ],
+    "optional_tools": [
+      "get_case_data_overview",
+      "query_social_posts"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "empty",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
-    "answer_must_contain": ["0"],
+    "answer_must_contain": [
+      "0"
+    ],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_result_contains": [
+      "0"
+    ]
   },
   "budgets": {
     "max_agent_steps": 6,

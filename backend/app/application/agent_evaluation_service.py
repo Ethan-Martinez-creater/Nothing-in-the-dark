@@ -109,23 +109,28 @@ class AgentEvaluationService:
         self,
         report: AgentEvaluationReport,
         *,
+        role: str = "candidate",
         baseline_metrics: dict[str, float] | None = None,
         extra_config: dict[str, Any] | None = None,
     ) -> dict[str, object]:
         """把报告写入现有 evaluation_runs，返回 run id 与记录。
 
-        ``baseline_metrics`` 会写进 ``config``，供现有 ``evaluate_gates`` 做相对
-        回归判定；``sample_sizes`` 显式置为 None 之外的值以规避 30 样本下限
-        （24 任务的 suite 必然小于 30，计划第 32 节的 hard gate 本身不依赖该检查）。
+        ``role="baseline"`` 标记本 run 为基准（后续 candidate 以此为比较
+        对象）；candidate run 的 ``baseline_metrics`` 写进 ``config``，供现有
+        ``evaluate_gates`` 做相对回归判定。``sample_sizes`` 显式不传（24 任务
+        的 suite 必然小于 30 样本下限，计划第 32 节的 hard gate 不依赖该检查）。
         """
         manifest = await self._ensure_manifest(report)
         config: dict[str, Any] = {
+            "role": role,
             "mode": report.mode,
             "suite_version": report.suite_version,
             "git_sha": report.git_sha,
             "model": "contract-scripted-model" if report.mode == CONTRACT_MODE else "production",
             "hard_gate_violations": list(report.hard_gate_violations),
             "limitations": list(report.limitations),
+            "tool_schema_hash": report.tool_schema_hash,
+            "coordinator_prompt_hash": report.coordinator_prompt_hash,
         }
         if baseline_metrics:
             config["baseline_metrics"] = {
@@ -310,11 +315,16 @@ class AgentEvaluationService:
         }
 
     async def load_baseline_metrics(self, suite: str = SUITE_VERSION) -> dict[str, float]:
-        """读取最近一次 baseline 运行的指标（现有 evaluation_runs 表）。"""
+        """读取最近一次 **baseline** 运行的指标（现有 evaluation_runs 表）。
+
+        只认 ``config.role == "baseline"`` 的 run；candidate run 的 aggregate
+        不会被误当作基准。没有 baseline 时返回空 dict（调用方不得伪造
+        regression compare）。
+        """
         runs = await self._repository.list_evaluation_runs(suite=suite, limit=50)
         for run in runs:
             config = dict(run.config or {})
-            if config.get("baseline_of"):
+            if config.get("role") != "baseline":
                 continue
             aggregate = dict(run.aggregate or {})
             metrics = {

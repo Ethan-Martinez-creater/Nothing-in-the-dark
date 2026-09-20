@@ -1,7 +1,7 @@
 {
   "id": "G1_04",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G1",
   "title": "主张与证据清点",
   "user_prompt": "目前已经形成了哪些结论？各自的评审状态是什么？请只报数据库里真实存在的。",

@@ -1,28 +1,50 @@
 {
   "id": "G1_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G1",
   "title": "平台维度聚合",
   "user_prompt": "B 站这边的内容表现怎么样？和微博相比哪边互动更高？给我具体数字。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "grounding", "aggregate"],
+  "tags": [
+    "read_only",
+    "grounding",
+    "aggregate"
+  ],
   "what_it_validates": "Agent 是否做平台维度聚合（而非逐条罗列），并给出可核对的数字。",
   "expected": {
-    "required_tools": ["aggregate_social_data"],
-    "optional_tools": ["query_social_posts", "get_case_data_overview"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "aggregate_social_data"
+    ],
+    "optional_tools": [
+      "query_social_posts",
+      "get_case_data_overview"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
-    "answer_must_contain": ["bilibili"],
+    "answer_must_contain": [
+      "bilibili"
+    ],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_result_contains": [
+      "bilibili"
+    ]
   },
   "budgets": {
     "max_agent_steps": 6,

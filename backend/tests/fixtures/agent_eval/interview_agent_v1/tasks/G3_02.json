@@ -1,7 +1,7 @@
 {
   "id": "G3_02",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G3",
   "title": "结论的证据依据",
   "user_prompt": "那条「争议范围限于单一生产批次」的结论是怎么得出来的？把支撑它的证据列出来。",

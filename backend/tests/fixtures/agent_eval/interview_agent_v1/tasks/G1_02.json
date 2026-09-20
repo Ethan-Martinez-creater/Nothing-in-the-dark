@@ -1,28 +1,50 @@
 {
   "id": "G1_02",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G1",
   "title": "检索具体帖文内容",
   "user_prompt": "帮我把这次争议里最早那条爆料帖的原始内容找出来，我需要看原话。",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "grounding", "post_lookup"],
+  "tags": [
+    "read_only",
+    "grounding",
+    "post_lookup"
+  ],
   "what_it_validates": "Agent 是否能通过数据库工具取回具体帖文原文，而不是复述对话历史中的概括。",
   "expected": {
-    "required_tools": ["query_social_posts"],
-    "optional_tools": ["search_social_evidence", "get_social_post"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_social_posts"
+    ],
+    "optional_tools": [
+      "search_social_evidence",
+      "get_social_post"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
-    "answer_must_contain": ["12 倍"],
+    "answer_must_contain": [
+      "12 倍"
+    ],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_result_contains": [
+      "12 倍"
+    ]
   },
   "budgets": {
     "max_agent_steps": 6,

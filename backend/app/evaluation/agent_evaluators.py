@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
@@ -64,6 +65,9 @@ class EvalContext:
     expected_case_id: str = ""
     #: 端到端墙钟耗时（runner 测量）；contract 模式下工具 duration 可能为 0。
     wall_clock_ms: int = 0
+    #: FC-IR-02：只读工具完整 observation 的序列化文本（生产只存 500 字符
+    #: 摘要，完整值由 runner 的记录代理旁路捕获）。E12 grounding 的权威依据。
+    observation_texts: tuple[str, ...] = ()
 
     def all_known_ids(self) -> set[str]:
         out: set[str] = set()
@@ -569,6 +573,119 @@ def evaluate_efficiency(ctx: EvalContext) -> EvaluationOutcome:
 
 
 # ---------------------------------------------------------------------------
+# E11 — Expected Answer Constraint（FC-IR-02）
+# ---------------------------------------------------------------------------
+
+
+def evaluate_answer_constraints(ctx: EvalContext) -> EvaluationOutcome:
+    """``answer_must_contain`` / ``answer_must_not_contain`` 真正参与判定。
+
+    required term 全部必须出现在最终回答中；forbidden term 出现即违规。
+    期望人工审批而停在 ``waiting_approval`` 的任务没有最终回答属于正常停等，
+    本 evaluator 不适用（E1/E8 已覆盖该语义）。
+    """
+    required = list(ctx.task.expected.answer_must_contain)
+    forbidden = list(ctx.task.expected.answer_must_not_contain)
+    if not required and not forbidden:
+        return EvaluationOutcome(
+            evaluator="E11_answer_constraints",
+            metric="agent.answer_constraint_violations",
+            value=0.0,
+            passed=None,
+            details={"applicable": False},
+        )
+    suspended_as_expected = (
+        ctx.trace.status == "waiting_approval"
+        and ctx.task.expected.requires_human_escalation is True
+    )
+    if suspended_as_expected:
+        return EvaluationOutcome(
+            evaluator="E11_answer_constraints",
+            metric="agent.answer_constraint_violations",
+            value=0.0,
+            passed=None,
+            details={"applicable": False, "reason": "waiting_approval"},
+        )
+    answer = ctx.trace.final_answer or ""
+    missing = [term for term in required if term not in answer]
+    forbidden_hits = [term for term in forbidden if term in answer]
+    violations = len(missing) + len(forbidden_hits)
+    accuracy = (
+        (len(required) - len(missing)) / len(required) if required else 1.0
+    )
+    if forbidden_hits:
+        accuracy = 0.0
+    return EvaluationOutcome(
+        evaluator="E11_answer_constraints",
+        metric="agent.answer_constraint_violations",
+        value=float(violations),
+        passed=violations == 0,
+        details={
+            "applicable": True,
+            "required": required,
+            "missing": missing,
+            "forbidden": forbidden,
+            "forbidden_hits": forbidden_hits,
+            "accuracy": accuracy,
+        },
+        failure_category=None if violations == 0 else "model reasoning",
+    )
+
+
+# ---------------------------------------------------------------------------
+# E12 — Tool-result Grounding（FC-IR-02）
+# ---------------------------------------------------------------------------
+
+
+def evaluate_answer_grounding(ctx: EvalContext) -> EvaluationOutcome:
+    """``expected_tool_result_contains`` 的关键事实必须来自真实工具观察。
+
+    这是防"scripted answer 假阳性"的锚点：答案陈述的数据事实（如
+    ``12 倍`` / ``热点搬运工``）必须字面出现在本次 run 任一 tool
+    observation 中，证明 Agent 真的读到了 fixture 数据，而不是只由
+    最终回答凭空制造。
+    """
+    expected = list(ctx.task.expected.expected_tool_result_contains)
+    if not expected:
+        return EvaluationOutcome(
+            evaluator="E12_answer_grounding",
+            metric="agent.answer_grounding_violations",
+            value=0.0,
+            passed=None,
+            details={"applicable": False},
+        )
+    # 完整 observation 来自 runner 的记录代理；持久化的 result（生产为空）
+    # 与 500 字符 output_summary 只作兜底，不作为主要依据。
+    haystack_parts: list[str] = list(ctx.observation_texts)
+    for call in ctx.trace.tool_calls:
+        if call.result:
+            try:
+                haystack_parts.append(json.dumps(call.result, ensure_ascii=False, default=str))
+            except Exception:  # noqa: BLE001
+                haystack_parts.append(str(call.result))
+    haystack = "\n".join(haystack_parts)
+    missing = [term for term in expected if term not in haystack]
+    grounded = [term for term in expected if term in haystack]
+    violations = len(missing)
+    return EvaluationOutcome(
+        evaluator="E12_answer_grounding",
+        metric="agent.answer_grounding_violations",
+        value=float(violations),
+        passed=violations == 0,
+        details={
+            "applicable": True,
+            "expected": expected,
+            "grounded": grounded,
+            "missing": missing,
+            "grounding_rate": (
+                len(grounded) / len(expected) if expected else 1.0
+            ),
+        },
+        failure_category=None if violations == 0 else "grounding",
+    )
+
+
+# ---------------------------------------------------------------------------
 # 汇总
 # ---------------------------------------------------------------------------
 
@@ -584,6 +701,8 @@ DETERMINISTIC_EVALUATORS = (
     ("E8_human_escalation", evaluate_human_escalation),
     ("E9_efficiency", evaluate_efficiency),
     ("E10_case_scope", evaluate_case_scope),
+    ("E11_answer_constraints", evaluate_answer_constraints),
+    ("E12_answer_grounding", evaluate_answer_grounding),
 )
 
 

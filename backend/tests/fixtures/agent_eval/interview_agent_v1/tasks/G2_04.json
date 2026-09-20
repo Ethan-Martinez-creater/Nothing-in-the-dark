@@ -1,7 +1,7 @@
 {
   "id": "G2_04",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G2",
   "title": "报告生成路由",
   "user_prompt": "把目前的调查结论整理成一份阶段报告，结论要能对上证据。",

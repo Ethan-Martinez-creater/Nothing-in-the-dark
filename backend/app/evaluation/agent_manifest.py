@@ -64,6 +64,22 @@ def prompt_hash(*parts: str) -> str:
     return short_hash({"parts": list(parts)})
 
 
+def production_coordinator_prompt_hash() -> str:
+    """生产 coordinator 静态 prompt 模板的稳定指纹（FC-IR-04）。
+
+    runtime 最终 system prompt = ``definition.instructions`` + 动态 case
+    context；动态上下文不属于 prompt 版本，因此只 canonicalize 静态模板
+    （agent 名 + instructions，统一 LF 行尾、UTF-8），与 Golden Task 的
+    expected behavior 完全无关。
+    """
+    from app.harness.agents import COORDINATOR_INSTRUCTIONS
+
+    normalized = (
+        COORDINATOR_INSTRUCTIONS.replace("\r\n", "\n").replace("\r", "\n")
+    )
+    return content_hash({"agent": "coordinator", "instructions": normalized})
+
+
 # ---------------------------------------------------------------------------
 # 脱敏
 # ---------------------------------------------------------------------------

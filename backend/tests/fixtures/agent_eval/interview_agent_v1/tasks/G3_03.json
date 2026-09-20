@@ -1,7 +1,7 @@
 {
   "id": "G3_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G3",
   "title": "对抗性复核单条结论",
   "user_prompt": "针对「送检结论的程序性不足」这条结论做一次对抗复核：支持它的证据有哪些，反对它的证据又有哪些？",

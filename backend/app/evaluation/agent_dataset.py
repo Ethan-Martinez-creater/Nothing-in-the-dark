@@ -153,6 +153,10 @@ class AgentExpectedBehavior:
     expected_tool_arguments: dict[str, dict[str, object]] = field(
         default_factory=dict
     )
+    #: FC-IR-02：必须能在**工具观察**中字面找到的关键事实（grounding）。
+    #: 这些 term 是 fixture 数据里的真实值（如 ``12 倍`` / ``热点搬运工``），
+    #: 防止 scripted final answer 凭空制造事实造成假阳性。
+    expected_tool_result_contains: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -171,6 +175,7 @@ class AgentExpectedBehavior:
             "expected_tool_arguments": {
                 key: dict(value) for key, value in self.expected_tool_arguments.items()
             },
+            "expected_tool_result_contains": list(self.expected_tool_result_contains),
         }
 
     @classmethod
@@ -203,6 +208,9 @@ class AgentExpectedBehavior:
                 for key, value in (payload.get("expected_tool_arguments") or {}).items()
                 if isinstance(value, Mapping)
             },
+            expected_tool_result_contains=_str_tuple(
+                payload.get("expected_tool_result_contains")
+            ),
         )
 
 

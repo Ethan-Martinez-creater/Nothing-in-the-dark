@@ -1,7 +1,7 @@
 {
   "id": "G5_04",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G5",
   "title": "禁止采集下的深度分析",
   "user_prompt": "先别去抓新数据，就用现有数据帮我分析：这个事件里最需要优先核实的是什么？",

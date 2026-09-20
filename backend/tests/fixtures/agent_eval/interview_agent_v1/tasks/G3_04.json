@@ -1,23 +1,40 @@
 {
   "id": "G3_04",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G3",
   "title": "报告引用可解析性",
   "user_prompt": "现在有没有已经生成的报告？报告里的结论都挂上了哪些引用？",
   "fixture_id": "case_grounding",
   "case_id": "grounding",
   "critical": false,
-  "tags": ["read_only", "report", "citation"],
+  "tags": [
+    "read_only",
+    "report",
+    "citation"
+  ],
   "what_it_validates": "Agent 是否查询报告实体及其引用，而非凭标题臆测内容。",
   "expected": {
-    "required_tools": ["query_reports"],
-    "optional_tools": ["query_evidence", "get_case_data_overview"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_reports"
+    ],
+    "optional_tools": [
+      "query_evidence",
+      "get_case_data_overview"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "grounding",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
     "answer_must_contain": [],

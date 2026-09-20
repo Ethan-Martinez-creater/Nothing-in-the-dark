@@ -541,7 +541,9 @@ class AgentReplayService:
         )
         report = await runner.run(task_ids=[source_bundle.task_id])
         result = report.task_results[0]
-        candidate_bundle = self._bundle_from_task_result(result, source_bundle)
+        candidate_bundle = self._bundle_from_task_result(
+            result, source_bundle, report=report
+        )
         diff = diff_bundles(source_bundle, candidate_bundle, mode=SEEDED_FULL_RERUN)
         return ReplayResult(
             mode=SEEDED_FULL_RERUN,
@@ -557,6 +559,7 @@ class AgentReplayService:
     # -- 内部 --------------------------------------------------------------
 
     def _build_real_registry(self, stack: Any) -> Any:
+        from app.evaluation.agent_eval_runtime import build_eval_read_services
         from app.harness.database_tools import register_database_tools
         from app.harness.intelligence_tools import register_intelligence_tools
         from app.harness.skills import SkillRegistry
@@ -564,6 +567,9 @@ class AgentReplayService:
         from app.infrastructure.crawler.demo import DemoCrawlerAdapter
         from app.infrastructure.embeddings import EmbeddingWorkerClient
 
+        # 与 suite runner 同一套生产只读服务装配（FC-IR-01）：契约一致，
+        # 且 full rerun 场景下 DB / Intelligence 工具真实读取冻结 fixture。
+        agent_database, intelligence = build_eval_read_services(stack)
         registry = build_tool_registry(
             DemoCrawlerAdapter(),
             SkillRegistry(),
@@ -572,8 +578,8 @@ class AgentReplayService:
             stack.social,
             stack.repository,
         )
-        register_database_tools(registry, None)
-        register_intelligence_tools(registry, None)
+        register_database_tools(registry, agent_database)
+        register_intelligence_tools(registry, intelligence)
         return registry
 
     def _default_candidate_gateway(
@@ -656,7 +662,11 @@ class AgentReplayService:
     def _bundle_from_trace(
         self, *, trace: AgentTrace, task: Any, gateway: Any, tools: Any
     ) -> ReplayBundle:
-        from app.evaluation.agent_manifest import build_bundle, tool_schema_hash
+        from app.evaluation.agent_manifest import (
+            build_bundle,
+            production_coordinator_prompt_hash,
+            tool_schema_hash,
+        )
 
         return build_bundle(
             trace=trace,
@@ -665,15 +675,23 @@ class AgentReplayService:
             mode=self._mode,
             git_sha=_git_sha(),
             model_name=getattr(gateway, "model_name", "unknown"),
-            coordinator_prompt_hash=short_hash(task.expected.to_dict()),
+            # FC-IR-04：provenance 必须来自生产 coordinator prompt，
+            # 而不是 Golden expected behavior。
+            coordinator_prompt_hash=production_coordinator_prompt_hash(),
             schema_hash=tool_schema_hash(tools),
             expected_case_id=trace.case_id,
         )
 
     def _bundle_from_task_result(
-        self, result: Any, source_bundle: ReplayBundle
+        self, result: Any, source_bundle: ReplayBundle, *, report: Any
     ) -> ReplayBundle:
-        """从 suite 运行结果构造 bundle（full rerun 用）。"""
+        """从 suite 运行结果构造 bundle（full rerun 用）。
+
+        FC-IR-04：candidate 的 ``tool_schema_hash`` 与
+        ``coordinator_prompt_hash`` 必须来自本次重跑的真实装配
+        （runner 报告），禁止照抄 source bundle——否则 schema_changed
+        永远是假阴性。
+        """
         payload = result.trace_bundle
         metrics = dict(payload.get("metrics") or {})
         return ReplayBundle(
@@ -685,8 +703,13 @@ class AgentReplayService:
             case_id=result.case_id,
             git_sha=_git_sha(),
             model_name=source_bundle.model_name,
-            coordinator_prompt_hash=source_bundle.coordinator_prompt_hash,
-            tool_schema_hash=source_bundle.tool_schema_hash,
+            coordinator_prompt_hash=(
+                report.coordinator_prompt_hash
+                or source_bundle.coordinator_prompt_hash
+            ),
+            tool_schema_hash=(
+                report.tool_schema_hash or source_bundle.tool_schema_hash
+            ),
             tool_sequence=tuple(
                 item["tool"] for item in payload.get("tool_calls", [])
             ),

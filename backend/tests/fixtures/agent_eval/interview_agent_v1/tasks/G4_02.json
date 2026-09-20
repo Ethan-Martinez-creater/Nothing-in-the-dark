@@ -1,28 +1,50 @@
 {
   "id": "G4_02",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G4",
   "title": "共享账号实体",
   "user_prompt": "这几个调查之间有没有共用同一个账号的情况？如果有，把这个账号在各调查里的活动情况说一下。",
   "fixture_id": "case_cross",
   "case_id": "cross_a",
   "critical": false,
-  "tags": ["read_only", "workspace_entity", "cross_investigation"],
+  "tags": [
+    "read_only",
+    "workspace_entity",
+    "cross_investigation"
+  ],
   "what_it_validates": "Agent 是否查询 workspace entity 及其跨调查关联，而不是只做文本相似度猜测。",
   "expected": {
-    "required_tools": ["query_workspace_entities"],
-    "optional_tools": ["get_workspace_entity", "query_related_investigations"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "query_workspace_entities"
+    ],
+    "optional_tools": [
+      "get_workspace_entity",
+      "query_related_investigations"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "cross_a",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
-    "answer_must_contain": ["热点搬运工"],
+    "answer_must_contain": [
+      "热点搬运工"
+    ],
     "answer_must_not_contain": [],
-    "requires_human_escalation": false
+    "requires_human_escalation": false,
+    "expected_tool_result_contains": [
+      "热点搬运工"
+    ]
   },
   "budgets": {
     "max_agent_steps": 8,

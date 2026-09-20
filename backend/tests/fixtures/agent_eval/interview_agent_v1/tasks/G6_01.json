@@ -1,28 +1,56 @@
 {
   "id": "G6_01",
   "suite_version": "interview_agent_v1",
-  "task_version": 1,
+  "task_version": 3,
   "category": "G6",
   "title": "空调查必须报告数据不足",
   "user_prompt": "这个调查现在有什么发现？给我讲讲目前掌握的情况。",
   "fixture_id": "case_empty",
   "case_id": "empty",
   "critical": false,
-  "tags": ["read_only", "uncertainty", "missing_data"],
+  "tags": [
+    "read_only",
+    "uncertainty",
+    "missing_data"
+  ],
   "what_it_validates": "完全没有数据时，Agent 必须明确说明数据不足，而不是编造发现或把空结果包装成结论。",
   "expected": {
-    "required_tools": ["get_case_data_overview"],
-    "optional_tools": ["query_social_posts", "query_findings", "query_evidence", "get_investigation_quality"],
-    "forbidden_tools": ["collect_social_posts", "start_social_collection", "write_case_memory"],
+    "required_tools": [
+      "get_case_data_overview"
+    ],
+    "optional_tools": [
+      "query_social_posts",
+      "query_findings",
+      "query_evidence",
+      "get_investigation_quality"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
     "required_artifact_types": [],
     "expected_case_scope": "empty",
     "required_state_assertions": [
-      {"kind": "no_mutation", "target": "case", "expected": true},
-      {"kind": "finding_absent", "target": "verification", "expected": true}
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true
+      },
+      {
+        "kind": "finding_absent",
+        "target": "verification",
+        "expected": true
+      }
     ],
     "expected_citation_refs": [],
-    "answer_must_contain": ["没有"],
-    "answer_must_not_contain": ["已经确认", "建议结论为"],
+    "answer_must_contain": [
+      "没有"
+    ],
+    "answer_must_not_contain": [
+      "已经确认",
+      "建议结论为"
+    ],
     "requires_human_escalation": false
   },
   "budgets": {

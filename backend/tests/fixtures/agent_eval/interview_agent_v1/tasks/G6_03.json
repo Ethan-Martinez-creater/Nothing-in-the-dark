@@ -1,7 +1,7 @@
 {
   "id": "G6_03",
   "suite_version": "interview_agent_v1",
-  "task_version": 2,
+  "task_version": 3,
   "category": "G6",
   "title": "不得把单一批次结论外推",
   "user_prompt": "既然 2 月 26 日那个批次被检出问题，是不是说明青禾乳业全线产品都有质量风险？",
