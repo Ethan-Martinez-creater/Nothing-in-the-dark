@@ -948,3 +948,237 @@ Linux 上同一套测试比本机 Windows 快约 5–7 倍（46s vs 217s）。
 `postgresql` disabled + inactive，nginx 仅占位站点），符合"这段时间不再启动旧项目"的安排。
 
 
+
+---
+
+# Interview Readiness Final Closure（2026-09-20）
+
+依据 `docs/Nothing-in-the-dark_Interview_Readiness_Final_Closure_Fix_Plan.md`
+完成 6 项收口修复。旧的 24/24 与 B1/B2/B3 结果（Tool Stack 修复前产生）
+按计划第 9 节全部作废，本章为修复后的唯一有效记录。
+
+## FC-IR-01 Real Eval Tool Stack
+
+**问题**：`AgentSuiteRunner._build_tools()` 中 `register_*_tools(registry, None)`，
+DB01–DB09 与 5 个 Intelligence Tool 实际返回 `*_unavailable`，无法证明 Agent
+真正读取 fixture。
+
+**修复**：新增 `backend/app/evaluation/agent_eval_runtime.py`：
+
+- `build_eval_read_services(stack)` 用与 `bootstrap.py` 完全一致的依赖闭包
+  装配**生产** `AgentDatabaseReadService`（repository/social/collection_run/
+  finding/report）与 `IntelligenceToolReadService`（production
+  InvestigationQualityService / WorkspaceEntityService /
+  CrossInvestigationService / SignalService，确定性、无 LLM）。
+  `EvalDataStack` 补齐 6 个轻量 repository（collection_run / monitor /
+  investigation_quality / alignment / integrity / media）。
+- runner 与 replay 的 registry 一律接真实服务，禁止 `service=None`。
+- `ReadObservationRecorder` 包在同一生产服务外侧（调用边界 spy）：生产
+  持久化只写 500 字符 `output_summary`，完整 observation 由记录器旁路捕获，
+  供 E12 grounding 判定；不重新执行、不改生产代码。
+
+**验收**（`tests/test_agent_eval_isolation.py`）：
+
+| ID | 结果 | 证据 |
+|---|---|---|
+| IR-TOOL-01 | PASS | G1_01 overview 返回真实 counts（posts=10，posts_by_platform 含 weibo/bilibili），无 unavailable |
+| IR-TOOL-02 | PASS | G1_02 query_social_posts 的 observation 含「12 倍」 |
+| IR-TOOL-03 | PASS | G4_02 query_workspace_entities 的 observation 含「热点搬运工」 |
+| IR-TOOL-04 | PASS | G4_01/G4_03 的 related/signals 均为 fixture 数据，无 unavailable |
+
+## FC-IR-02 Answer Constraints
+
+**修复**：
+
+- 新增 **E11 `evaluate_answer_constraints`**：`answer_must_contain` 全部
+  required term 必须出现在最终回答；`answer_must_not_contain` 任一 forbidden
+  term 出现即违规。输出 `agent.answer_constraint_violations`（count）与
+  details.accuracy（聚合为 `agent.answer_constraint_accuracy`）。critical
+  任务违规聚合为 `agent.critical_answer_constraint_violations` 并进入
+  hard gate（计划 4.2）。期望审批而停等（waiting_approval）的任务不适用。
+- 新增 **E12 `evaluate_answer_grounding`**：任务可声明
+  `expected_tool_result_contains`（schema 新增可选字段，task_version → 3），
+  这些关键事实必须字面出现在本次 run 的真实 tool observation（recorder
+  捕获）中——答案事实不能只由 scripted model 自己制造。G1_01/G1_02/G1_03/
+  G4_02/G6_02 已声明（`12 倍`、`热点搬运工`、平台名、`0`）。
+- 普通任务违规经 `failure_details` 计入 Task Success；metric 聚合进报告。
+
+**验收**：IR-ANS-01（required 缺失 → fail）、IR-ANS-02（forbidden 出现 →
+fail）+ 4 个 E11/E12 单测（`test_agent_eval_evaluators.py`，29 passed）。
+
+## FC-IR-03 Existing Release Gate Execution
+
+**修复**：`run_agent_eval.py` 不再直接用 runner 的 `report.passed` 作为唯一
+出口，改为完整主链：
+
+```text
+load suite → AgentEvaluationService.run_agent_suite
+  → persist_report（写入现有 evaluation_runs；role=baseline/candidate）
+  → 确保该 suite 的既有 Release Gate（首次写 default 定义）
+  → EvaluationService.evaluate_gates（既有门禁，非第二套）
+  → 有 baseline 时 compare_to_baseline（2pp 质量 / 1.25x 延迟成本）
+  → 综合退出码（agent hard gates + gate decisions + regression）
+```
+
+- `--candidate-label baseline`（默认标签 `baseline`）创建基准；
+  `load_baseline_metrics` 只认 `config.role == "baseline"` 的 run；
+  无历史 baseline 的 candidate **不伪造** regression compare（输出 n/a）。
+- subset run（`--tasks` 过滤）跳过 release gate 评估并明示——missing
+  metric 会被既有门禁误 block，诚实跳过优于假绿。
+- `agent-eval.yml`（Tier B）继续调同一 CLI，exit code 语义不变。
+
+**验收**：IR-GATE-01（evaluation_runs 持久化 + gate 判定记录，config 含
+role/schema_hash/prompt_hash）、IR-GATE-02（hard gate 违规 → CLI exit 1）、
+IR-GATE-03（baseline 落库后 compare 生效，恶化 candidate 被 max_drop 拦截）。
+
+## FC-IR-04 Replay Provenance
+
+**修复**：
+
+- `agent_manifest.production_coordinator_prompt_hash()`：canonicalize
+  生产 `COORDINATOR_INSTRUCTIONS`（UTF-8、LF 归一）+ agent 名 → SHA256。
+  replay 的 bundle 一律使用它，禁止再 hash Golden expected behavior。
+- seeded full rerun 的 candidate bundle 使用 **runner 报告的真实
+  `tool_schema_hash` / `coordinator_prompt_hash`**（runner 新增报告字段），
+  禁止照抄 source bundle（否则 schema_changed 永远假阴性）。
+
+**验收**：IR-REPLAY-01（伪造 source hash → candidate 真实重算且
+schema_changed=true，且与 runner 报告 hash 一致）、IR-REPLAY-02（改生产
+prompt → hash 变）、IR-REPLAY-03（改 expected behavior → hash 不变）。
+`test_agent_replay.py` 17 passed。
+
+## FC-IR-05 Per-Task Isolation
+
+**修复**：`AgentSuiteRunner` 默认 `per_task_isolation=True`——每个任务一个
+全新**临时文件库**（生产 `Database` 类，QueuePool 多连接，worker 并发写
+安全），`create_schema` → seed → run → dispose → 删目录。Benchmark 显式
+传 `False`（一个 scenario 一个 DB，计划 7.3，B2 跨调查需要）。
+
+**否决方案的记录**：内存 StaticPool 单连接库在 worker 并发 session 下事务
+状态互相污染（实测复现 `Could not refresh instance` / `no such table`），
+故不用；文件库 create_schema 实测 ~2.3s（129 表），24 任务约 55s 可接受。
+
+**验收**：IR-ISO-01（`[G4_02, G4_01, G4_03, G4_02]` 顺序跑，两次 G4_02 的
+observation 关键事实与 E 系列 outcome 完全一致）、IR-ISO-02（交错重复
+`[G1_01, G4_02, G1_01, G4_02]`，同名任务 deterministic 指标零漂移）。
+
+## FC-IR-06 Full Regression
+
+**事实**：GitHub run `35430424404`（2026-09-19，main@9b66c82）=
+**1311 passed / 11 failed / 2 skipped**。
+
+**对照实证（阿里云，同构 Linux，worktree 隔离）**：
+
+```text
+/root/nitd-baseline @ 74b827d（IR 起点）:  11 failed
+/root/nitd-main    @ 1346981（IR 完成后）: 11 failed
+两份 FAILED 名单逐行一致（11/11 相同）
+```
+
+失败名单（全部为既有环境问题，与 IR 修改无关）：
+
+- `test_mediacrawler_auth_bridge.py` 5 个：`vendor/MediaCrawler/` 自
+  baseline `.gitignore`（74b827d 第 26–27 行）起即被忽略，任何 CI
+  checkout 都不含该目录 → FileNotFoundError / ModuleNotFoundError。
+- `test_mediacrawler_adapter.py` 4 个 / `test_llm_gateway.py` 1 个 /
+  `test_mediacrawler_run_env.py` 1 个：依赖真实 `.env` / 平台登录态 /
+  XDG 运行目录的既有环境断言。
+- 静态证据：`git diff 74b827d..1346981 --name-only` 中没有任何
+  mediacrawler / llm_gateway / run_env / vendor 文件。
+
+**结论**：11 个失败全部 pre-existing（known-baseline-failure），
+**Interview Readiness 引入的新回归 = 0**。这些模块在 Scope Freeze 之外，
+本轮不修业务模块；CI 未用 `continue-on-error` 掩盖，full-regression 保持
+红色以如实反映。push 后已手动触发 run `35488016630` 复核失败名单不增
+（结果见下表）。
+
+## Re-run Results（修复后，旧结果作废）
+
+### Tier A（24 任务，本机 Windows）
+
+```text
+命令: python -m app.scripts.run_agent_eval --mode contract \
+        --output artifacts/agent_eval/contract.json --fail-on-hard-gate
+evaluation_run=255b0fed-ca0b-4c1f-a626-2ab604d05e63
+agent_hard_gates=PASS release_gates=PASS(agent_release) regression=n/a(无 baseline)
+sample=24  task_success_rate=1.0  critical_task_success_rate=1.0
+forbidden_tool_violations=0  case_scope_violation=0  invalid_citation=0
+unexpected_mutation=0  answer_constraint_violations=0 (accuracy 1.0)
+answer_grounding_violations=0 (grounding 1.0)  tool_argument_accuracy=1.0
+DB/Intelligence unavailable 次数 = 0（IR-TOOL-01..04 + E12 双重证据）
+tool_schema_hash=ccb66ed4544c571d  coordinator_prompt_hash=99747ce095227669
+```
+
+### Benchmark（B1/B2/B3，本机 Windows）
+
+```text
+命令: python -m app.scripts.run_agent_benchmark --mode contract --output artifacts/benchmark/fc-rerun
+3/3 completed，hard gates PASS
+B1: aggregate_social_data（真实 DB 聚合）+ dispatch_expert
+B2: query_related_investigations（真实 Cross Intelligence）
+B3: query_findings + dispatch_expert，E5 零非预期变更（review boundary 保持）
+p50 2766ms / p95 2821ms（contract，Windows 墙钟）
+```
+
+`docs/interview/benchmark.md` 已用本次数据重写。
+
+### 测试矩阵（本机 Windows）
+
+```text
+pytest tests/test_agent_golden_dataset.py tests/test_agent_fixture_seed.py \
+       tests/test_agent_eval_evaluators.py tests/test_agent_eval_contract.py \
+       tests/test_agent_replay.py tests/test_agent_benchmark.py \
+       tests/test_agent_eval_isolation.py -q
+101 passed in 1065.22s (0:17:45)
+```
+
+### Linux 验证（阿里云，worktree @ dd1628e）
+
+```text
+环境: 阿里云 ECS Ubuntu，uv sync --extra dev --frozen（python 3.13）
+测试: 101 passed in 235.50s（同一命令、同一 suite，与 Windows 101 passed 一致）
+Tier A: evaluation_run=bf910afc-3bae-40d5-851b-95667d680e80
+        agent_hard_gates=PASS release_gates=PASS regression=n/a
+        24/24，task_success=1.0，critical=1.0，answer/grounding violations=0，p50 663.5ms
+Benchmark: 3/3 completed，hard_gate_violations=[]，p50 2742ms
+FC-IR-06 对照: /root/nitd-baseline @ 74b827d 与 /root/nitd-main @ 1346981
+        各跑 11 个目标测试，FAILED 名单逐行一致（证据见 FC-IR-06 节）
+```
+
+### Linux 验证（腾讯云 Lighthouse 2C2G，clone @ dd1628e）
+
+```text
+环境: Ubuntu，uv sync --frozen（python 3.12，生产依赖）
+同步: git bundle（GitHub 直连不可达，bundle 增量）
+Tier A: evaluation_run=8338a720-859e-4d57-888d-f53acc5faebd
+        agent_hard_gates=PASS release_gates=PASS(agent_release) regression=n/a
+        24/24，task_success=1.0，critical=1.0
+        forbidden/scope/citation/answer/grounding violations 全部 = 0
+```
+
+**三处一致性结论**：本机 Windows、阿里云、腾讯云、GitHub CI 跑的是同一条
+修复后链路（真实 runtime → 真实 Tool 服务 → 真实 fixture observation →
+deterministic evaluators → evaluation_runs → 既有 Release Gate），结果一致。
+
+### GitHub Runs
+
+| Workflow | Run ID | 结果 |
+|---|---|---|
+| CI（push dd1628e） | `35488009775` | **success**（Frontend 全绿；Backend: targeted tests + pgvector migration + Tier A contract eval 走新主链通过；日志实证 `evaluation_run=96802c81-… agent_hard_gates=PASS release_gates=PASS regression=n/a`） |
+| Full Regression（dispatch，dd1628e） | `35488016630` | failure（预期内）：**1331 passed / 11 failed**，FAILED 名单与 baseline `74b827d`、run `35430424404` 逐行一致 → **new regression = 0**；passed 1311→1331（+20 为本轮新增 IR 测试）；未用 `continue-on-error` 掩盖 |
+
+## Tier B
+
+**BLOCKED** — 未配置 `LLM_API_KEY`。`agent-eval.yml` 的 preflight 会显式
+skip（不伪造）。real_model 模式与 Tier A 共享同一套期望、per-task 隔离与
+主链门禁；一旦有 key，`--candidate-label baseline` 首次运行即创建基准。
+
+## Final Known Limitations
+
+1. Tier B real-model baseline BLOCKED（无 key，见上）。
+2. Full Regression 11 个 pre-existing 失败（FC-IR-06 已逐一对照，
+   new regression = 0），模块在 Scope Freeze 之外，保持红色不掩盖。
+3. E11/E12 是第一版确定性答案约束（字面匹配）；语义质量仍属 optional
+   LLM Judge（未启用）与 Tier B 的职责。
+4. subset run 的 release gate 评估被显式跳过（missing metric 防误 block）；
+   完整 24 任务运行才产生门禁判定。

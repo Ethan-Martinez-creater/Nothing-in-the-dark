@@ -18,19 +18,33 @@
 | suite version | `interview_benchmark_v1` |
 | mode | `contract` |
 | model | `contract-scripted-model` |
-| candidate | `contract-smoke` |
-| git SHA | `df03d200df5e9d443eeadf88c825d9f2145c3151` |
-| date | 2026-09-16T16:57:28.090459+00:00 |
+| candidate | `candidate`（Final Closure 修复后重跑） |
+| git SHA | `1346981ccc1296deb90ae87dd1d4e318f7f3695f`（+ 工作区 FC-IR 修复） |
+| date | 2026-09-20T02:45:47Z（UTC） |
 | sample size | **3** |
 | hard gates | PASS |
 
+> 注：上一版数据（`df03d200`）产生于 Eval Tool Stack 修复之前（DB /
+> Intelligence Tool 仍走 `service=None` unavailable handler），按计划
+> 第 9 节视为过期并作废。本页数据来自 FC-IR-01 修复后的重跑：DB /
+> Intelligence Tool 接入真实生产只读服务。
+
 ## 场景结果
 
-| 场景 | 任务 | 状态 | 通过 |
-|---|---|---|---|
-| B1 | `B1_grounded_investigation` | completed | Y |
-| B2 | `B2_cross_investigation` | completed | Y |
-| B3 | `B3_adversarial_review` | completed | Y |
+| 场景 | 任务 | 状态 | 通过 | 关键工具调用（真实服务） |
+|---|---|---|---|---|
+| B1 | `B1_grounded_investigation` | completed | Y | `aggregate_social_data`（DB07 真实查询）+ `dispatch_expert` |
+| B2 | `B2_cross_investigation` | completed | Y | `query_related_investigations`（Cross Intelligence 真实查询） |
+| B3 | `B3_adversarial_review` | completed | Y | `query_findings` + `dispatch_expert`（E5 零非预期变更） |
+
+特别检查（修复计划 9.2）：
+
+- **B1 真正查询 DB**：`aggregate_social_data` 由生产 `AgentDatabaseReadService`
+  处理，聚合结果来自冻结 fixture 的 32 帖（非 unavailable）。
+- **B2 真正查询 Cross Intelligence**：`query_related_investigations` 由生产
+  `CrossInvestigationService` 处理，返回 fixture 的跨调查关联。
+- **B3 保持 Human Review boundary**：E5 state mutation = 0，对抗评审没有
+  产生任何非预期 finding/review 状态变更。
 
 ## 核心指标
 
@@ -43,11 +57,14 @@
 | `agent.unexpected_mutation_count` | 0.0 |
 | `agent.avg_steps` | 2.67 |
 | `agent.avg_tool_calls` | 1.67 |
-| `agent.p50_latency_ms` | 2780.0 |
-| `agent.p95_latency_ms` | 2794.4 |
+| `agent.p50_latency_ms` | 2766.0 |
+| `agent.p95_latency_ms` | 2820.9 |
 | `agent.avg_input_tokens` | 0.0 |
 | `agent.avg_output_tokens` | 0.0 |
 | `agent.avg_cost_usd` | 0.0 |
+
+（latency 为本机 Windows 墙钟；Linux 服务器数字见
+`docs/interview-readiness-delivery.md` 的 Final Closure 章节。）
 
 ## 失败任务
 
