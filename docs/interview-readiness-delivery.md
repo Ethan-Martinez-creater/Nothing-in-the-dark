@@ -1182,3 +1182,99 @@ skip（不伪造）。real_model 模式与 Tier A 共享同一套期望、per-ta
    LLM Judge（未启用）与 Tier B 的职责。
 4. subset run 的 release gate 评估被显式跳过（missing metric 防误 block）；
    完整 24 任务运行才产生门禁判定。
+
+---
+
+# CI Stability Closure（2026-09-20）
+
+只处理 GitHub CI 的最终稳定性阻断，不触碰 Agent Eval / Release Gate /
+Replay / Golden Dataset / Benchmark 逻辑（FC-IR-01..06 已审批通过）。
+
+## 失败事实
+
+| 项 | 值 |
+|---|---|
+| CI run | `35491425408` |
+| HEAD | `7ad03d19b765afc7d0a7867e5257fa12adea4c1e` |
+| Backend job | **success**（123 passed / 53 passed；`agent_hard_gates=PASS release_gates=PASS regression=n/a`） |
+| Frontend job | **failure**，失败步骤 `Unit tests` |
+| Frontend 断言 | 36 test files passed / 223 tests passed，但 vitest 报 1 个 uncaught exception → exit 1 |
+
+```text
+Uncaught Exception
+TypeError: Cannot read properties of null (reading 'clearRect')
+  at zrender/lib/canvas/Layer.js (doClear)
+  ... ZRender.refreshImmediately ← Animation.update
+This error originated in "src/components/platform/PlatformComparisonCard.test.ts"
+```
+
+## 根因（探针实证，非推测）
+
+失败**无法**通过单独运行该测试文件复现（本机单跑 3 次全过、完整套件 2 次全过），
+因此用一次性探针测试确定了机制：
+
+| 探针 | 条件 | 观察 |
+|---|---|---|
+| 1 | 不 mock echarts，mount → 轮询等到实例 → unmount | 真实 ECharts 实例被创建、zrender animation 对象存在、**卸载后实例仍存活**（组件无 dispose） |
+| 3 | 不 mock echarts，**保持挂载**仅等待渲染 | **同样抛 `clearRect` uncaught** |
+
+探针 3 是关键：错误与卸载时序无关。
+
+**结论**：`PlatformComparisonCard.test.ts` 是项目内**唯一**没有 stub echarts 的图表
+组件测试（其余 4 个都 mock 了 `echarts/core|charts|components|renderers`）。因此真实
+zrender 在 jsdom 中执行渲染，而 jsdom 不实现 canvas（`getContext('2d')` 返回 null），
+`Layer.doClear()` 调 `ctx.clearRect()` 立即抛 TypeError。原测试只 `flushPromises()`
+一次便结束，渲染往往尚未发生——**这是确定性缺陷被测试时序掩盖，不是随机 flaky**；
+CI runner 的调度时序让它暴露出来。
+
+## 是否需要代码修复
+
+**需要，两处**（都对齐项目既有模式，未新增抽象）：
+
+1. **测试隔离（直接消除该 CI 错误）** — `frontend/src/components/platform/PlatformComparisonCard.test.ts`：
+   按其余 4 个图表组件测试的既有做法 stub `echarts/core` + `echarts/charts` +
+   `echarts/components` + `echarts/renderers`（jsdom 下不触碰 canvas）；并新增
+   "unmount 时调用 dispose" 用例（223 → **224 tests**）。
+2. **组件生命周期（真实缺陷修复，非绕过）** — `frontend/src/components/platform/PlatformComparisonCard.vue`：
+   补上缺失的 `onBeforeUnmount(() => chart?.dispose())`（其余 4 个 ECharts 组件均已具备，
+   本组件是漏网），并加两处真实竞态守卫：动态 import 在组件卸载后才完成时不再 `init`
+   （否则留下无人销毁的实例与动画循环）；重试路径先 `dispose()` 旧实例再 `init`
+   （原先会在同一元素上重复 init 造成泄漏）。
+
+**明确未采用**：`dangerouslyIgnoreUnhandledErrors`、`continue-on-error`、跳过测试、
+放宽 vitest 严格性——均被排除，未使用。
+
+## 本机结果（Windows，Node v24.15.0）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run lint` | 通过（`--max-warnings=0`） |
+| `npm test` | **36 test files / 224 tests passed**，0 uncaught |
+| `npm run build` | 通过（echarts 仍为独立 chunk，动态导入未破坏） |
+
+稳定性重复（修复后）：
+
+```text
+单文件 5 次:  exit=0 uncaught=0  ×5
+完整套件 3 次: exit=0 uncaught=0  ×3
+```
+
+修复前的对照证据：探针在挂载状态下即可确定性复现该 uncaught 异常。
+
+## GitHub CI（最终 HEAD）
+
+| 项 | 值 |
+|---|---|
+| 修复 commit | `034a7a391ecfde2caea938ba37def3a7c3da9434` |
+| CI run | `35495115797` |
+| 结论 | **success** |
+| Backend job | success（`evaluation_run=d0ea473a-46ee-4929-bdb0-55e07c220541 agent_hard_gates=PASS release_gates=PASS regression=n/a`） |
+| Frontend job | success（**36 test files / 224 tests passed**，零 uncaught exception） |
+
+## 结论
+
+CI 在最终 HEAD 上 Backend + Frontend 均为 **success**，Interview Readiness
+的最后一个阻断项关闭。Tier B 仍为 **BLOCKED**（未配置 `LLM_API_KEY`，按约定
+不重跑、不伪造）。Full Regression 的 11 个历史失败按本轮要求未处理（FC-IR-06
+已用 baseline 对照证明 new regression = 0）。
