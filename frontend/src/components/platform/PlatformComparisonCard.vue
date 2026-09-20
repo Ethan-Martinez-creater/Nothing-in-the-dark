@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { api } from '@/services/api'
 import type { PlatformComparison } from '@/types/api'
+import type { ECharts } from 'echarts/core'
 
 // 纯内容组件（无模态外壳）：供右侧可视化边栏 / 模态嵌入。
 const props = defineProps<{ caseId: string }>()
@@ -10,6 +11,9 @@ const props = defineProps<{ caseId: string }>()
 const data = ref<PlatformComparison | null>(null)
 const error = ref('')
 const chartEl = ref<HTMLDivElement | null>(null)
+
+let chart: ECharts | null = null
+let disposed = false
 
 const PLATFORM_NAMES: Record<string, string> = {
   weibo: '微博',
@@ -35,7 +39,13 @@ async function renderChart() {
   const { GridComponent, LegendComponent, TooltipComponent } = await import('echarts/components')
   const { CanvasRenderer } = await import('echarts/renderers')
   echarts.use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
-  const chart = init(chartEl.value)
+  // echarts 是动态 import：等待期间组件可能已卸载（此时再 init 会留下
+  // 无人销毁的实例与 zrender 动画循环）。
+  if (disposed) return
+  // 重试路径会再次调用 renderChart；先销毁旧实例，避免同元素重复 init。
+  chart?.dispose()
+  const instance = init(chartEl.value)
+  chart = instance
 
   const platforms = data.value.platforms.map((p) => PLATFORM_NAMES[p] || p)
   const participation = data.value.participation.map((item) => ({
@@ -52,7 +62,7 @@ async function renderChart() {
     itemStyle: { color: SENTIMENT_COLORS[index] },
   }))
 
-  chart.setOption({
+  instance.setOption({
     tooltip: { trigger: 'axis' },
     legend: { bottom: 0 },
     grid: [
@@ -93,6 +103,14 @@ async function load() {
 }
 
 onMounted(load)
+
+// 卸载时必须 dispose：与其他 ECharts 组件一致，避免实例与 zrender 动画
+// 循环在组件销毁后继续存活（真实内存泄漏）。
+onBeforeUnmount(() => {
+  disposed = true
+  chart?.dispose()
+  chart = null
+})
 </script>
 
 <template>
