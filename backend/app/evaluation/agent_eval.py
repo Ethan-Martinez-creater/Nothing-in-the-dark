@@ -358,6 +358,10 @@ class AgentEvaluationReport:
     task_results: tuple[TaskResult, ...]
     hard_gate_violations: tuple[dict[str, object], ...] = ()
     limitations: tuple[str, ...] = ()
+    #: FC-IR-04：Replay provenance —— 本 run 的真实工具契约与生产
+    #: coordinator prompt 指纹（不是 expected behavior 的 hash）。
+    tool_schema_hash: str = ""
+    coordinator_prompt_hash: str = ""
 
     @property
     def passed(self) -> bool:
@@ -377,6 +381,8 @@ class AgentEvaluationReport:
             "hard_gate_violations": list(self.hard_gate_violations),
             "task_results": [item.to_dict() for item in self.task_results],
             "limitations": list(self.limitations),
+            "tool_schema_hash": self.tool_schema_hash,
+            "coordinator_prompt_hash": self.coordinator_prompt_hash,
         }
 
 
@@ -396,6 +402,8 @@ _COUNT_METRICS = (
     "agent.invalid_citation_count",
     "agent.unexpected_mutation_count",
     "agent.unexpected_case_scope_violation",
+    "agent.answer_constraint_violations",
+    "agent.answer_grounding_violations",
 )
 
 
@@ -480,6 +488,30 @@ def aggregate_metrics(results: Sequence[TaskResult]) -> dict[str, float]:
     if costs:
         metrics["agent.avg_cost_usd"] = round(sum(costs) / len(costs), 6)
 
+    # E11 / E12 的 rate 指标从 details 聚合（与 E9 的 latency/steps 同模式）。
+    constraint_accuracy = [
+        float(outcome.details["accuracy"])
+        for result in results
+        for outcome in result.outcomes
+        if outcome.evaluator == "E11_answer_constraints"
+        and "accuracy" in outcome.details
+    ]
+    if constraint_accuracy:
+        metrics["agent.answer_constraint_accuracy"] = round(
+            sum(constraint_accuracy) / len(constraint_accuracy), 4
+        )
+    grounding_rates = [
+        float(outcome.details["grounding_rate"])
+        for result in results
+        for outcome in result.outcomes
+        if outcome.evaluator == "E12_answer_grounding"
+        and "grounding_rate" in outcome.details
+    ]
+    if grounding_rates:
+        metrics["agent.answer_grounding"] = round(
+            sum(grounding_rates) / len(grounding_rates), 4
+        )
+
     critical = [result for result in results if result.critical]
     if critical:
         critical_success = [
@@ -489,6 +521,17 @@ def aggregate_metrics(results: Sequence[TaskResult]) -> dict[str, float]:
         ]
         metrics["agent.critical_task_success_rate"] = (
             round(sum(critical_success) / len(critical), 4) if critical_success else 0.0
+        )
+        # FC-IR-02 hard gate：critical 任务的答案约束违规必须为零。
+        metrics["agent.critical_answer_constraint_violations"] = float(
+            sum(
+                value
+                for value in (
+                    result.metric("agent.answer_constraint_violations")
+                    for result in critical
+                )
+                if value is not None
+            )
         )
     return metrics
 
@@ -506,13 +549,14 @@ def _percentile(ordered: Sequence[float], percentile: float) -> float:
 
 
 def evaluate_hard_gates(report: AgentEvaluationReport) -> list[dict[str, object]]:
-    """计划第 32 节的固定 hard gates。"""
+    """计划第 32 节 + FC-IR-02 的固定 hard gates。"""
     violations: list[dict[str, object]] = []
     checks = {
         "agent.forbidden_tool_violations": 0.0,
         "agent.invalid_citation_count": 0.0,
         "agent.unexpected_case_scope_violation": 0.0,
         "agent.unexpected_mutation_count": 0.0,
+        "agent.critical_answer_constraint_violations": 0.0,
     }
     for metric, limit in checks.items():
         value = report.metrics.get(metric)
@@ -549,6 +593,7 @@ class AgentSuiteRunner:
         gateway: Any | None = None,
         candidate_label: str = "candidate",
         task_timeout_seconds: int = TASK_TIMEOUT_SECONDS,
+        per_task_isolation: bool = True,
     ) -> None:
         self._suite = suite
         self._database = database
@@ -556,7 +601,15 @@ class AgentSuiteRunner:
         self._gateway = gateway
         self._candidate_label = candidate_label
         self._task_timeout = task_timeout_seconds
+        #: FC-IR-05：每个任务独立内存库，杜绝全局数据（Workspace Entity /
+        #: Cross Intelligence / Signal）跨任务累积。Benchmark 的跨调查场景
+        #: 由脚本显式传 ``False``（一个 scenario 一个 DB，计划 7.3）。
+        self._per_task_isolation = per_task_isolation
         self._stack: EvalDataStack | None = None
+        #: 任务运行期缓存的工具契约指纹（同一 suite 装配相同，幂等覆盖）。
+        self._tool_schema_hash = ""
+        #: 当前任务的只读观察记录器（每任务重建，FC-IR-02）。
+        self._read_recorder: Any | None = None
 
     async def _build(self) -> EvalDataStack:
         stack = build_stack(self._database)
@@ -564,7 +617,15 @@ class AgentSuiteRunner:
         return stack
 
     def _build_tools(self, stack: EvalDataStack, gateway: Any) -> Any:
-        """构造真实 Tool Registry（生产 build_tool_registry，非 eval 专用）。"""
+        """构造真实 Tool Registry（生产 build_tool_registry，非 eval 专用）。
+
+        FC-IR-01：DB01–DB09 与 Intelligence Tool 必须接**生产只读服务**
+        （真实读取冻结 fixture），禁止 ``service=None`` 的 unavailable handler。
+        """
+        from app.evaluation.agent_eval_runtime import (
+            ReadObservationRecorder,
+            build_eval_read_services,
+        )
         from app.harness.database_tools import register_database_tools
         from app.harness.intelligence_tools import register_intelligence_tools
         from app.harness.skills import SkillRegistry
@@ -572,6 +633,10 @@ class AgentSuiteRunner:
         from app.infrastructure.crawler.demo import DemoCrawlerAdapter
         from app.infrastructure.embeddings import EmbeddingWorkerClient
 
+        agent_database, intelligence = build_eval_read_services(stack)
+        # FC-IR-02：完整 observation 不落库（生产只存 500 字符摘要），
+        # 用记录代理旁路捕获，供 E12 grounding 判定。
+        self._read_recorder = ReadObservationRecorder()
         registry = build_tool_registry(
             DemoCrawlerAdapter(),
             SkillRegistry(),
@@ -581,8 +646,8 @@ class AgentSuiteRunner:
             stack.repository,
             llm=gateway,
         )
-        register_database_tools(registry, None)
-        register_intelligence_tools(registry, None)
+        register_database_tools(registry, self._read_recorder.wrap(agent_database))
+        register_intelligence_tools(registry, self._read_recorder.wrap(intelligence))
         return registry
 
     def _build_worker(self, stack: EvalDataStack, gateway: Any, tools: Any, task: AgentGoldenTask) -> Any:
@@ -612,13 +677,16 @@ class AgentSuiteRunner:
         task_ids: Iterable[str] | None = None,
         candidate_version: str = "",
     ) -> AgentEvaluationReport:
+        from app.evaluation.agent_manifest import production_coordinator_prompt_hash
+
         suite = self._suite
         selected = (
             [suite.by_id(task_id) for task_id in task_ids]
             if task_ids is not None
             else list(suite.tasks)
         )
-        stack = await self._build()
+        # per-task 隔离时不建共享库；共享模式（benchmark）沿用单一 stack。
+        stack = None if self._per_task_isolation else await self._build()
         started = datetime.now(timezone.utc)
         results: list[TaskResult] = []
         for task in selected:
@@ -636,6 +704,8 @@ class AgentSuiteRunner:
             sample_size=len(results),
             metrics=metrics,
             task_results=tuple(results),
+            tool_schema_hash=self._tool_schema_hash,
+            coordinator_prompt_hash=production_coordinator_prompt_hash(),
             limitations=(
                 (
                     "Tier A 使用 scripted model：最终回答由脚本构造，"
@@ -648,7 +718,24 @@ class AgentSuiteRunner:
         violations = evaluate_hard_gates(report)
         return replace(report, hard_gate_violations=tuple(violations))
 
-    async def _run_task(self, stack: EvalDataStack, task: AgentGoldenTask) -> TaskResult:
+    async def _run_task(
+        self, shared_stack: EvalDataStack | None, task: AgentGoldenTask
+    ) -> TaskResult:
+        """per-task 隔离：每个任务一个全新临时库，用完即删。"""
+        if not self._per_task_isolation:
+            assert shared_stack is not None
+            return await self._run_task_on_stack(shared_stack, task)
+        from app.evaluation.agent_eval_runtime import TemporaryTaskDatabase
+
+        task_db = TemporaryTaskDatabase()
+        await task_db.create_schema()
+        stack = build_stack(task_db)
+        try:
+            return await self._run_task_on_stack(stack, task)
+        finally:
+            await task_db.dispose()
+
+    async def _run_task_on_stack(self, stack: EvalDataStack, task: AgentGoldenTask) -> TaskResult:
         from app.application.agent_service import AgentRunService
 
         if not task.case_id:
@@ -674,6 +761,10 @@ class AgentSuiteRunner:
             gateway = ContractGateway(steps)
 
         tools = self._build_tools(stack, gateway)
+        if not self._tool_schema_hash:
+            from app.evaluation.agent_manifest import tool_schema_hash
+
+            self._tool_schema_hash = tool_schema_hash(tools)
         worker = self._build_worker(stack, gateway, tools, task)
         service = AgentRunService(stack.repository, worker)
 
@@ -722,6 +813,9 @@ class AgentSuiteRunner:
                 tool_specs=self._tool_specs(tools),
                 expected_case_id=case_id,
                 wall_clock_ms=elapsed_ms,
+                observation_texts=(
+                    self._read_recorder.texts() if self._read_recorder else ()
+                ),
             )
         )
         categories = failure_categories(outcomes)

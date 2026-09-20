@@ -32,6 +32,13 @@ class EvalDataStack:
     workspace_repository: Any
     cross_repository: Any
     signal_repository: Any
+    # FC-IR-01：DB / Intelligence 只读服务的最小依赖闭包（与 bootstrap 一致）。
+    collection_run_repository: Any = None
+    monitor_repository: Any = None
+    investigation_quality_repository: Any = None
+    alignment_repository: Any = None
+    integrity_repository: Any = None
+    media_repository: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,6 +372,10 @@ def build_stack(database: Any) -> EvalDataStack:
     from app.application.finding_service import FindingService
     from app.application.report_document_service import ReportDocumentService
     from app.application.repositories import ApplicationRepository
+    from app.infrastructure.database.alignment_repository import AlignmentRepository
+    from app.infrastructure.database.collection_run_repository import (
+        CollectionRunRepository,
+    )
     from app.infrastructure.database.cross_investigation_repository import (
         CrossInvestigationRepository,
     )
@@ -372,7 +383,15 @@ def build_stack(database: Any) -> EvalDataStack:
         DerivedSignalRepository,
     )
     from app.infrastructure.database.finding_repository import FindingRepository
+    from app.infrastructure.database.integrity_repository import IntegrityRepository
+    from app.infrastructure.database.investigation_quality_repository import (
+        InvestigationQualityRepository,
+    )
     from app.infrastructure.database.knowledge_repository import KnowledgeRepository
+    from app.infrastructure.database.media_pipeline_repository import (
+        MediaPipelineRepository,
+    )
+    from app.infrastructure.database.monitor_repository import MonitorRepository
     from app.infrastructure.database.report_repository import ReportDocumentRepository
     from app.infrastructure.database.social_repository import SocialRepository
     from app.infrastructure.database.workspace_entity_repository import (
@@ -392,6 +411,12 @@ def build_stack(database: Any) -> EvalDataStack:
         workspace_repository=WorkspaceEntityRepository(database),
         cross_repository=CrossInvestigationRepository(database),
         signal_repository=DerivedSignalRepository(database),
+        collection_run_repository=CollectionRunRepository(database),
+        monitor_repository=MonitorRepository(database),
+        investigation_quality_repository=InvestigationQualityRepository(database),
+        alignment_repository=AlignmentRepository(database),
+        integrity_repository=IntegrityRepository(database),
+        media_repository=MediaPipelineRepository(database),
     )
 
 

@@ -284,6 +284,9 @@ async def _run(args: argparse.Namespace) -> int:
             mode=args.mode,
             gateway=gateway,
             candidate_label=args.candidate_label,
+            # B2 跨调查场景要求一个 scenario 一个 DB（修复计划 7.3），
+            # 不做 per-task 隔离。
+            per_task_isolation=False,
         )
         task_ids = [item for item in args.tasks.split(",") if item.strip()] or None
         report = await runner.run(task_ids=task_ids, candidate_version=args.candidate_label)
