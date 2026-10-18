@@ -10,18 +10,17 @@
   本模块只负责把生产 service 的最小依赖闭包装配出来。
 * ``TemporaryTaskDatabase`` 提供 per-task 隔离：每个 Golden Task 一个全新
   临时文件库（生产 ``Database`` 类，QueuePool 多连接，worker 并发写安全），
-  用完即删，杜绝 Workspace Entity / Cross Intelligence 等全局数据跨任务
-  累积。内存 StaticPool 单连接方案被明确否决：worker 的并发 session 会
+  任务结束后关闭并保留，杜绝 Workspace Entity / Cross Intelligence 等
+  全局数据跨任务累积。内存 StaticPool 单连接方案被明确否决：worker 的并发 session 会
   共享同一连接、事务状态互相污染（实测复现 refresh / missing table 错误）。
 """
 
 from __future__ import annotations
 
 import json
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 class ReadObservationRecorder:
@@ -35,6 +34,8 @@ class ReadObservationRecorder:
 
     def __init__(self) -> None:
         self._texts: list[str] = []
+        self._tool_texts: list[str] = []
+        self._observations: list[dict[str, Any]] = []
 
     def wrap(self, service: Any) -> Any:
         recorder = self
@@ -48,11 +49,18 @@ class ReadObservationRecorder:
                 async def _call(*args: Any, **kwargs: Any) -> Any:
                     result = await attr(*args, **kwargs)
                     try:
-                        recorder._texts.append(
-                            json.dumps(result, ensure_ascii=False, default=str)
-                        )
+                        serialized = json.dumps(result, ensure_ascii=False, default=str)
                     except Exception:  # noqa: BLE001 - 不可序列化时退化为 str()
-                        recorder._texts.append(str(result))
+                        serialized = str(result)
+                    recorder._texts.append(serialized)
+                    recorder._observations.append(
+                        {
+                            "kind": "read_service_observation",
+                            "service_method": name,
+                            "arguments": _json_safe({"args": args, "kwargs": kwargs}),
+                            "result": _json_safe(result),
+                        }
+                    )
                     return result
 
                 return _call
@@ -61,6 +69,51 @@ class ReadObservationRecorder:
 
     def texts(self) -> tuple[str, ...]:
         return tuple(self._texts)
+
+    def record_tool_call(
+        self,
+        *,
+        tool: str,
+        tool_call_id: str | None,
+        arguments: Any,
+        status: str,
+        result: Any = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        record: dict[str, Any] = {
+            "kind": "tool_observation",
+            "tool": tool,
+            "tool_call_id": tool_call_id,
+            "arguments": _json_safe(arguments),
+            "status": status,
+        }
+        if status == "succeeded":
+            record["result"] = _json_safe(result)
+            serialized = json.dumps(record["result"], ensure_ascii=False, default=str)
+            self._texts.append(serialized)
+            self._tool_texts.append(serialized)
+        if error_code:
+            record["error_code"] = error_code
+        if error_message:
+            record["error_message"] = error_message
+        if duration_ms is not None:
+            record["duration_ms"] = duration_ms
+        self._observations.append(record)
+
+    def observations(self) -> tuple[dict[str, Any], ...]:
+        return tuple(self._observations)
+
+    def tool_texts(self) -> tuple[str, ...]:
+        return tuple(self._tool_texts)
+
+
+def _json_safe(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+    except Exception:  # noqa: BLE001 - retain a printable trace if conversion fails
+        return str(value)
 
 
 class TemporaryTaskDatabase:
@@ -74,10 +127,22 @@ class TemporaryTaskDatabase:
     def __init__(self) -> None:
         from app.infrastructure.database import Database
 
-        self._dir = Path(tempfile.mkdtemp(prefix="agent-eval-task-"))
+        self._root = (
+            Path(__file__).resolve().parents[2]
+            / "artifacts"
+            / "agent_eval"
+            / "task_databases"
+        )
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._dir = self._root / f"agent-eval-task-{uuid4().hex}"
+        self._dir.mkdir(parents=True, exist_ok=False)
         self._database = Database(
             f"sqlite+aiosqlite:///{self._dir / 'task.db'}"
         )
+
+    @property
+    def path(self) -> Path:
+        return self._dir
 
     @property
     def engine(self) -> Any:
@@ -92,7 +157,8 @@ class TemporaryTaskDatabase:
 
     async def dispose(self) -> None:
         await self._database.dispose()
-        shutil.rmtree(self._dir, ignore_errors=True)
+        # Evaluation fixtures are synthetic and isolated; preserve the closed
+        # directory for audit/debugging rather than recursively deleting it.
 
 
 def build_eval_read_services(stack: Any) -> tuple[Any, Any]:

@@ -139,6 +139,9 @@ class AgentExpectedBehavior:
     """任务期望行为（deterministic evaluator 的判定依据）。"""
 
     required_tools: tuple[str, ...] = ()
+    #: Alternatives for a behavioral requirement. Every group is satisfied by
+    #: calling any one listed tool; this keeps equivalent read-only paths valid.
+    required_tool_groups: tuple[tuple[str, ...], ...] = ()
     optional_tools: tuple[str, ...] = ()
     forbidden_tools: tuple[str, ...] = ()
     required_artifact_types: tuple[str, ...] = ()
@@ -161,6 +164,7 @@ class AgentExpectedBehavior:
     def to_dict(self) -> dict[str, object]:
         return {
             "required_tools": list(self.required_tools),
+            "required_tool_groups": [list(group) for group in self.required_tool_groups],
             "optional_tools": list(self.optional_tools),
             "forbidden_tools": list(self.forbidden_tools),
             "required_artifact_types": list(self.required_artifact_types),
@@ -182,6 +186,11 @@ class AgentExpectedBehavior:
     def from_dict(cls, payload: Mapping[str, Any]) -> AgentExpectedBehavior:
         return cls(
             required_tools=_str_tuple(payload.get("required_tools")),
+            required_tool_groups=tuple(
+                _str_tuple(group)
+                for group in _as_tuple(payload.get("required_tool_groups"))
+                if _str_tuple(group)
+            ),
             optional_tools=_str_tuple(payload.get("optional_tools")),
             forbidden_tools=_str_tuple(payload.get("forbidden_tools")),
             required_artifact_types=_str_tuple(payload.get("required_artifact_types")),
@@ -224,6 +233,7 @@ class AgentEvalBudget:
     max_input_tokens: int | None = None
     max_output_tokens: int | None = None
     max_cost_usd: float | None = None
+    task_timeout_seconds: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -233,6 +243,7 @@ class AgentEvalBudget:
             "max_input_tokens": self.max_input_tokens,
             "max_output_tokens": self.max_output_tokens,
             "max_cost_usd": self.max_cost_usd,
+            "task_timeout_seconds": self.task_timeout_seconds,
         }
 
     @classmethod
@@ -252,6 +263,11 @@ class AgentEvalBudget:
             ),
             max_cost_usd=(
                 float(data["max_cost_usd"]) if data.get("max_cost_usd") else None
+            ),
+            task_timeout_seconds=(
+                int(data["task_timeout_seconds"])
+                if data.get("task_timeout_seconds") is not None
+                else None
             ),
         )
 
@@ -419,7 +435,12 @@ def validate_suite(
             problems.append(
                 f"{task.id}: tools both allowed and forbidden: {sorted(both)}"
             )
-        if not required and not expected.required_artifact_types and not expected.required_state_assertions:
+        if (
+            not required
+            and not expected.required_tool_groups
+            and not expected.required_artifact_types
+            and not expected.required_state_assertions
+        ):
             problems.append(
                 f"{task.id}: no required tools, artifacts or state assertions"
             )
@@ -436,6 +457,27 @@ def validate_suite(
             problems.append(f"{task.id}: max_agent_steps must be positive")
         if task.budgets.max_tool_calls <= 0:
             problems.append(f"{task.id}: max_tool_calls must be positive")
+        if (
+            task.budgets.task_timeout_seconds is not None
+            and task.budgets.task_timeout_seconds <= 0
+        ):
+            problems.append(f"{task.id}: task_timeout_seconds must be positive")
+        for group_index, group in enumerate(expected.required_tool_groups):
+            if not group:
+                problems.append(
+                    f"{task.id}: required_tool_groups[{group_index}] must not be empty"
+                )
+            if known is not None:
+                for name in group:
+                    if name not in known:
+                        problems.append(
+                            f"{task.id}: tool {name!r} in required_tool_groups"
+                            f"[{group_index}] not in registry"
+                        )
+            if set(group) <= forbidden:
+                problems.append(
+                    f"{task.id}: every tool in required_tool_groups[{group_index}] is forbidden"
+                )
 
     if enforce_counts:
         if len(suite.tasks) != EXPECTED_TASK_COUNT:
