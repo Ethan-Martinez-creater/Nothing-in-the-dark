@@ -4,15 +4,29 @@
 >
 > Base: GitHub main at d62040239958b59c62e3bea813777cccdcd973da (2026-10-18 check)
 >
-> Roles: ChatGPT = evaluation design / independent review; local Codex = repository implementation / actual model runs / evidence collection; user = budget authorization / final decision.
+> Roles: ChatGPT = evaluation goal/independent review; local Codex = autonomous local planner, implementation owner, test operator and evidence curator; user = provider credentials/config provisioning when real runs need them and final decision.
 >
 > Scope: evaluate the existing social-event investigation Agent system; this is not a new product feature or a general model benchmark.
+
+## Operating principles — override overly prescriptive implementation details below
+
+**1. Evaluation is the only goal.** Every change must clearly improve one of: case validity, execution reproducibility, evidence/citation quality, trajectory/failure observability, honest cost/latency measurement, or clear interview reporting. Do not drift into infrastructure modernization, generalized framework development, speculative refactors or unrelated legacy failures. Stop when this evaluation is reportable; do not endlessly chase perfection.
+
+**2. Give local Codex engineering autonomy.** This file defines *desired observed outcomes and integrity constraints*, not an inflexible line-by-line implementation script. Codex can adapt paths, classes, schema fields, fixture strategy, task count near ten, model configuration, PR splits and test cadence to the actual local repository and runtime. Treat code sketches, task wording, limits and proposed file structure as defaults. Before changing an established approach, check the actual implementation and pick the smallest working change. If a plan detail conflicts with real implementation, document the deviation and rationale in the PR/Issue instead of repeatedly patching the system to fit the plan. Only change the essential safety/integrity constraints after documenting the tradeoff.
+
+**3. Avoid bug-fix loops.** Diagnose root causes with the smallest targeted reproduction; cap repeated retries of the same failed fix. On an unrelated or nonblocking failure, record the limitation and proceed with independent evaluation tasks. Do not run a full regression after every edit. Escalate only blockers to real-model validity, data safety, or trace capture. Codex owns technical judgments about its local machine, service availability, dependencies and deployment assumptions; ChatGPT does not overrule them solely because a textual plan envisioned a different implementation.
+
+**4. Real-model evaluation is authorized as the natural next phase after preflight.** Models are inexpensive relative to this small evaluation and the user has enough balance for limited exploratory and full-suite calls. Do not add a per-run ChatGPT approval step or a rigid micro-budget checkpoint; do avoid unbounded loops, accidental mass parallelism, or automatic large-scale/scheduled paid batches. Once fixture and assertions are checked, the runtime is healthy and credentials are configured, Codex may run a small smoke and then the approximately ten-case real suite directly. Preserve failed runs and do not retune expected outcomes after seeing answers.
+
+**5. Credential coordination.** Immediately before the first real-model API call, Codex must check whether the *actual evaluation execution environment* already has the necessary **LLM_API_KEY, LLM_BASE_URL (where provider needs it), LLM_PROVIDER, model identifier/route and any other provider-specific settings**. If missing, ambiguous or invalid, **stop API testing and notify the user with only the missing configuration names and where/how to set them securely** (local env file, OS environment or GitHub Actions Secrets). Do not ask the user to paste secrets into GitHub Issue/PR or the chat, do not expose their values in traces or logs, and do not assume a cloud server's previously configured key is present locally. After the user provisions settings, recheck with a non-secret health/probe request and proceed. If valid credentials are already present, no extra user permission is needed for a bounded test batch. Do not silently switch to scripted model when real model is requested.
+
+**6. GitHub as coordination channel, not an obstacle.** Codex posts concise meaningful checkpoints to Issue #1 and PRs; no need to stop for approval after every minor subtask. ChatGPT reviews data and decisions from GitHub at natural milestones or when the user requests, with priorities: validity of real results first, scope second, maintainability third.
 
 ## 0. Acceptance and non-goals
 
 This iteration has five deliverables:
 
-1. Ten versioned, small, auditable real-model tasks with fixed inputs and explicit expected behavior.
+1. Approximately ten (initial target: 10) versioned, small, auditable real-model tasks with fixed inputs and explicit expected behavior.
 2. One reproducible runner that calls the existing production GraphWorker / AgentRunService / Tool Registry / model gateway; no second Agent runtime.
 3. Actual real-model outputs and traces, with evidence/citation, process, failure and cost annotation.
 4. One honest aggregate report with per-case evidence and known limitations.
@@ -46,7 +60,7 @@ Codex must identify exact effective model route, available token usage fields, h
 
 ## 2. Fixed version, data, and isolation
 
-New immutable suite: investigation_real_eval_v1.
+New immutable suite (working identifier): investigation_real_eval_v1.
 
 Recommended location:
 
@@ -81,7 +95,7 @@ Use stable fixture logical keys resolved to DB ids at seed time, not hardcoded t
 
 ## 3. Exactly ten target tasks
 
-The following matrix is authoritative. Codex writes all prompts/fixtures and exact expected answers before any real-model results are seen. Maintain 10 tasks, not 24, for this new suite.
+The following matrix is a **suggested ten-case coverage design**, not mandatory wording or a rigid count. Codex should preserve coverage of normal investigations, missing data, irrelevant retrieval, conflicting evidence and tool failures; it may merge/split/replace cases to fit the real system and explain changes in the Issue. Aim for roughly ten (prefer 8–12), not a scaled-up 24-case suite. Write expected answers/criteria before inspecting actual model output.
 
 | ID | Situation and user's investigation request | Frozen truth / acceptance | Critical failure |
 |---|---|---|---|
@@ -100,7 +114,7 @@ For IR07 and IR08, attach a relevance/claim-to-evidence map in rubric.json. For 
 
 ### Controlled failure implementation
 
-Implement a test-scoped fault injector at the production ToolSpec handler boundary or approved read-service proxy boundary. Preserve production tool names, JSON schemas, permissions, approval checks and case scoping. IR09: one failure, then normal handler. IR10: repeatably unavailable for the target read tool within this task only. Every injected failure must appear in the trace with phase, error_code and invocation count.
+To validate tool failure handling, use a safe, deterministic evaluation-only failure mechanism selected by Codex after inspecting the current tool/runtime error path (for example a ToolSpec boundary wrapper, existing fault fixture, or read-service proxy). Keep production tool names, permissions and scoping intact. Prefer IR09 one-time failure/recovery and IR10 repeatable unavailability, but adapt the exact mechanism and expected outputs if current runtime contracts differ. Ensure the failure is actually observed in the trace, not merely requested in a prompt.
 
 Do not modify production handlers globally or make real crawler/network failure the test input. If a read-tool exception is swallowed by the runtime, capture that as an evaluation finding rather than changing runtime behavior to make a task pass. Fault injection must be disabled by default and accessible only inside an explicit evaluation context.
 
@@ -153,7 +167,7 @@ Manually inspect whether a result is relevant. Deterministic retrieval relevance
 
 ### Phase 0 — Audit / data freeze
 
-Codex runs source inspection, identifies existing entrypoints, commits PLAN-linked 10 tasks/fixtures/rubric, tests schema load, and records exact model configuration and capability. ChatGPT checks whether expected answers actually match seeded data before approving real runs. At this stage no model API call.
+Codex inspects the current implementation, drafts approximately ten tasks/fixtures/rubric, validates the seeded truth and existing entrypoints, and records non-secret model configuration. It can autonomously resolve schema/fixture details and choose implementation order. Record the testable acceptance rules before real-model runs. Share the resulting design via PR/Issue for ChatGPT review when convenient; avoid a blocking per-task approval queue.
 
 ### Phase 1 — Harness minimally adapted
 
@@ -170,27 +184,27 @@ python -m app.scripts.run_agent_eval \
 
 Any added fault injection, trace export or safe-budget enforcement must be additive, with contract tests proving existing interview_agent_v1 24 tasks still work. The CLI must refuse a real run with an unconfigured gateway, and must not print credentials.
 
-The current TASK_TIMEOUT_SECONDS is 240 seconds. For v1 default max_agent_steps=12 and max_tool_calls=16 per task unless a task justifies a smaller cap; set lower limits for IR09/IR10 to prevent retry storms. Define an explicit total token/estimated-cost ceiling, model price source, concurrency=1, and stop procedure before calling the actual API. If cost usage is unavailable, require a separate input token/output token approximation and conservative request count, and mark cost unverified. No automated scheduled paid run without the user's opt-in.
+The repository currently exposes TASK_TIMEOUT_SECONDS=240; Codex should choose practical per-task timeouts/step/call limits based on actual production behavior, especially to prevent IR09/IR10 retry loops. Begin with bounded serial or very small-concurrency smoke runs, then the ~10-case suite, not bulk inference. Record the selected model, pricing source if available, observed token usage and estimated cost; if usage is missing mark it unknown instead of fabricating it. An approximate spending guard and bounded request count are enough for this small study; no need for per-run permission. Do not enable a high-volume paid schedule without the user's explicit request.
 
 ### Phase 2 — Feasibility smoke
 
-Run IR01 + IR05 once each. Confirm configured real-model gateway, no scripted gateway, accurate DB evidence, required trace availability, and measured or clearly unavailable token accounting. If either is BLOCKED, fix instrumentation/config only; do not run the other eight blindly.
+Before running the first real-model call, inspect the actual environment for API key, base URL, provider and model routing. If something is missing, inform the user precisely which environment settings to provision, without requesting the secret values. When valid, run a small smoke (suggested IR01 + IR05), verify it really uses the model and produces usable traces/answers, then proceed without a further approval round if no critical issue is found. For noncritical missing metrics, report the limitation and continue rather than starting a major instrumentation refactor.
 
 ### Phase 3 — Frozen ten-task baseline
 
-After ChatGPT's GitHub review of task definitions and smoke evidence, run IR01–IR10 once each using the same model config, prompt, fixture hashes and commit SHA. Store raw sensitive logs OUTSIDE Git; commit only redacted, traceable result files and report metadata. Preserve failures as failures. Record whether global Release Gate passes, but do not redefine task thresholds in response to the baseline.
+After Codex's preflight and a valid real-model smoke, run the agreed approximately ten cases once each, using a frozen model configuration, prompt, fixture hashes and commit SHA; a ChatGPT checkpoint is useful but not mandatory before proceeding. Keep raw sensitive logs OUTSIDE Git and publish only redacted, traceable evidence. Preserve failures as failures. Record existing Release Gate behavior without changing expected thresholds to fit the results.
 
 ### Phase 4 — Stability repeats
 
-Repeat IR08, IR09 and IR10 two extra times each (6 extra runs; 16 total baseline task executions including smoke only if those smoke runs are explicitly part of the same final frozen baseline; otherwise 18 actual calls). These three cases probe conflict resolution and error recovery. Keep model, prompt, fixture and fault profile unchanged. Report per-task pass counts (0–3) and qualitative variance; do not infer population success rates from this sample.
+Repeat the most informative risky cases (suggested: conflict IR08, transient failure IR09 and persistent failure IR10, usually two extra runs each). Codex may adjust repeat count to the actual failure mode and value of information; keep the configuration and fault profile fixed for comparisons. Record observed pass counts and variance, not a statistically representative success rate.
 
 ### Phase 5 — Analysis / minimal correction
 
-Codex produces a failure ledger. ChatGPT independently checks: task success, unsupported claims, citations, tool choice/arguments, repeated calls, failure handling, elapsed time and token data. Categorize failures by layer. Fix only a demonstrated defect, in its smallest upstream component, with a targeted regression test; do not retune the dataset to hide the failure. Any fix requires a new candidate commit and a rerun of affected tasks plus 1–2 neighboring controls under identical fixtures. Report baseline and candidate separately, not a claim of causal improvement from an uncontrolled model run.
+Codex produces a failure ledger. ChatGPT independently checks task success, evidence/citations, tool choices, repeated calls, failure handling, latency and usage. Prioritize fixing only clear, evaluation-relevant defects, using a focused reproduction and a small regression test. If a defect is not blocking measurement and repeated fixes are unsuccessful, document the limitation and stop chasing it. Codex decides how many neighboring controls are justified for a retest; keep baseline/candidate provenance distinct and avoid unsupported causal claims.
 
 ### Hard stop
 
-Stop the paid run and mark BLOCKED if: cost ceiling reached, missing or unexpected model route, repeated 429/5xx without bounded backoff, trace/citation capture absent, secret leakage, live production database targeted, or tool side effects outside sandbox. Failure is reportable and must never be converted to PASS by exception swallowing.
+Stop the real-model run and mark BLOCKED when there is a genuine safety or validity problem: invalid/missing provider credentials, unexpected model route, repeated API errors, secret leak, real production DB target or uncontrolled external side effects. A missing optional metric or isolated task error should be reported without discarding the whole study. Do not loop retries, silently fall back to scripted outputs, or turn failures into PASS.
 
 ## 6. Reproducible commands and result layout
 
@@ -239,19 +253,19 @@ Use ONE coordination Issue titled "Real-model investigation evaluation v1 (10-ca
 
 **Role division**
 
-- ChatGPT: design/approve task catalog and rubric, inspect code/diffs/evidence via GitHub, independently audit results and annotate failures, accept or request targeted fixes. No claim to have run the local model or cloud shell.
-- Local Codex: implement only approved phase, run on local machine and (if explicitly authorized) server, collect/report actual metrics, redact artifacts, update docs/results, open PR with commands, logs, run ids and known limitations.
-- User: approve paid inference budget, sensitive-data publication and scope changes; final merge decision.
+- ChatGPT: keep the study focused on evaluation; review evidence, rubric and code via GitHub at meaningful milestones; identify genuine validity gaps and approve/reject based on observed outcomes, not prescribe unfamiliar local implementation details. No claim to have run the local model or cloud shell.
+- Local Codex: own the implementation and local scheduling, select minimal solutions appropriate to the actual repo and environment, run bounded real-model evaluations when technically ready, collect metrics and evidence, redact artifacts, update Issue/PR, and surface only material blockers.
+- User: provision required LLM key/base URL/provider/model settings securely when Codex reports gaps, decide on any unbounded/bulk paid requests or sensitive-data publication, and make the final merge decision.
 
-**Branch / PR structure**
+**Suggested branch / PR structure (Codex may combine or split for efficiency)**
 
 1. Planning PR: only PLAN.md; no runtime changes.
-2. PR-1 dataset + frozen ground truth + manual rubric; ChatGPT review gate before live execution.
-3. PR-2 minimal harness/observability/fault injection + contract tests; review gate before paid calls.
+2. PR-1 dataset + frozen ground truth + manual rubric; make criteria auditable before live execution (ChatGPT review is valuable, but not a compulsory micro-approval if Codex can validate and proceed safely).
+3. PR-2 minimal harness/observability/fault handling + focused contract tests; if the existing runtime already suffices, do not manufacture implementation work.
 4. PR-3 run evidence + results/analysis; no secrets, no expected-behavior revisions.
 5. PR-4 optional narrowly scoped bug fix + targeted retest.
 
-Each PR must link the coordination Issue and current baseline commit. Codex should append a short GitHub Issue comment (or update Issue status) after each phase with: phase, commit, command, test results, artifact path, known failures, next action. I will read this state directly from GitHub in subsequent conversations and reply by reviewing the PR; user need not paste reports or prompts each round. This is an on-demand collaboration protocol: it does not create autonomous background monitoring.
+Each PR should link the coordination Issue and baseline commit. Codex should update the Issue after a meaningful milestone (or blocker), not after every small edit: phase, commit, command, observed results, artifact path, missing environment settings if any, next action. I will inspect GitHub on request; the user need not transfer detailed documents or prompts each round. This is an on-demand protocol, not autonomous background monitoring.
 
 **No score gaming:** Reviewers must see immutable expected criteria and all observed failures. Do not delete a failed run or move a task from FAIL to SKIPPED unless the run was invalid and the reason is documented.
 
@@ -259,7 +273,7 @@ Each PR must link the coordination Issue and current baseline commit. Codex shou
 
 ### Definition/data
 
-- [ ] Exactly 10 new task definitions covering four normal, two insufficient, one irrelevant, one conflicting, two tool-error cases.
+- [ ] Approximately 10 new task definitions (target 10; small justified variations allowed), covering normal investigation, insufficient evidence, irrelevant retrieval, conflict and tool failures.
 - [ ] Expected sources/claims are verified against fixture contents before paid execution.
 - [ ] Existing 24-task suite left intact and passes its related tests.
 - [ ] Per-task DB reset, case scope, failure injection and side-effect guard covered by tests.
@@ -268,7 +282,7 @@ Each PR must link the coordination Issue and current baseline commit. Codex shou
 
 - [ ] Smoke IR01/IR05 actually uses real gateway.
 - [ ] Ten full-suite tasks run with one frozen config (failures retained).
-- [ ] IR08/09/10 each repeated two additional times.
+- [ ] Selected important failure/conflict cases repeated enough to observe stability, with reasoned attempt counts.
 - [ ] Every run has output, trace, tool results/errors, duration and model metadata.
 - [ ] Token and cost populated only when actually measurable; unknown explicitly null.
 - [ ] Source refs/citations checked for validity and factual support.
@@ -291,19 +305,19 @@ Each PR must link the coordination Issue and current baseline commit. Codex shou
 - [ ] Full PLAN / RUBRIC / RUNBOOK / results are in GitHub Markdown.
 - [ ] No API keys, Cookie, browser auth state, private raw data, or complete secret-bearing traces committed.
 - [ ] All runnable CLI commands documented; local Codex actually runs them.
-- [ ] ChatGPT independently reviews the deliverables before final approval.
+- [ ] ChatGPT independently reviews GitHub evidence before final acceptance; routine local implementation does not require per-step approval.
 
 ## 9. Initial Codex entrypoint (after PLAN review)
 
-At the start of work, Codex should only do Phase 0 / PR-1, not launch paid real-model tests:
+At the start, Codex should focus on dataset validity and a minimal real-run setup, retaining autonomy over exact order:
 
-1. Fetch latest remote HEAD and this PLAN, read current eval implementation.
-2. Write ten task JSONs, manifest, fixture deltas and rubric before observing actual model output.
-3. Validate seed truth, case scoping, referential integrity, test loading and unchanged legacy suite.
-4. Commit on a feature branch; open PR linked to the coordination Issue.
-5. Comment concise status/commands in the Issue, then stop at the design review gate.
+1. Read the latest PLAN and current eval code; choose the smallest viable technical approach.
+2. Define about ten tasks, fixture data and rubric before inspecting their real-model outputs; validate the old suite remains usable.
+3. Use a feature branch/PR linked to Issue #1; record key decisions and tests without excessive status messages.
+4. Inspect required LLM configuration before live calls. If key/base URL/provider/model details are missing, notify the user exactly what to configure securely and pause only the paid step.
+5. If configured and preflight is valid, proceed with a bounded real-model smoke and then the suite, recording failures honestly. No new ChatGPT authorization round is required for ordinary small batches.
 
-ChatGPT will read that GitHub PR, independently verify task quality and author the next authorized step. Do not send long documents through chat when repository links and PR evidence exist.
+ChatGPT can review PRs and results through GitHub when asked. Codex does not need to copy long documents into a chat or await minute implementation-level approvals.
 
 ## 10. Explicit limitations and decisions deferred
 
@@ -311,5 +325,5 @@ ChatGPT will read that GitHub PR, independently verify task quality and author t
 - Natural-language claim support cannot be fully proven by regex; manual evidence audit is mandatory.
 - Some platforms may impose dynamic availability or IP/device security checks; they are out of this frozen offline evaluation.
 - No evidence currently supports an asserted real-model success rate or token cost.
-- Model/provider and total paid budget must be established before Phase 2. Never place keys in Issues/PRs.
+- Model/provider settings must be verified before real calls; Codex notifies the user about missing LLM_API_KEY/LLM_BASE_URL/provider/model settings without asking to reveal values. A reasonable bounded test batch needs no extra budget approval; no high-volume or scheduled paid batches without explicit user request.
 - The user's local Codex may run workloads that I cannot access; only committed, redacted reproducible evidence is available for independent remote review.
