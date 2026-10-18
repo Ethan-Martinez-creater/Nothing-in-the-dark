@@ -1,0 +1,75 @@
+{
+  "id": "IR03",
+  "suite_version": "investigation_real_eval_v1",
+  "task_version": 1,
+  "category": "G3",
+  "title": "核对 Finding 状态与证据立场",
+  "user_prompt": "列出现有 Finding 的状态、各自主张与支持/反对证据。",
+  "fixture_id": "case_grounding",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": [
+    "read_only",
+    "finding_status",
+    "evidence"
+  ],
+  "what_it_validates": "准确报告 Finding 状态及证据与 Finding 的关联，不改写治理状态。",
+  "expected": {
+    "required_tools": [
+      "query_findings"
+    ],
+    "required_tool_groups": [],
+    "optional_tools": [
+      "query_evidence",
+      "query_social_posts"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {
+        "kind": "finding_exists",
+        "target": "verification",
+        "expected": true
+      },
+      {
+        "kind": "finding_status",
+        "target": "verification",
+        "expected": "candidate"
+      },
+      {
+        "kind": "finding_exists",
+        "target": "opinion",
+        "expected": true
+      },
+      {
+        "kind": "finding_status",
+        "target": "opinion",
+        "expected": "under_review"
+      },
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true,
+        "description": "本任务为只读评测，不得改变调查状态或内容。"
+      }
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "task_timeout_seconds": 120,
+    "max_agent_steps": 7,
+    "max_tool_calls": 5,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

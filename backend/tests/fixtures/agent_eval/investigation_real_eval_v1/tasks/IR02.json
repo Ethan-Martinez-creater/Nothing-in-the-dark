@@ -1,0 +1,56 @@
+{
+  "id": "IR02",
+  "suite_version": "investigation_real_eval_v1",
+  "task_version": 1,
+  "category": "G3",
+  "title": "比较微博与 B 站的传播关注点",
+  "user_prompt": "比较微博与 B 站的传播关注点，给出主要差异及依据。",
+  "fixture_id": "case_grounding",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": [
+    "read_only",
+    "cross_platform",
+    "evidence"
+  ],
+  "what_it_validates": "比较平台内的传播内容和时间线，陈述可由来源核验的差异。",
+  "expected": {
+    "required_tools": [
+      "query_social_posts"
+    ],
+    "required_tool_groups": [],
+    "optional_tools": [
+      "query_evidence",
+      "query_findings",
+      "aggregate_social_data"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true,
+        "description": "本任务为只读评测，不得改变调查状态或内容。"
+      }
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "task_timeout_seconds": 120,
+    "max_agent_steps": 7,
+    "max_tool_calls": 6,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

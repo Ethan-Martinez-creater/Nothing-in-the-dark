@@ -1,0 +1,56 @@
+{
+  "id": "IR01",
+  "suite_version": "investigation_real_eval_v1",
+  "task_version": 1,
+  "category": "G1",
+  "title": "调查帖子总量与平台分布",
+  "user_prompt": "当前调查共多少帖子，各平台分别多少？请根据数据库回答。",
+  "fixture_id": "case_grounding",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": [
+    "smoke",
+    "read_only",
+    "exact_counts"
+  ],
+  "what_it_validates": "真实读取冻结调查数据，准确给出总帖数及各平台分布。",
+  "expected": {
+    "required_tools": [],
+    "required_tool_groups": [
+      [
+        "get_case_data_overview",
+        "aggregate_social_data",
+        "query_social_posts"
+      ]
+    ],
+    "optional_tools": [],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true,
+        "description": "本任务为只读评测，不得改变调查状态或内容。"
+      }
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "task_timeout_seconds": 120,
+    "max_agent_steps": 6,
+    "max_tool_calls": 4,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

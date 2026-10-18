@@ -1,0 +1,80 @@
+{
+  "suite_version": "investigation_real_eval_v1",
+  "schema_version": "1.0",
+  "created_at": "2026-10-18",
+  "baseline_commit": "fb2a5f42a22324e44ee9f8b8c08b38925a59d2e0",
+  "source": "Synthetic offline evaluation data; no real model outputs or production data.",
+  "task_count": 10,
+  "task_ids": [
+    "IR01",
+    "IR02",
+    "IR03",
+    "IR04",
+    "IR05",
+    "IR06",
+    "IR07",
+    "IR08",
+    "IR09",
+    "IR10"
+  ],
+  "fixture_ids": [
+    "case_grounding",
+    "case_cross",
+    "case_review",
+    "case_empty",
+    "case_irrelevant"
+  ],
+  "smoke_task_ids": [
+    "IR01",
+    "IR05"
+  ],
+  "serial_execution": {
+    "max_concurrency": 1,
+    "reason": "Keep the approximately ten-task sample reproducible and avoid accidental paid parallel batches."
+  },
+  "fault_profiles": {
+    "IR09": {
+      "tag": "fault:transient_read",
+      "tool": "query_social_posts",
+      "failed_invocation": 1,
+      "after_failure": "tool is available for a bounded retry; equivalent DB01-DB09 read path may recover."
+    },
+    "IR10": {
+      "tag": "fault:persistent_read",
+      "tools": [
+        "get_case_data_overview",
+        "query_social_posts",
+        "get_social_post",
+        "query_social_comments",
+        "aggregate_social_data",
+        "query_findings",
+        "query_review_items",
+        "query_reports",
+        "query_case_activity"
+      ],
+      "after_failure": "all invocations return controlled unavailable status."
+    }
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "files_sha256": {
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/fixtures.json": "990a3f6fa4834b7fc9709d6510c2c44f26d5b426dc291ab2843c8491ae511a56",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/rubric.json": "d2391c0d1cac2ca43a117495e98df1b239365e97d4c88f47a04d3a9cd2bc4666",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR01.json": "5b0fffc97895fe7f89ba80041f05953404e446f2f60d4e8c4778ca4a1bdbe4fa",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR02.json": "df41af5ea1a00276d145e7a10c052b3081100d78a623d4149f6a576938ea28ad",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR03.json": "d57d3e5e2088c0d6b8653a53a03055db3d2a3402dfa99fdc4c0a94020e5dacf8",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR04.json": "6bdbd3f53678c6f0acaedfb6c3038eca384da66ff77bb4b74ba1b245faa0f21c",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR05.json": "2fb2379a1bee689100d6dfc800b5c457d9bdb126216a48cc03e9cfe788c3461b",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR06.json": "f01c2c98c424e025fb73ac9a7c4f4665ccb1de2a0ad08fee86612a8b015cbf22",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR07.json": "cfe89ec77c38bfd7bf3cc08e22f9d12da69678fdfbec5dd46e37ab9401d7d44a",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR08.json": "0b67bdfffd30b5c934fc92267ca96c45acf47e15e5d2c84a06e666019d659c96",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR09.json": "9e9009e630e904b769a8d8ae6eb3838a0c4a863deafe3aa8b5a01e8a7f5a3a9a",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR10.json": "33310406d13de156aec03f678436095edf29de0b7a83f1b5632bdbfafde1aa2a",
+      "docs/evaluation/investigation-real-model-eval-v1/task-catalog.md": "9b24a030402ba98b83f108340c961f83ff4ab95f4a0771282ab8cb91ae81f122",
+      "docs/evaluation/investigation-real-model-eval-v1/RUBRIC.md": "783066dfd0d3964b37ad0d0c499c89b92cafb9972b37a0cd016497dce623f809"
+    },
+    "suite_content_sha256": "4dd2943200bcfb81a8e982440ef36d30d7c4a64988bdcd5d5ba40054f7469db3",
+    "self_hash_note": "manifest.json is excluded from files_sha256 because a file cannot contain its own stable digest."
+  },
+  "change_policy": "Any changes to frozen task, fixture, rubric, source-map or acceptance criteria require a new suite version; do not revise v1 expectations after observing model outputs."
+}

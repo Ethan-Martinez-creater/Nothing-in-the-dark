@@ -1,0 +1,53 @@
+{
+  "id": "IR07",
+  "suite_version": "investigation_real_eval_v1",
+  "task_version": 1,
+  "category": "G3",
+  "title": "过滤近名调查中的无关帖子与报告",
+  "user_prompt": "请只根据当前青禾乳业风味酸奶添加剂争议调查内的报告和帖子概括核心争议，不要混入名字相似的其它事件。",
+  "fixture_id": "case_irrelevant",
+  "case_id": "grounding",
+  "critical": false,
+  "tags": [
+    "read_only",
+    "retrieval_relevance",
+    "case_scope"
+  ],
+  "what_it_validates": "正确使用目标调查的报告和帖子，并将独立近名包装讨论的材料排除在证据之外。",
+  "expected": {
+    "required_tools": [
+      "query_social_posts",
+      "query_reports"
+    ],
+    "required_tool_groups": [],
+    "optional_tools": [],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "grounding",
+    "required_state_assertions": [
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true,
+        "description": "本任务为只读评测，不得改变调查状态或内容。"
+      }
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "task_timeout_seconds": 120,
+    "max_agent_steps": 7,
+    "max_tool_calls": 6,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}
