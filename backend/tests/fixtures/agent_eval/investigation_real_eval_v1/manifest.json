@@ -58,22 +58,22 @@
   "integrity": {
     "algorithm": "sha256",
     "files_sha256": {
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/fixtures.json": "990a3f6fa4834b7fc9709d6510c2c44f26d5b426dc291ab2843c8491ae511a56",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/rubric.json": "d2391c0d1cac2ca43a117495e98df1b239365e97d4c88f47a04d3a9cd2bc4666",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR01.json": "5b0fffc97895fe7f89ba80041f05953404e446f2f60d4e8c4778ca4a1bdbe4fa",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR02.json": "df41af5ea1a00276d145e7a10c052b3081100d78a623d4149f6a576938ea28ad",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR03.json": "d57d3e5e2088c0d6b8653a53a03055db3d2a3402dfa99fdc4c0a94020e5dacf8",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR04.json": "6bdbd3f53678c6f0acaedfb6c3038eca384da66ff77bb4b74ba1b245faa0f21c",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR05.json": "2fb2379a1bee689100d6dfc800b5c457d9bdb126216a48cc03e9cfe788c3461b",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR06.json": "f01c2c98c424e025fb73ac9a7c4f4665ccb1de2a0ad08fee86612a8b015cbf22",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR07.json": "cfe89ec77c38bfd7bf3cc08e22f9d12da69678fdfbec5dd46e37ab9401d7d44a",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR08.json": "0b67bdfffd30b5c934fc92267ca96c45acf47e15e5d2c84a06e666019d659c96",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR09.json": "9e9009e630e904b769a8d8ae6eb3838a0c4a863deafe3aa8b5a01e8a7f5a3a9a",
-      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR10.json": "33310406d13de156aec03f678436095edf29de0b7a83f1b5632bdbfafde1aa2a",
-      "docs/evaluation/investigation-real-model-eval-v1/task-catalog.md": "9b24a030402ba98b83f108340c961f83ff4ab95f4a0771282ab8cb91ae81f122",
-      "docs/evaluation/investigation-real-model-eval-v1/RUBRIC.md": "783066dfd0d3964b37ad0d0c499c89b92cafb9972b37a0cd016497dce623f809"
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+      "backend/tests/fixtures/agent_eval/investigation_real_eval_v1/tasks/IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c",
+      "docs/evaluation/investigation-real-model-eval-v1/task-catalog.md": "1945483f6e73e72923bc4c4ada00f373a34c2c1845b9c9ae73b76f1089bd81a2",
+      "docs/evaluation/investigation-real-model-eval-v1/RUBRIC.md": "8b4b855db3aaf56189c2d269334b7488bc6dac228c209652de629a0ff24b2a0e"
     },
-    "suite_content_sha256": "4dd2943200bcfb81a8e982440ef36d30d7c4a64988bdcd5d5ba40054f7469db3",
+    "suite_content_sha256": "c63ed42883d16e73ec0594b9c023fd65a34c90fa10a48f952d887bf2f21d590d",
     "self_hash_note": "manifest.json is excluded from files_sha256 because a file cannot contain its own stable digest."
   },
   "change_policy": "Any changes to frozen task, fixture, rubric, source-map or acceptance criteria require a new suite version; do not revise v1 expectations after observing model outputs."
