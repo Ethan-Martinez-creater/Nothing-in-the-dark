@@ -219,13 +219,28 @@ class ToolRegistry:
                 continue
             if allowed_tools is not None and spec.name not in allowed_tools:
                 continue
+            parameters = spec.input_model.model_json_schema()
+            properties = parameters.get("properties")
+            if isinstance(properties, dict):
+                runtime_only = [
+                    name
+                    for name, details in properties.items()
+                    if isinstance(details, dict) and details.pop("runtime_only", False)
+                ]
+                for name in runtime_only:
+                    properties.pop(name, None)
+                required = parameters.get("required")
+                if isinstance(required, list):
+                    parameters["required"] = [
+                        name for name in required if name not in runtime_only
+                    ]
             result.append(
                 {
                     "type": "function",
                     "function": {
                         "name": spec.name,
                         "description": spec.description,
-                        "parameters": spec.input_model.model_json_schema(),
+                        "parameters": parameters,
                     },
                 }
             )

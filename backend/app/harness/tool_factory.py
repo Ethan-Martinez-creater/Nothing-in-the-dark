@@ -204,6 +204,10 @@ class DispatchInput(BaseModel):
     case_id: str | None = None
     run_id: str | None = None
     dispatch_key: str | None = None
+    execution_policy: dict[str, Any] | None = Field(
+        default=None,
+        json_schema_extra={"runtime_only": True},
+    )
 
 
 class GetArtifactInput(BaseModel):
@@ -439,6 +443,11 @@ def build_tool_registry(
                         "input_data": request.input_data,
                     },
                     "approve_crawl": False,
+                    **(
+                        {"execution_policy": dict(request.execution_policy)}
+                        if isinstance(request.execution_policy, dict)
+                        else {}
+                    ),
                 },
             )
             await repository.add_run_event(
@@ -1590,6 +1599,7 @@ def build_tool_registry(
             description="Build observed and inferred cross-platform propagation edges.",
             input_model=PostsInput,
             handler=propagation,
+            side_effect="database_write",
         )
     )
     registry.register(
@@ -1599,6 +1609,7 @@ def build_tool_registry(
             description="Verify claims within the bounded social evidence set.",
             input_model=VerificationInput,
             handler=verification,
+            side_effect="database_write",
         )
     )
     registry.register(
@@ -1742,11 +1753,19 @@ async def _wait_for_child(
         run = await repository.get_agent_run(child.id)
         if run.status == "completed":
             artifacts = await repository.list_run_artifacts(run.id)
+            content = ""
+            if run.turn_id:
+                turns = await repository.list_turns(run.case_id)
+                content = next(
+                    (turn.content for turn in turns if turn.id == run.turn_id),
+                    "",
+                )
             return {
                 "ok": True,
                 "child_run_id": run.id,
                 "agent": run.agent,
                 "status": "completed",
+                "content": content,
                 "artifacts": [
                     {
                         "artifact_id": artifact.id,

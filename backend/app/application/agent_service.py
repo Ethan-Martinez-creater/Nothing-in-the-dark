@@ -51,9 +51,41 @@ class AgentRunService:
         approve_crawl: bool,
         artifact_id: str | None = None,
         ui_context: dict[str, object] | None = None,
+        execution_policy: dict[str, object] | None = None,
     ) -> Any:
         turn = await self._repository.add_turn(case_id, role="user", content=content)
         metadata: dict[str, object] = {"approve_crawl": approve_crawl}
+        if execution_policy is not None:
+            # Validate caller policy (typed API or eval runner). The model
+            # cannot choose root IDs or counters; initialize them here.
+            read_only = execution_policy.get("read_only")
+            max_tool_calls = execution_policy.get("max_tool_calls")
+            budget_scope = execution_policy.get("budget_scope")
+            if not isinstance(read_only, bool):
+                raise ApplicationError(
+                    "execution_policy.read_only must be a boolean",
+                    code="execution_policy_invalid",
+                )
+            if (
+                isinstance(max_tool_calls, bool)
+                or not isinstance(max_tool_calls, int)
+                or not 1 <= max_tool_calls <= 10_000
+            ):
+                raise ApplicationError(
+                    "execution_policy.max_tool_calls must be between 1 and 10000",
+                    code="execution_policy_invalid",
+                )
+            if budget_scope != "run_tree":
+                raise ApplicationError(
+                    "execution_policy.budget_scope must be 'run_tree'",
+                    code="execution_policy_invalid",
+                )
+            metadata["execution_policy"] = {
+                "read_only": read_only,
+                "max_tool_calls": max_tool_calls,
+                "budget_scope": "run_tree",
+                "tool_calls_used": 0,
+            }
         if artifact_id:
             # M2 Artifact 追问：worker 把目标 Artifact 数据注入上下文。
             metadata["artifact_ref"] = {"artifact_id": artifact_id}
