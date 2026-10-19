@@ -72,6 +72,8 @@ jobs:
             tests/test_agent_golden_dataset.py \
             tests/test_agent_fixture_seed.py \
             tests/test_agent_eval_evaluators.py \
+            tests/test_answer_delivery.py \
+            tests/test_investigation_diagnostics.py \
             tests/test_agent_replay.py \
             tests/test_agent_eval_contract.py \
             tests/test_evaluation_framework.py \
@@ -85,6 +87,9 @@ jobs:
             tests/test_tool_registry.py \
             tests/test_approval_policy.py \
             tests/test_agent_loop.py \
+            tests/test_budget_answer_finalization.py \
+            tests/test_execution_policy_runtime.py \
+            tests/test_evidence_retrieval_degradation.py \
             tests/test_durable_runtime.py \
             tests/test_expert_agents.py
 

@@ -273,7 +273,8 @@ async def test_dispatch_and_child_reads_share_three_call_limit(tmp_path):
         calls = await repo.list_run_tool_calls(run.id)
         calls += await repo.list_run_tool_calls(children[0].id)
         assert len(calls) == 3
-        assert gateway._counters["coordinator"] == gateway._counters["verification"] == 1
+        # Each run may perform one tool-free synthesis; the shared tool limit stays three.
+        assert gateway._counters["coordinator"] == gateway._counters["verification"] == 2
         assert not await repo.list_artifacts(case.id)
     finally:
         await worker.stop()

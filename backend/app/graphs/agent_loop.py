@@ -126,14 +126,7 @@ class AgentLoopGraph:
         messages = [LLMMessage.model_validate(m) for m in state["messages"]]
         exhausted = await self._runtime.execution_budget_exhausted(self._context)
         if exhausted is not None:
-            content = self._runtime.execution_stop_content(self._context)
-            message = LLMMessage(role="assistant", content=content)
-            return {
-                "messages": [m.model_dump() for m in [*messages, message]],
-                "status": "bounded_stop",
-                "content": content,
-                "pending_tool_calls": [],
-            }
+            return await self._bounded_answer(state, messages)
         response = await self._runtime.step_model(
             messages=messages,
             definition=self._definition,
@@ -174,19 +167,38 @@ class AgentLoopGraph:
             if self._context.metadata.get("execution_policy") is not None else len(calls)
         )
         if self._context.metadata.get("_execution_stop_reason"):
-            content = self._runtime.execution_stop_content(self._context)
-            messages.append(LLMMessage(role="assistant", content=content))
-            return {
-                "messages": [m.model_dump() for m in messages],
-                "status": "bounded_stop",
-                "content": content,
-                "tool_call_count": state.get("tool_call_count", 0) + invoked_count,
-                "pending_tool_calls": [],
-            }
+            return await self._bounded_answer(state, messages, invoked_count=invoked_count)
         return {
             "messages": [m.model_dump() for m in messages],
             "tool_call_count": state.get("tool_call_count", 0) + invoked_count,
             "pending_tool_calls": [],
+        }
+
+    async def _bounded_answer(
+        self, state: AgentLoopState, messages: list[LLMMessage], *, invoked_count: int = 0,
+    ) -> dict[str, Any]:
+        response = await self._runtime.finalize_budget_answer(
+            messages=messages, definition=self._definition, context=self._context,
+            turn_index=state.get("turn", 0), current_cost=state.get("total_cost", 0.0),
+            cancel_event=self._cancel_event,
+        )
+        content = (
+            response.message.content if response
+            else self._runtime.execution_stop_content(self._context)
+        )
+        messages.append(LLMMessage(role="assistant", content=content or ""))
+        return {
+            "messages": [m.model_dump() for m in messages], "status": "bounded_stop",
+            "content": content or "", "pending_tool_calls": [],
+            "tool_call_count": state.get("tool_call_count", 0) + invoked_count,
+            "turn": state.get("turn", 0) + int(response is not None),
+            "total_input_tokens": state.get("total_input_tokens", 0)
+            + (response.usage.input_tokens if response else 0),
+            "total_output_tokens": state.get("total_output_tokens", 0)
+            + (response.usage.output_tokens if response else 0),
+            "total_cost": state.get("total_cost", 0.0)
+            + (response.estimated_cost if response else 0),
+            "model": response.model if response else state.get("model", ""),
         }
 
     async def _finish(self, state: AgentLoopState) -> dict[str, Any]:

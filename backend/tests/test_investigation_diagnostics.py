@@ -79,6 +79,16 @@ def test_explicit_completed_budget_stop_is_not_a_timeout():
     assert result["agent"]["answer_may_be_partial"] is True
 
 
+def test_cancelled_finalization_request_does_not_invent_provider_error():
+    result = _diagnose(model_measurements=(
+        {"status": "cancelled", "error_code": "CancelledError", "duration_ms": 15000,
+         "input_tokens": None, "output_tokens": None},
+    ))
+    assert result["observed_layers"] == ["model_request_cancelled"]
+    assert result["provider"]["failed_measurements"] == []
+    assert result["provider"]["cancelled_measurements"][0]["usage_known"] is False
+
+
 def test_citation_scope_excludes_near_names_but_allows_declared_cross_links():
     task = SimpleNamespace(
         suite_version="investigation_real_eval_v1", case_id="a", tags=("read_only",)
