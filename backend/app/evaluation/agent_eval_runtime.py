@@ -116,6 +116,27 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+def configure_disposable_sqlite(database: Any) -> None:
+    """Avoid per-DDL fsync stalls in disposable synthetic evaluation databases.
+
+    File-backed QueuePool isolation is retained. These databases are preserved
+    for inspection but are not used for power-loss/crash durability benchmarks.
+    Never apply this to the live application database.
+    """
+    from sqlalchemy import event
+
+    if database.engine.dialect.name != "sqlite":
+        raise ValueError("Disposable evaluation settings require SQLite")
+
+    def on_connect(connection: Any, _record: Any) -> None:
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA journal_mode=MEMORY")
+        cursor.execute("PRAGMA synchronous=OFF")
+        cursor.close()
+
+    event.listen(database.engine.sync_engine, "connect", on_connect)
+
+
 class TemporaryTaskDatabase:
     """评测专用的单任务临时文件库（接口与生产 ``Database`` 的子集一致）。
 
@@ -139,6 +160,7 @@ class TemporaryTaskDatabase:
         self._database = Database(
             f"sqlite+aiosqlite:///{self._dir / 'task.db'}"
         )
+        configure_disposable_sqlite(self._database)
 
     @property
     def path(self) -> Path:

@@ -232,6 +232,10 @@ async def _run(args: argparse.Namespace) -> int:
     else:
         database_url, _tmp = _resolve_database_url(args.database_url)
     database = Database(database_url)
+    if investigation:
+        from app.evaluation.agent_eval_runtime import configure_disposable_sqlite
+
+        configure_disposable_sqlite(database)
     await database.create_schema()
 
     service = AgentEvaluationService(database, gateway=gateway)

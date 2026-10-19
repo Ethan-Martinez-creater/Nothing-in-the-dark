@@ -29,6 +29,11 @@ Retain task databases and failed attempts for inspection. No automatic recursive
 deletion is performed by the task database wrapper. Use a new `--output` and pytest
 `--basetemp` for each attempt; never rerun against an existing attempt path.
 
+Disposable synthetic SQLite connections use memory journals and synchronous=OFF
+to avoid Windows per-DDL fsync stalls. File-backed multi-connection isolation is
+retained; this study does not measure crash/power-loss durability. The live
+application database is never given these settings.
+
 ## Fresh model provisioning and preflight
 
 All pre-existing LLM settings were declared expired. The user must replace the
@@ -88,6 +93,20 @@ paid calls. Preserve infrastructure failures and mark unexecuted cases explicitl
 never replace them with contract results. Ordinary task failures remain observations,
 not grounds to rewrite criteria. After a valid baseline, repeat IR08/IR09/IR10 only
 when useful, using distinct attempt labels/paths, the same fixture and configuration.
+
+For interruption-resilient execution, the following small orchestrator calls the
+same CLI separately for each case and checkpoints an `attempt.json` after every
+case. No second runtime or different expected answers are introduced:
+
+```powershell
+& $evalPython -B -m app.scripts.run_investigation_study --tasks IR01,IR05 --attempt-label feasibility --config-file .env --preflight-receipt artifacts/agent_eval/real_v1/preflight-01.json --output-dir artifacts/agent_eval/real_v1/feasibility-02
+& $evalPython -B -m app.scripts.run_investigation_study --attempt-label baseline --config-file .env --preflight-receipt artifacts/agent_eval/real_v1/preflight-01.json --output-dir artifacts/agent_eval/real_v1/baseline-01
+```
+
+The orchestrator allows at most ten distinct tasks per invocation. A completed
+attempt means execution finished, not that cases passed. Per-case deterministic
+checks, null human acceptance and failure evidence are kept separately. No-report
+infrastructure errors and provider hard stops block remaining requests explicitly.
 
 ## Evidence, measurement and review
 
