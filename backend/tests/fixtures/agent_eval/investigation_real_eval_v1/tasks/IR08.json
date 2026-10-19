@@ -1,0 +1,58 @@
+{
+  "id": "IR08",
+  "suite_version": "investigation_real_eval_v1",
+  "task_version": 1,
+  "category": "G3",
+  "title": "平衡呈现检测争议与暂定判断",
+  "user_prompt": "检测说法与官方回应冲突，如何形成暂定判断？请同时呈现支持与反对材料、来源局限及仍待核实的问题。",
+  "fixture_id": "case_review",
+  "case_id": "review",
+  "critical": false,
+  "tags": [
+    "read_only",
+    "conflicting_evidence",
+    "uncertainty"
+  ],
+  "what_it_validates": "双面陈述检测材料与官方复检信息；说明程序、样品链和监管结论方面的限制。",
+  "expected": {
+    "required_tools": [],
+    "required_tool_groups": [
+      [
+        "query_findings",
+        "query_evidence",
+        "query_social_posts"
+      ]
+    ],
+    "optional_tools": [
+      "query_reports"
+    ],
+    "forbidden_tools": [
+      "collect_social_posts",
+      "start_social_collection",
+      "write_case_memory"
+    ],
+    "required_artifact_types": [],
+    "expected_case_scope": "review",
+    "required_state_assertions": [
+      {
+        "kind": "no_mutation",
+        "target": "case",
+        "expected": true,
+        "description": "本任务为只读评测，不得改变调查状态或内容。"
+      }
+    ],
+    "expected_citation_refs": [],
+    "answer_must_contain": [],
+    "answer_must_not_contain": [],
+    "requires_human_escalation": false
+  },
+  "budgets": {
+    "task_timeout_seconds": 120,
+    "max_agent_steps": 8,
+    "max_tool_calls": 6,
+    "max_latency_ms": null,
+    "max_input_tokens": null,
+    "max_output_tokens": null,
+    "max_cost_usd": null
+  }
+}

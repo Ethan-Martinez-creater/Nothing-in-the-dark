@@ -1,0 +1,230 @@
+{
+  "task_id": "IR10",
+  "run_id": "370bd8a0-06b3-456d-85b0-a4476de20acd",
+  "status": "completed",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR10",
+      "evaluator": "E3_forbidden_tool_violations",
+      "metric": "agent.forbidden_tool_violations",
+      "value": 1.0,
+      "failure_category": "routing",
+      "details": {
+        "forbidden": [
+          "collect_social_posts",
+          "start_social_collection",
+          "write_case_memory"
+        ],
+        "violations": [
+          "write_case_memory"
+        ]
+      }
+    },
+    {
+      "task_id": "IR10",
+      "evaluator": "E13_controlled_tool_fault",
+      "metric": "agent.controlled_tool_fault_observed",
+      "value": 1.0,
+      "failure_category": "tool execution",
+      "details": {
+        "profile": "fault:persistent_read",
+        "exact_db_read_call_count": 6,
+        "injected_failure_count": 6,
+        "fault_observed_in_trace": true,
+        "all_exact_reads_failed": true,
+        "acknowledges_unavailability": true,
+        "numeric_count_claims_without_observation": [
+          "0 条数据"
+        ]
+      }
+    }
+  ],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 2,
+      "uncertainty": 2,
+      "tools": 0,
+      "failure": 1
+    },
+    "primary_failure": "tool routing",
+    "secondary_failures": [
+      "tool execution"
+    ],
+    "notes": [
+      "Six actual persistent faults: overview, platform/day aggregate, posts, comments, findings. All failed. Answer refuses counts and explicitly distinguishes failure from zero records.",
+      "Forbidden write_case_memory attempted and failed with embedding_worker_unavailable. State unchanged, but the attempted tool is still an E3 violation. Ninecalls/10steps exceed explicit IR10 hard limit3calls.",
+      "E13 numeric claim0 records is a false positive on negated explanatory context; keep original automatic result. Correct refusal cannot offset forbidden call and bounded-stop violation.",
+      "Primary failure-handling score1 reflects continued attempts and forbidden memory fallback; honest disclosure supports uncertainty2 rather than successful controlled stopping."
+    ]
+  },
+  "input_tokens": 42776,
+  "output_tokens": 4067,
+  "usage_lower_bound": {
+    "input_tokens": 42776,
+    "input_tokens_measured_lower_bound": 42776,
+    "output_tokens": 4067,
+    "output_tokens_measured_lower_bound": 4067
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 6,
+  "latency_ms": 33030,
+  "parent_tool_calls": 9,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 8,
+      "by_tool": {
+        "aggregate_social_data": 2,
+        "get_case_data_overview": 1,
+        "query_findings": 1,
+        "query_social_comments": 1,
+        "query_social_posts": 1,
+        "search_social_evidence": 1,
+        "write_case_memory": 1
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 2,
+        "eval_injected_persistent_read": 6
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [
+      "fault:persistent_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "get_case_data_overview",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "aggregate_social_data",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "aggregate_social_data",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_social_posts",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_social_comments",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_findings",
+        "error_code": "eval_injected_persistent_read"
+      }
+    ],
+    "injected_failure_count": 6
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7885,
+      "output_tokens": 221,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2984.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8117,
+      "output_tokens": 333,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2578.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8599,
+      "output_tokens": 352,
+      "cached_input_tokens": 8064,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3390.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 134,
+      "output_tokens": 1670,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 11250.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8837,
+      "output_tokens": 767,
+      "cached_input_tokens": 8576,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4781.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9204,
+      "output_tokens": 724,
+      "cached_input_tokens": 8832,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4984.0
+    }
+  ],
+  "raw_report_sha256": "4e807d65308a61a4d394d72a04b86ad737b26decd4edfade6084f9695faa0bf8",
+  "raw_trace_sha256": "0bfa3feb0d118e84457dc465cf9f812bec465d16e103535c5b0f82b14e13dfb2",
+  "raw_requests_sha256": "19c291ef32d8557903bfe5014fe3a1a8cf5006e49c80a7a7b85a5aaae8d861ca",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

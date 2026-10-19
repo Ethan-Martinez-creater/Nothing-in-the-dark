@@ -1,0 +1,90 @@
+{
+  "task_id": "IR01",
+  "run_id": "53ba35ba-f400-4b55-8fea-83e560f0399a",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 2
+    },
+    "notes": [
+      "Answer total10/weibo6/bilibili4 matches aggregate_social_data and get_case_data_overview. Read-only, current-case scope.",
+      "Answer names tools/results rather than a stable source anchor. No fault occurred; failure score does not establish recovery capability."
+    ]
+  },
+  "input_tokens": 16231,
+  "output_tokens": 393,
+  "usage_lower_bound": {
+    "input_tokens": 16231,
+    "input_tokens_measured_lower_bound": 16231,
+    "output_tokens": 393,
+    "output_tokens_measured_lower_bound": 393
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 8640,
+  "parent_tool_calls": 2,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7880,
+      "output_tokens": 152,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4453.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8351,
+      "output_tokens": 241,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3422.0
+    }
+  ],
+  "raw_report_sha256": "2ff938a2fb151ed6cc712b9472079850a221bce3490578434c39dc60a87cca89",
+  "raw_trace_sha256": "70154876cee3d798f82c65e5eed40c16df2faaa518fe012fe0a66db040d4807c",
+  "raw_requests_sha256": "7e17c67ae2307becc83d323da4e740a8b391f28f7fa16484bee6ce1c5f6e9e80",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

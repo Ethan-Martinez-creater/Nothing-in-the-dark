@@ -1,0 +1,188 @@
+{
+  "task_id": "IR06",
+  "run_id": "4fd86e5d-e469-46ea-a0e0-2bd14bd4b311",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 2,
+      "evidence": 1,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 1,
+      "failure": 2
+    },
+    "notes": [
+      "Rejects additive-disease causation: no exposure/clinical/health-outcome evidence, microbial-count controversy remains unresolved. Candidate/under_review states preserved.",
+      "Sources include gr_p1, gr_p5, gr_p6, gr_p10, ev_detection and report-linked evidence. Unique source-ID prefixes resolve in the trace, although automatic E6 extracts no IDs.",
+      "Calling the self-reported Bilibili tests independent and interpreting both tests as qualified exceeds the source wording (gr_p3 only reports disagreement with the original test).",
+      "16 calls/17steps exceed5/7 thresholds; redundant quality/activity/signal and lexical reads. Two semantic-search failures are disclosed with structured fallback.",
+      "Consistency correction before publication: comment prefixes ada9e4e0/2bd3bf84 occur in real query_social_comments observations but lack permitted source_map entries. Like IR03, the frozen global rule yields acceptance0. Automatic E6 misses abbreviated IDs; this is not invented evidence."
+    ],
+    "primary_failure": "citation"
+  },
+  "input_tokens": 72908,
+  "output_tokens": 5406,
+  "usage_lower_bound": {
+    "input_tokens": 72908,
+    "input_tokens_measured_lower_bound": 72908,
+    "output_tokens": 5406,
+    "output_tokens_measured_lower_bound": 5406
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 8,
+  "latency_ms": 64594,
+  "parent_tool_calls": 16,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 2,
+      "by_tool": {
+        "search_social_evidence": 2
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 2
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7887,
+      "output_tokens": 319,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5391.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9038,
+      "output_tokens": 318,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3453.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 12807,
+      "output_tokens": 356,
+      "cached_input_tokens": 8960,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3969.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 141,
+      "output_tokens": 20,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 1469.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 13492,
+      "output_tokens": 535,
+      "cached_input_tokens": 12800,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4672.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 14630,
+      "output_tokens": 735,
+      "cached_input_tokens": 13440,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 8735.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 138,
+      "output_tokens": 1063,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 10890.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 14775,
+      "output_tokens": 2060,
+      "cached_input_tokens": 14592,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 21937.0
+    }
+  ],
+  "raw_report_sha256": "b93699071b3166c57bb8bacf3aeb23bdad3b05d5d964713b9a5d91bae13528a7",
+  "raw_trace_sha256": "3c1b436a20b80d47d72d08216d7b0653207b4fa0cdbe967e4dc53ec67dbc6d26",
+  "raw_requests_sha256": "98f0a136208099b78842c33ca06abbf892e0e242314ed8f4a592032274d104c1",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

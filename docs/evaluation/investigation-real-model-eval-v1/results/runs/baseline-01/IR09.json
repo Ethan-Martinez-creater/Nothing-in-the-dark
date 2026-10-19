@@ -1,0 +1,211 @@
+{
+  "task_id": "IR09",
+  "run_id": "ff43cffb-2e4f-4919-924f-b5171a7361ca",
+  "status": "cancelled",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR09",
+      "evaluator": "E1_task_completion",
+      "metric": "agent.task_success",
+      "value": 0.0,
+      "failure_category": "grounding",
+      "details": {
+        "assertion_failures": [],
+        "missing_artifacts": [],
+        "answered": false,
+        "run_status": "cancelled"
+      }
+    }
+  ],
+  "runner_error": "TimeoutError: run ff43cffb-2e4f-4919-924f-b5171a7361ca did not reach a terminal state within 150s",
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 0,
+      "evidence": 0,
+      "citations": 0,
+      "uncertainty": 0,
+      "tools": 1,
+      "failure": 1
+    },
+    "primary_failure": "unknown",
+    "secondary_failures": [
+      "tool execution"
+    ],
+    "notes": [
+      "Final answer empty, E1 answered=false; cancelled at150141ms. No attribution of the whole timeout to a single layer.",
+      "Actual first query_social_posts injected transient failure once, then the same-argument read succeeded with10posts; platform aggregation/overview agreed6/4. E13 recovery pass does not compensate for no final response.",
+      "13 parent +6 child calls,14steps exceed6/8 thresholds. One additional embedding search failed; no mutation/forbidden call/scope violation. Original overall_passed gate can be true despite E1 failure, so it is not used as task acceptance."
+    ]
+  },
+  "input_tokens": null,
+  "output_tokens": null,
+  "usage_lower_bound": {
+    "input_tokens": null,
+    "input_tokens_measured_lower_bound": 54765,
+    "output_tokens": null,
+    "output_tokens_measured_lower_bound": 6102
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 8,
+  "latency_ms": 150141,
+  "parent_tool_calls": 13,
+  "child_tool_calls": 6,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 2,
+      "by_tool": {
+        "query_social_posts": 1,
+        "search_social_evidence": 1
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 1,
+        "eval_injected_transient_read": 1
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [
+      "fault:transient_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "query_social_posts",
+        "error_code": "eval_injected_transient_read"
+      }
+    ],
+    "injected_failure_count": 1
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7900,
+      "output_tokens": 363,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4984.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8795,
+      "output_tokens": 342,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3985.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 135,
+      "output_tokens": 823,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 10563.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 11430,
+      "output_tokens": 470,
+      "cached_input_tokens": 8704,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 10828.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 12872,
+      "output_tokens": 1898,
+      "cached_input_tokens": 11392,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 13469.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 5521,
+      "output_tokens": 281,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3531.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8112,
+      "output_tokens": 1925,
+      "cached_input_tokens": 5504,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 14750.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": null,
+      "status": "failed",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cached_input_tokens": null,
+      "error_code": "APIConnectionError",
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "duration_ms": 55328.0
+    }
+  ],
+  "raw_report_sha256": "4edff61eb16ae8c1064d9ecd02f776258848999962d7a27e708a026d6732b9c2",
+  "raw_trace_sha256": "1c758d5859c195b9f064986d9008146cb79d769dfacdb73fc658704f44b0fc88",
+  "raw_requests_sha256": "a2d751b0ca14ee9225c104998284ac5c302745e451318f3fe035886981b0410e",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

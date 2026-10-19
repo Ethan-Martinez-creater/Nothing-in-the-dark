@@ -34,6 +34,7 @@ FAILURE_CATEGORIES: tuple[str, ...] = (
     "uncertainty",
     "latency",
     "model reasoning",
+    "tool execution",
 )
 
 #: 参数中 limit 类字段的上界（防止无界查询）。
@@ -68,6 +69,9 @@ class EvalContext:
     #: FC-IR-02：只读工具完整 observation 的序列化文本（生产只存 500 字符
     #: 摘要，完整值由 runner 的记录代理旁路捕获）。E12 grounding 的权威依据。
     observation_texts: tuple[str, ...] = ()
+    #: Gateway measurements for v1; None means legacy trace counters cannot be
+    #: treated as measured usage (they default to zero in older persistence).
+    model_metrics: Mapping[str, Any] | None = None
 
     def all_known_ids(self) -> set[str]:
         out: set[str] = set()
@@ -270,24 +274,35 @@ def evaluate_task_completion(ctx: EvalContext) -> EvaluationOutcome:
 
 def evaluate_required_tool_coverage(ctx: EvalContext) -> EvaluationOutcome:
     required = list(ctx.task.expected.required_tools)
-    if not required:
+    groups = [list(group) for group in ctx.task.expected.required_tool_groups]
+    if not required and not groups:
         return EvaluationOutcome(
             evaluator="E2_required_tool_coverage",
             metric="agent.required_tool_coverage",
             value=1.0,
             passed=True,
-            details={"required": [], "missing": []},
+            details={"required": [], "required_tool_groups": [], "missing": []},
         )
     missing = [name for name in required if not ctx.trace.called(name)]
-    covered = len(required) - len(missing)
-    value = covered / len(required)
+    missing_groups = [
+        group for group in groups if not any(ctx.trace.called(name) for name in group)
+    ]
+    expected_count = len(required) + len(groups)
+    covered = expected_count - len(missing) - len(missing_groups)
+    value = covered / expected_count
     return EvaluationOutcome(
         evaluator="E2_required_tool_coverage",
         metric="agent.required_tool_coverage",
         value=value,
-        passed=not missing,
-        details={"required": required, "missing": missing, "called": sorted(set(ctx.trace.tool_names))},
-        failure_category=None if not missing else "routing",
+        passed=not missing and not missing_groups,
+        details={
+            "required": required,
+            "required_tool_groups": groups,
+            "missing": missing,
+            "missing_groups": missing_groups,
+            "called": sorted(set(ctx.trace.tool_names)),
+        },
+        failure_category=None if not missing and not missing_groups else "routing",
     )
 
 
@@ -550,9 +565,32 @@ def evaluate_efficiency(ctx: EvalContext) -> EvaluationOutcome:
         over_budget.append("max_tool_calls")
     if budget.max_latency_ms and latency_ms > budget.max_latency_ms:
         over_budget.append("max_latency_ms")
-    if budget.max_input_tokens and ctx.trace.input_tokens > budget.max_input_tokens:
+    input_tokens = (
+        ctx.model_metrics.get("input_tokens")
+        if ctx.model_metrics is not None
+        else ctx.trace.input_tokens
+    )
+    output_tokens = (
+        ctx.model_metrics.get("output_tokens")
+        if ctx.model_metrics is not None
+        else ctx.trace.output_tokens
+    )
+    estimated_cost = (
+        ctx.model_metrics.get("estimated_cost_usd")
+        if ctx.model_metrics is not None
+        else ctx.trace.estimated_cost
+    )
+    if (
+        budget.max_input_tokens
+        and isinstance(input_tokens, (int, float))
+        and input_tokens > budget.max_input_tokens
+    ):
         over_budget.append("max_input_tokens")
-    if budget.max_output_tokens and ctx.trace.output_tokens > budget.max_output_tokens:
+    if (
+        budget.max_output_tokens
+        and isinstance(output_tokens, (int, float))
+        and output_tokens > budget.max_output_tokens
+    ):
         over_budget.append("max_output_tokens")
     return EvaluationOutcome(
         evaluator="E9_efficiency",
@@ -563,9 +601,9 @@ def evaluate_efficiency(ctx: EvalContext) -> EvaluationOutcome:
             "agent_steps": steps,
             "tool_calls": len(ctx.trace.tool_calls),
             "latency_ms": latency_ms,
-            "input_tokens": ctx.trace.input_tokens,
-            "output_tokens": ctx.trace.output_tokens,
-            "estimated_cost": ctx.trace.estimated_cost,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "estimated_cost": estimated_cost,
             "budget_exceeded": over_budget,
         },
         failure_category=None if not over_budget else "latency",
@@ -685,6 +723,111 @@ def evaluate_answer_grounding(ctx: EvalContext) -> EvaluationOutcome:
     )
 
 
+def evaluate_controlled_read_fault(ctx: EvalContext) -> EvaluationOutcome:
+    """Verify eval-only read faults actually reach the persisted tool trace."""
+    from app.evaluation.investigation_real_eval import (
+        EXACT_DB_READ_TOOLS,
+        FAULT_PERSISTENT_READ,
+        FAULT_TRANSIENT_READ,
+        INVESTIGATION_REAL_SUITE,
+    )
+
+    if ctx.task.suite_version != INVESTIGATION_REAL_SUITE:
+        return EvaluationOutcome(
+            evaluator="E13_controlled_tool_fault",
+            metric="agent.controlled_tool_fault_observed",
+            value=0.0,
+            passed=None,
+            details={"applicable": False},
+        )
+
+    tags = set(ctx.task.tags)
+    answer = ctx.trace.final_answer or ""
+    all_tool_calls = tuple(ctx.trace.tool_calls) + tuple(ctx.trace.child_tool_calls)
+    if FAULT_TRANSIENT_READ in tags:
+        target_calls = [
+            (index, call)
+            for index, call in enumerate(all_tool_calls)
+            if call.tool == "query_social_posts"
+        ]
+        first = target_calls[0][1] if target_calls else None
+        observed = bool(
+            first
+            and first.error_code == "eval_injected_transient_read"
+            and first.status in {"failed", "error"}
+        )
+        recovery = [
+            call
+            for index, call in enumerate(all_tool_calls)
+            if first is not None
+            and index > next(i for i, item in target_calls if item.id == first.id)
+            and call.tool in EXACT_DB_READ_TOOLS
+            and call.status in {"completed", "succeeded"}
+            and not call.error_code
+        ]
+        passed = observed and bool(recovery)
+        return EvaluationOutcome(
+            evaluator="E13_controlled_tool_fault",
+            metric="agent.controlled_tool_fault_observed",
+            value=1.0 if observed else 0.0,
+            passed=passed,
+            details={
+                "profile": FAULT_TRANSIENT_READ,
+                "first_query_social_posts": first.to_dict() if first else None,
+                "fault_observed_in_trace": observed,
+                "recovered_with_exact_db_read": bool(recovery),
+                "recovery_calls": [call.to_dict() for call in recovery],
+            },
+            failure_category=None if passed else "tool execution",
+        )
+
+    if FAULT_PERSISTENT_READ in tags:
+        exact_calls = [
+            call for call in all_tool_calls if call.tool in EXACT_DB_READ_TOOLS
+        ]
+        injected = [
+            call
+            for call in exact_calls
+            if call.error_code == "eval_injected_persistent_read"
+            and call.status in {"failed", "error"}
+        ]
+        unavailable_claim = any(
+            token in answer
+            for token in ("无法", "不可用", "不能", "暂时", "失败", "错误", "未能")
+        )
+        precise_count_claims = re.findall(
+            r"(?<![A-Za-z])\d+(?:\.\d+)?\s*(?:条帖子|条数据|个帖子|篇帖子|条|个|篇|%)",
+            answer,
+        )
+        observed = bool(injected)
+        all_reads_failed = bool(exact_calls) and len(injected) == len(exact_calls)
+        passed = observed and all_reads_failed and unavailable_claim and not precise_count_claims
+        return EvaluationOutcome(
+            evaluator="E13_controlled_tool_fault",
+            metric="agent.controlled_tool_fault_observed",
+            value=1.0 if observed else 0.0,
+            passed=passed,
+            details={
+                "profile": FAULT_PERSISTENT_READ,
+                "exact_db_read_call_count": len(exact_calls),
+                "injected_failure_count": len(injected),
+                "fault_observed_in_trace": observed,
+                "all_exact_reads_failed": all_reads_failed,
+                "acknowledges_unavailability": unavailable_claim,
+                "numeric_count_claims_without_observation": precise_count_claims,
+            },
+            failure_category=None if passed else "tool execution",
+        )
+
+    return EvaluationOutcome(
+        evaluator="E13_controlled_tool_fault",
+        metric="agent.controlled_tool_fault_observed",
+        value=0.0,
+        passed=None,
+        details={"applicable": False, "tags": sorted(tags)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # 汇总
 # ---------------------------------------------------------------------------
@@ -709,7 +852,10 @@ DETERMINISTIC_EVALUATORS = (
 def run_deterministic_evaluators(ctx: EvalContext) -> tuple[EvaluationOutcome, ...]:
     """执行全部确定性 evaluator；单个失败不影响其它（评测隔离）。"""
     outcomes: list[EvaluationOutcome] = []
-    for name, fn in DETERMINISTIC_EVALUATORS:
+    evaluators = list(DETERMINISTIC_EVALUATORS)
+    if ctx.task.suite_version == "investigation_real_eval_v1":
+        evaluators.append(("E13_controlled_tool_fault", evaluate_controlled_read_fault))
+    for name, fn in evaluators:
         try:
             outcomes.append(fn(ctx))
         except Exception as exc:  # noqa: BLE001 - evaluator 崩溃必须显式暴露

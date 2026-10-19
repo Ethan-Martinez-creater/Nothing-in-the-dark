@@ -1,0 +1,90 @@
+{
+  "task_id": "IR01",
+  "run_id": "3eedce02-832f-41fc-8e6e-4b0b280285a4",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 2
+    },
+    "notes": [
+      "aggregate_social_data.total=10; buckets weibo=6/bilibili=4; overview agrees. Answer distinguishes record counts from verified truth.",
+      "Answer names tools but lacks a user-facing source anchor; E6 referenced_ids is empty. No failure was encountered; failure score reflects safe completion, not demonstrated recovery."
+    ]
+  },
+  "input_tokens": 16253,
+  "output_tokens": 367,
+  "usage_lower_bound": {
+    "input_tokens": 16253,
+    "input_tokens_measured_lower_bound": 16253,
+    "output_tokens": 367,
+    "output_tokens_measured_lower_bound": 367
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 7984,
+  "parent_tool_calls": 2,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7883,
+      "output_tokens": 161,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4109.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8370,
+      "output_tokens": 206,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3125.0
+    }
+  ],
+  "raw_report_sha256": "f9f809b15ad45b041dfa638ffa42241875ee514df29b7b795688c03b984c4264",
+  "raw_trace_sha256": "4a9ec8d078a32bd9478ed3c295cb3613152e41a588462af875a0350105c6ddd8",
+  "raw_requests_sha256": "76cdbbb18dfb0ca03375fe9ae51c425f29d8c3b11df20ccb8d6ac8f89e18226e",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/feasibility-02",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

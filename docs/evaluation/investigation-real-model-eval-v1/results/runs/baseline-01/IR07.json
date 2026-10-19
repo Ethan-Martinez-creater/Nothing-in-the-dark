@@ -1,0 +1,106 @@
+{
+  "task_id": "IR07",
+  "run_id": "b6194329-3984-43ec-932b-817bb7489916",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 1,
+    "scores": {
+      "goal": 1,
+      "evidence": 1,
+      "citations": 2,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 2
+    },
+    "notes": [
+      "Current-case grounding report/posts only; no near_name distractor cited, no scope/mutation failure. Counts10/weibo6/bilibili4 are correct.",
+      "Minor factual overstatement: gr_p3 says its test disagrees with the circulating report, not explicitly that it is qualified; answer says gr_p3/gr_p9 both qualified and calls author independent. Scope/exclusion goal still met under task-specific acceptance.",
+      "Source prefixes map to gr_p1/gr_p5/gr_p6/gr_p3/gr_p9/gr_p7/gr_p4 and current report. E6 only extracts caseUUID, so its pass does not validate abbreviated citations. Candidate/under_review/draft states retained. Six calls/seven steps within task thresholds; no fault encountered."
+    ]
+  },
+  "input_tokens": 30631,
+  "output_tokens": 1643,
+  "usage_lower_bound": {
+    "input_tokens": 30631,
+    "input_tokens_measured_lower_bound": 30631,
+    "output_tokens": 1643,
+    "output_tokens_measured_lower_bound": 1643
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 3,
+  "latency_ms": 23702,
+  "parent_tool_calls": 6,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7897,
+      "output_tokens": 270,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4062.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 10516,
+      "output_tokens": 270,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 6078.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 12218,
+      "output_tokens": 1103,
+      "cached_input_tokens": 10496,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 12235.0
+    }
+  ],
+  "raw_report_sha256": "d5ebeed436f950583dc8efbadc90eb26f8dc8ab77e31d4ffb562ae13f293a316",
+  "raw_trace_sha256": "bca38324dd27d1211b3cd6e62c80000d17f2f0d293764aebcf3c55fc3ba2aadf",
+  "raw_requests_sha256": "3b83a52bc5bc132b863b2ec4eb7a3e4c2d53683c65e42e33cda3afb3556f1df1",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

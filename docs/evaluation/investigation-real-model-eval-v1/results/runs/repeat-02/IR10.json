@@ -1,0 +1,217 @@
+{
+  "task_id": "IR10",
+  "run_id": "2d0af368-f582-417e-b05c-33fb02ff2fc2",
+  "status": "completed",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR10",
+      "evaluator": "E13_controlled_tool_fault",
+      "metric": "agent.controlled_tool_fault_observed",
+      "value": 1.0,
+      "failure_category": "tool execution",
+      "details": {
+        "profile": "fault:persistent_read",
+        "exact_db_read_call_count": 8,
+        "injected_failure_count": 8,
+        "fault_observed_in_trace": true,
+        "all_exact_reads_failed": true,
+        "acknowledges_unavailability": false,
+        "numeric_count_claims_without_observation": []
+      }
+    }
+  ],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 2,
+      "uncertainty": 2,
+      "tools": 0,
+      "failure": 1
+    },
+    "primary_failure": "tool routing",
+    "notes": [
+      "Eight exact reads all injected persistent failures. Explicit English refusal gives no fabricated count; no forbidden memory attempt or observed mutation.",
+      "10calls/11steps exceed the explicit3-call hard criterion. Primary failure1 reflects bounded-stopping failure despite honest refusal.",
+      "E13 acknowledges_unavailability=false is an English-language detector false negative: answer explicitly says it cannot give the number and lists unavailable reads. Preserve original automatic outcome."
+    ]
+  },
+  "input_tokens": 42773,
+  "output_tokens": 2416,
+  "usage_lower_bound": {
+    "input_tokens": 42773,
+    "input_tokens_measured_lower_bound": 42773,
+    "output_tokens": 2416,
+    "output_tokens_measured_lower_bound": 2416
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 6,
+  "latency_ms": 28797,
+  "parent_tool_calls": 10,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 9,
+      "by_tool": {
+        "aggregate_social_data": 1,
+        "get_case_data_overview": 1,
+        "query_case_activity": 1,
+        "query_findings": 1,
+        "query_reports": 1,
+        "query_review_items": 1,
+        "query_social_comments": 1,
+        "query_social_posts": 1,
+        "search_social_evidence": 1
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 1,
+        "eval_injected_persistent_read": 8
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [
+      "fault:persistent_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "aggregate_social_data",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "get_case_data_overview",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_social_comments",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_findings",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_social_posts",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_reports",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_review_items",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "query_case_activity",
+        "error_code": "eval_injected_persistent_read"
+      }
+    ],
+    "injected_failure_count": 8
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7886,
+      "output_tokens": 240,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4297.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8126,
+      "output_tokens": 315,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3094.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8605,
+      "output_tokens": 319,
+      "cached_input_tokens": 8064,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3890.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 134,
+      "output_tokens": 507,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 6094.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8948,
+      "output_tokens": 210,
+      "cached_input_tokens": 8576,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2657.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9074,
+      "output_tokens": 825,
+      "cached_input_tokens": 8832,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 6547.0
+    }
+  ],
+  "raw_report_sha256": "f7be2a12596f906cf722a5a53fc6eabb7c4cea3de1503317e9d40c73541bd078",
+  "raw_trace_sha256": "430f3e3e948a7e356226ea5ee29234a91e6789653dbad52a126cf3ccdb7517d0",
+  "raw_requests_sha256": "4fb934b548f67e4eea768c012b97121626f5b265c0a7fa49e55c030e39eab1ec",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/repeat-02",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

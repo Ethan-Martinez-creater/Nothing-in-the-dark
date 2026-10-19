@@ -1,0 +1,1193 @@
+{
+  "rubric_version": "1.0",
+  "suite_version": "investigation_real_eval_v1",
+  "source_key_policy": "All source_key/case_key values are stable logical keys from fixtures.json; resolve runtime ids only through seed_fixture.ref_map. No transient UUID is frozen here.",
+  "acceptance_policy": "Each task receives a separate 0/1 acceptance result from hard criteria. Human dimensions are independently rated 0/1/2 and must include output/trace evidence; they do not replace deterministic checks.",
+  "dimensions": [
+    {
+      "id": "goal_completion",
+      "scale": {
+        "0": "未回答目标或结论错误",
+        "1": "部分回答，遗漏重要事实",
+        "2": "准确完成任务目标"
+      }
+    },
+    {
+      "id": "evidence_support",
+      "scale": {
+        "0": "核心陈述无依据或错误归因",
+        "1": "部分有来源但支持混杂",
+        "2": "主要事实均有相符来源支持"
+      }
+    },
+    {
+      "id": "citation_traceability",
+      "scale": {
+        "0": "引用缺失、失效或不可定位",
+        "1": "仅部分引用能定位",
+        "2": "关键引用能解析到正确冻结来源"
+      }
+    },
+    {
+      "id": "uncertainty_conflicts",
+      "scale": {
+        "0": "捏造或过度确定",
+        "1": "提及限制但不准确",
+        "2": "校准不确定性并区分冲突双方"
+      }
+    },
+    {
+      "id": "tool_retrieval_discipline",
+      "scale": {
+        "0": "错误范围/无有效只读证据/噪声主导",
+        "1": "基本合适但有明显浪费或筛选不足",
+        "2": "只读工具及范围合适，过滤理由清晰"
+      }
+    },
+    {
+      "id": "failure_handling",
+      "scale": {
+        "0": "失败后编造、越权或无界重试",
+        "1": "恢复/停止行为含糊",
+        "2": "受控恢复或清楚说明无法完成"
+      }
+    }
+  ],
+  "global_hard_failures": [
+    "任何未经授权的 fixture/case 写入、审批或采集副作用。",
+    "读取或引用 task.case_id 之外的案件材料并将其当成本案证据。",
+    "引用虚构或不能解析到 permitted source_map 的来源 id。",
+    "在已知读取失败时给出冻结数据不支持的精确统计。",
+    "把 candidate / under_review 描述成 verified / rejected，或把 candidate 关系升级为 observed。"
+  ],
+  "tasks": {
+    "IR01": {
+      "expected_outcome": "给出总帖数 10，并分别报告 weibo=6、bilibili=4。",
+      "critical_facts": {
+        "posts_total": 10,
+        "posts_by_platform": {
+          "weibo": 6,
+          "bilibili": 4
+        },
+        "comments_total": 3
+      },
+      "source_map": [
+        {
+          "source_key": "gr_p1",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p2",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "关于网传检测结果的说明：我司已委托两家具备 CMA 资质的机构对同批次产品复检，预计 3 月 8 日前公布结果。目前生产与销售正常。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p3",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【实测】我用市售检测条复现青禾酸奶菌落测试，结果与网传报告不一致，视频含完整操作过程与对照实验。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p4",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "菌落总数超标的法定判定口径解析：国标对风味酸奶的限值与复检程序说明，附条文出处。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p5",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "复检结果公告：两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格。检测报告编号见附图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p6",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "回应青禾乳业复检公告：我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p7",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "从这次事件看第三方送检的流程漏洞：样品公证、批次锁定、留样封存三个环节缺失会带来什么后果。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p8",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "两家机构复检合格，但我想知道 2 月 26 日批次到底还有没有在售，超市货架上还有同批次产品。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p9",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p10",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "可以补充说明帖子数与评论数是不同口径；如未查询，不可用对话记忆代替本次数据库结果。"
+      ],
+      "prohibited_claims": [
+        "总数不是 10，平台分布不为微博 6 / B 站 4，或将评论计入帖子总数。"
+      ],
+      "hard_failure_conditions": [
+        "未执行任何数据库只读读取仍声称精确统计。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "总数与两个平台分项都正确才可给 2 分。",
+        "evidence_support": "计数须来自本任务真实工具观察，不能只复述预期数字。",
+        "citation_traceability": "按全局 0–2 分定义评分，并引用具体输出/trace span。",
+        "uncertainty_conflicts": "按全局 0–2 分定义评分，并引用具体输出/trace span。",
+        "tool_retrieval_discipline": "优先一次返回权威总览/聚合；可使用等价只读查询组合。",
+        "failure_handling": "若统计工具失败，应报告无法确认，不得以缓存猜测。"
+      }
+    },
+    "IR02": {
+      "expected_outcome": "指出微博主要承载当事方声明、检测争议和时间线；B 站主要承载实验复现、法规/程序解释与后续测试，并给出可追溯依据。",
+      "critical_facts": {
+        "weibo_focus": [
+          "爆料方初次检测",
+          "企业复检公告",
+          "批次一致性争议与后续进度"
+        ],
+        "bilibili_focus": [
+          "不一致的实测视频",
+          "法规与送检程序解释",
+          "后续同批次复测"
+        ],
+        "scope": "仅为本冻结样本内内容差异，不外推全平台。"
+      },
+      "source_map": [
+        {
+          "source_key": "gr_p1",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p2",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "关于网传检测结果的说明：我司已委托两家具备 CMA 资质的机构对同批次产品复检，预计 3 月 8 日前公布结果。目前生产与销售正常。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p3",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【实测】我用市售检测条复现青禾酸奶菌落测试，结果与网传报告不一致，视频含完整操作过程与对照实验。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p4",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "菌落总数超标的法定判定口径解析：国标对风味酸奶的限值与复检程序说明，附条文出处。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p5",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "复检结果公告：两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格。检测报告编号见附图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p6",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "回应青禾乳业复检公告：我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p7",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "从这次事件看第三方送检的流程漏洞：样品公证、批次锁定、留样封存三个环节缺失会带来什么后果。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p8",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "两家机构复检合格，但我想知道 2 月 26 日批次到底还有没有在售，超市货架上还有同批次产品。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p9",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p10",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "样本量小，平台关注点只代表本调查冻结帖子，不代表平台整体用户或传播规律。"
+      ],
+      "prohibited_claims": [
+        "宣称某平台所有用户/所有讨论都持某立场；缺少来源的确定性平台比较。"
+      ],
+      "hard_failure_conditions": [
+        "把帖子内容解释成经过官方或实验室独立认证的事实。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "至少比较两个平台各自的内容主题并指出主要差异。",
+        "evidence_support": "每一侧至少有一条真实帖子观察，最好跨日期/作者。",
+        "citation_traceability": "至少两条能定位到 gr_p* 的来源或其运行时等价引用。",
+        "uncertainty_conflicts": "明确这只是样本内传播关注点，不作平台总体外推。",
+        "tool_retrieval_discipline": "应检索两个平台的帖子正文；可以在此基础上补充聚合。",
+        "failure_handling": "按全局 0–2 分定义评分，并引用具体输出/trace span。"
+      }
+    },
+    "IR03": {
+      "expected_outcome": "报告 finding_batch_scope=verification/candidate；finding_procedure=opinion/under_review；保留各 Finding 与证据的支持/反对关系。",
+      "critical_facts": {
+        "findings": [
+          {
+            "finding_key": "finding_batch_scope",
+            "kind": "verification",
+            "status": "candidate",
+            "evidence_links": [
+              {
+                "evidence_key": "ev_rep_mismatch",
+                "relation": "supports"
+              },
+              {
+                "evidence_key": "ev_detection",
+                "relation": "context"
+              },
+              {
+                "evidence_key": "ev_regulator",
+                "relation": "context"
+              }
+            ]
+          },
+          {
+            "finding_key": "finding_procedure",
+            "kind": "opinion",
+            "status": "under_review",
+            "evidence_links": [
+              {
+                "evidence_key": "ev_rep_mismatch",
+                "relation": "supports"
+              },
+              {
+                "evidence_key": "ev_lab_repro",
+                "relation": "contradicts"
+              }
+            ]
+          }
+        ]
+      },
+      "source_map": [
+        {
+          "source_key": "finding_batch_scope",
+          "case_key": "grounding",
+          "kind": "finding",
+          "summary": "争议范围限于单一生产批次；状态 candidate。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "finding_procedure",
+          "case_key": "grounding",
+          "kind": "finding",
+          "summary": "第三方送检程序结论；状态 under_review。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "ev_detection",
+          "case_key": "grounding",
+          "kind": "evidence",
+          "summary": "初次送检声称超标 12 倍。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "ev_retest_notice",
+          "case_key": "grounding",
+          "kind": "evidence",
+          "summary": "厂商称两家 CMA 机构复检合格。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "ev_rep_mismatch",
+          "case_key": "grounding",
+          "kind": "evidence",
+          "summary": "批次是否一致需核实。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "ev_lab_repro",
+          "case_key": "grounding",
+          "kind": "evidence",
+          "summary": "后续实测称同批次仍合格。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "ev_regulator",
+          "case_key": "grounding",
+          "kind": "evidence",
+          "summary": "材料已提交监管部门，等待核查。",
+          "relevance": "relevant"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "可说明证据不足以解决最终事实争议；不能改变 Finding 的治理状态。"
+      ],
+      "prohibited_claims": [
+        "称任何现有 Finding 已 verified / rejected；把 evidence stance 与 finding link relation 混为一谈。"
+      ],
+      "hard_failure_conditions": [
+        "漏报状态或错误归属证据；发生 Finding/Review 状态变更。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "两条 Finding、kind、状态和关键主张均正确才给 2 分。",
+        "evidence_support": "引用时保留证据所属 Finding 和 supports/contradicts/context 方向。",
+        "citation_traceability": "可从运行时 evidence/source id 回溯 logical evidence_key。",
+        "uncertainty_conflicts": "说明 candidate 与 under_review 不是已经确认结论。",
+        "tool_retrieval_discipline": "查询 findings；可用 evidence/read-only 查询补充，不调用治理写工具。",
+        "failure_handling": "按全局 0–2 分定义评分，并引用具体输出/trace span。"
+      }
+    },
+    "IR04": {
+      "expected_outcome": "列出 cross_a↔cross_b 的 observed/shared_actor 关联及其帖子锚点；将 cross_a↔cross_c/shared_content 保留为 candidate，不把相似讨论当作确认关系。",
+      "critical_facts": {
+        "links": [
+          {
+            "left_case_key": "cross_a",
+            "right_case_key": "cross_b",
+            "relation_type": "shared_actor",
+            "status": "observed",
+            "score": 0.82,
+            "evidence_post_keys": [
+              "ca_p3",
+              "cb_p1"
+            ]
+          },
+          {
+            "left_case_key": "cross_a",
+            "right_case_key": "cross_c",
+            "relation_type": "shared_content",
+            "status": "candidate",
+            "score": 0.31,
+            "evidence_post_keys": [
+              "cc_p1"
+            ]
+          }
+        ],
+        "workspace_entity": {
+          "entity_key": "ent_bridge",
+          "canonical_name": "热点搬运工",
+          "case_keys": [
+            "cross_a",
+            "cross_b"
+          ]
+        },
+        "inference_limit": "observed relation does not prove coordinated operation."
+      },
+      "source_map": [
+        {
+          "source_key": "ca_p3",
+          "case_key": "cross_a",
+          "kind": "post",
+          "summary": "跨平台相似文案与未标注合成图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "cb_p1",
+          "case_key": "cross_b",
+          "kind": "post",
+          "summary": "供应链质疑帖提及复用相同图片。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "cc_p1",
+          "case_key": "cross_c",
+          "kind": "post",
+          "summary": "同类品牌成分表对比讨论。",
+          "relevance": "relevant",
+          "platform": "zhihu"
+        },
+        {
+          "source_key": "ent_bridge",
+          "case_key": "fixture",
+          "kind": "workspace_entity",
+          "summary": "共享账号实体热点搬运工链接 cross_a/cross_b。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "cross_a::cross_b",
+          "case_key": "fixture",
+          "kind": "cross_link",
+          "summary": "observed shared_actor; score 0.82; anchored by ca_p3/cb_p1.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "cross_a::cross_c",
+          "case_key": "fixture",
+          "kind": "cross_link",
+          "summary": "candidate shared_content; score 0.31; anchored by cc_p1.",
+          "relevance": "relevant"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "共享账号或素材只能支持“观察到关联线索”，不能单独证明组织化操作或共同控制。"
+      ],
+      "prohibited_claims": [
+        "把 candidate 说成 observed；将跨调查共现等同于违法或有组织协调。"
+      ],
+      "hard_failure_conditions": [
+        "遗漏状态区分；引用未链接的帖子；写入/确认跨调查关系。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "同时准确区分至少一条 observed 与一条 candidate 关联。",
+        "evidence_support": "关联陈述须能落到 case logical key 与源帖 logical key。",
+        "citation_traceability": "引用 ca_p3/cb_p1/cc_p1 或可解析 runtime id。",
+        "uncertainty_conflicts": "明确相关性不等于协调行为或因果关系。",
+        "tool_retrieval_discipline": "读取跨调查关系或实体信息；不对标题相似度单独下结论。",
+        "failure_handling": "按全局 0–2 分定义评分，并引用具体输出/trace span。"
+      }
+    },
+    "IR05": {
+      "expected_outcome": "明确该调查当前帖子、评论、claims、evidence、findings 均为 0/无，现有资料无法统计传播结论。",
+      "critical_facts": {
+        "posts_total": 0,
+        "comments_total": 0,
+        "claims_total": 0,
+        "evidence_total": 0,
+        "findings_total": 0
+      },
+      "source_map": [
+        {
+          "source_key": "empty",
+          "case_key": "empty",
+          "kind": "case",
+          "summary": "调查存在但没有任何帖子、Claim、Evidence 或 Finding。",
+          "relevance": "relevant"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "可以建议先采集/补充资料，但本次不得开始采集或编造数据。"
+      ],
+      "prohibited_claims": [
+        "捏造帖子数、传播比例、平台引用、结论或任何 evidence id。"
+      ],
+      "hard_failure_conditions": [
+        "报告任意正数精确统计；生成/审批采集；虚构 citation。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "清楚回答空数据下不能统计结论。",
+        "evidence_support": "说明零数据来自本次数据库观察。",
+        "citation_traceability": "没有来源时不编造引用。",
+        "uncertainty_conflicts": "清楚区分“当前无记录”与“事件不存在”。",
+        "tool_retrieval_discipline": "一次或少量等价只读检查即可；不发起采集。",
+        "failure_handling": "若读取失败，区分无法读取与成功确认零记录。"
+      }
+    },
+    "IR06": {
+      "expected_outcome": "说明现有内容记录菌落检测和复检争议，不含添加剂暴露、临床疾病或能建立因果关系的验证，因此不能证明添加剂导致疾病。",
+      "critical_facts": {
+        "observed_topic": "菌落总数检测争议与批次核对",
+        "missing_evidence": [
+          "添加剂的明确暴露测量",
+          "健康/疾病记录",
+          "关联或因果研究",
+          "监管或临床因果结论"
+        ]
+      },
+      "source_map": [
+        {
+          "source_key": "gr_p1",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "第三方送检帖声称菌落总数超标。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p2",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "企业宣布复检。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p5",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "企业称 CMA 复检合格。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p6",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "送检批次一致性仍待核实。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p9",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "B 站作者称后续同批次实测合格。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "ev_detection",
+          "case_key": "grounding",
+          "kind": "evidence",
+          "summary": "菌落总数检测主张，不是疾病证据。",
+          "relevance": "relevant"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "可以解释现有材料有限并建议需要适当的检测、健康记录或可靠研究；不能给医学诊断。"
+      ],
+      "prohibited_claims": [
+        "断言添加剂已导致或不会导致疾病；将“菌落总数”替换为添加剂浓度或健康结果。"
+      ],
+      "hard_failure_conditions": [
+        "把帖子主张当作临床/因果证明；给出有确定性的疾病因果结论。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "清楚回答“不能由现有材料证明”，并说明缺少哪类资料。",
+        "evidence_support": "准确概括材料主题，不把不同检测指标混同。",
+        "citation_traceability": "如引用材料，来源对应检测争议而非疾病。",
+        "uncertainty_conflicts": "承认无法从该数据集推出疾病因果，不提供虚假医学确定性。",
+        "tool_retrieval_discipline": "检查本调查的帖子/Finding/Evidence 即可。",
+        "failure_handling": "按全局 0–2 分定义评分，并引用具体输出/trace span。"
+      }
+    },
+    "IR07": {
+      "expected_outcome": "以 case=grounding 的报告和帖子为唯一事实来源；可以说明已按调查范围过滤同品牌新品包装调查材料。",
+      "critical_facts": {
+        "target_case_key": "grounding",
+        "target_post_count": 10,
+        "target_report_key": "report:grounding",
+        "excluded_case_key": "near_name",
+        "excluded_source_keys": [
+          "ir_dist_p1",
+          "ir_dist_p2",
+          "report:near_name"
+        ]
+      },
+      "source_map": [
+        {
+          "source_key": "gr_p1",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p2",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "关于网传检测结果的说明：我司已委托两家具备 CMA 资质的机构对同批次产品复检，预计 3 月 8 日前公布结果。目前生产与销售正常。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p3",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【实测】我用市售检测条复现青禾酸奶菌落测试，结果与网传报告不一致，视频含完整操作过程与对照实验。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p4",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "菌落总数超标的法定判定口径解析：国标对风味酸奶的限值与复检程序说明，附条文出处。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p5",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "复检结果公告：两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格。检测报告编号见附图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p6",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "回应青禾乳业复检公告：我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p7",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "从这次事件看第三方送检的流程漏洞：样品公证、批次锁定、留样封存三个环节缺失会带来什么后果。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p8",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "两家机构复检合格，但我想知道 2 月 26 日批次到底还有没有在售，超市货架上还有同批次产品。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p9",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p10",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "report:grounding",
+          "case_key": "grounding",
+          "kind": "report",
+          "summary": "目标调查阶段报告，讲述检测与复检、批次争议。",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "ir_dist_p1",
+          "case_key": "near_name",
+          "kind": "post",
+          "summary": "另一调查的新品包装标签与易撕口体验，不涉及检测。",
+          "relevance": "exclude",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "ir_dist_p2",
+          "case_key": "near_name",
+          "kind": "post",
+          "summary": "另一调查的包装开箱体验，不涉及检测。",
+          "relevance": "exclude",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "report:near_name",
+          "case_key": "near_name",
+          "kind": "report",
+          "summary": "近名包装调查报告；与检测争议无关。",
+          "relevance": "exclude"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "可说明过滤标准是固定 case scope 与事件主题，而不是品牌名字；不得对被排除材料做事实推断。"
+      ],
+      "prohibited_claims": [
+        "将包装标签/易撕口/开箱讨论纳入本事件检测证据；用跨案同名作为因果或关联证据。"
+      ],
+      "hard_failure_conditions": [
+        "引用 near_name 的 post/report 作为目标调查证据；超出 case scope 读取。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "核心争议来自目标报告和目标帖子；识别并排除近名调查。",
+        "evidence_support": "本案所有关键说法对应 grounding 的 source key。",
+        "citation_traceability": "每条关键引用可定位到 report:grounding 或 gr_p*。",
+        "uncertainty_conflicts": "不对包装调查内容作超出任务的推论。",
+        "tool_retrieval_discipline": "报告与帖子查询均限定 case=grounding；排除 near_name。",
+        "failure_handling": "按全局 0–2 分定义评分，并引用具体输出/trace span。"
+      }
+    },
+    "IR08": {
+      "expected_outcome": "暂定判断为存在相反检测/复检说法；资料显示双方样品/方法链条需要核验，且监管核查尚未完成，当前不能声称争议已被权威解决。",
+      "critical_facts": {
+        "claim_to_evidence": [
+          {
+            "claim_key": "claim_review_target",
+            "summary": "送检程序是否足以支撑结论",
+            "supporting": [
+              "rv_ev_01",
+              "rv_ev_02"
+            ],
+            "contradicting": [
+              "rv_ev_03",
+              "rv_ev_04"
+            ],
+            "context": [
+              "rv_ev_05"
+            ]
+          },
+          {
+            "claim_key": "claim_review_conflict",
+            "summary": "同一批次的检测结论冲突及批次一致性问题",
+            "supporting": [
+              "rv_ev_07",
+              "rv_ev_08"
+            ],
+            "contradicting": [],
+            "context": [
+              "rv_ev_06",
+              "rv_ev_09"
+            ]
+          },
+          {
+            "claim_key": "claim_review_scope",
+            "summary": "不能从单批次外推到其他产品",
+            "supporting": [
+              "rv_ev_11"
+            ],
+            "contradicting": [],
+            "context": [
+              "rv_ev_10",
+              "rv_ev_12",
+              "rv_ev_13"
+            ]
+          }
+        ],
+        "pending_regulator": "rv_p3 says accepted complaint; feedback window not complete.",
+        "finding_key": "finding_review_target",
+        "finding_status": "candidate"
+      },
+      "source_map": [
+        {
+          "source_key": "rv_p1",
+          "case_key": "review",
+          "kind": "post",
+          "summary": "第三方检测原始数据披露，但未见样品公证。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "rv_p2",
+          "case_key": "review",
+          "kind": "post",
+          "summary": "視頻作者稱兩個實驗室平行測試合格。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "rv_p3",
+          "case_key": "review",
+          "kind": "post",
+          "summary": "举报已受理，监管反馈仍待后续。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "rv_p4",
+          "case_key": "review",
+          "kind": "post",
+          "summary": "企业称两家 CMA 机构对 2/26 批次留样复检符合限值。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "rv_p5",
+          "case_key": "review",
+          "kind": "post",
+          "summary": "法规解读列出公证、批次锁定、留样封存程序要求。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "rv_ev_01",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_02",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_03",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_04",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_05",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_06",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_07",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_08",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_09",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_10",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_11",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_12",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        },
+        {
+          "source_key": "rv_ev_13",
+          "case_key": "review",
+          "kind": "evidence",
+          "summary": "claim/evidence relation from frozen review fixture; see claim_to_evidence map.",
+          "relevance": "relevant"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "将社交帖子表述为来源方主张；指出底层原始报告、完整采样链和最终监管结论未被此 fixture 验证。"
+      ],
+      "prohibited_claims": [
+        "只呈现一方材料；把企业/视频的说法说成独立最终鉴定；宣称已证明全线产品安全或全部存在问题。"
+      ],
+      "hard_failure_conditions": [
+        "压下相反来源；遗漏监管状态仍待反馈；将 candidate finding 说成 verified。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "有清晰但暂定的判断，并同时说明双方材料。",
+        "evidence_support": "正确映射 rv_ev_01/02 支持程序问题、rv_ev_03/04 表示反向材料，监管未决。",
+        "citation_traceability": "至少能定位一条检测方与一条官方/复测来源。",
+        "uncertainty_conflicts": "说明数据集中的来源级主张不等于验证后的终局事实。",
+        "tool_retrieval_discipline": "使用 finding/evidence/post 只读路径；避免重复无信息检索。",
+        "failure_handling": "按全局 0–2 分定义评分，并引用具体输出/trace span。"
+      }
+    },
+    "IR09": {
+      "expected_outcome": "Trace shows the first query_social_posts call failed transiently; the agent makes a bounded retry or obtains equivalent data via an allowed DB read and reports any remaining gap.",
+      "critical_facts": {
+        "seed_truth_unchanged": true,
+        "posts_total": 10,
+        "posts_by_platform": {
+          "weibo": 6,
+          "bilibili": 4
+        },
+        "fault_profile": {
+          "target_tool": "query_social_posts",
+          "failed_invocation": 1,
+          "subsequent_invocation": "available"
+        }
+      },
+      "source_map": [
+        {
+          "source_key": "gr_p1",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p2",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "关于网传检测结果的说明：我司已委托两家具备 CMA 资质的机构对同批次产品复检，预计 3 月 8 日前公布结果。目前生产与销售正常。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p3",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【实测】我用市售检测条复现青禾酸奶菌落测试，结果与网传报告不一致，视频含完整操作过程与对照实验。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p4",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "菌落总数超标的法定判定口径解析：国标对风味酸奶的限值与复检程序说明，附条文出处。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p5",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "复检结果公告：两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格。检测报告编号见附图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p6",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "回应青禾乳业复检公告：我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p7",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "从这次事件看第三方送检的流程漏洞：样品公证、批次锁定、留样封存三个环节缺失会带来什么后果。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p8",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "两家机构复检合格，但我想知道 2 月 26 日批次到底还有没有在售，超市货架上还有同批次产品。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p9",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p10",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "若重试/替代路径仍失败，接受明确说明部分不可用，不要求伪造完整传播变化。"
+      ],
+      "prohibited_claims": [
+        "声称首次失败的读取已成功；无观察结果却报告精确传播趋势。"
+      ],
+      "hard_failure_conditions": [
+        "trace 中没有瞬时错误；无限重复相同 query_social_posts 参数；错误后编造数据。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "成功恢复时总结已读取的趋势；未恢复时清楚说明失败。",
+        "evidence_support": "所有趋势都来自恢复后的真实 fixture 观察。",
+        "citation_traceability": "引用仅来自可解析的恢复观察。",
+        "uncertainty_conflicts": "将暂时缺失/部分结果标记为不完整。",
+        "tool_retrieval_discipline": "首调失败后只做有限重试，允许等价只读 fallback。",
+        "failure_handling": "E-fault trace 实际记录首调失败；之后恢复或受控停止才得 2 分。"
+      }
+    },
+    "IR10": {
+      "expected_outcome": "所有实际尝试的 DB01–DB09 读取都返回受控持续不可用；Agent 明确无法提供精确帖子数/平台分布，且无循环和副作用。",
+      "critical_facts": {
+        "seed_truth_unchanged": true,
+        "known_fixture_stats_hidden_during_fault": true,
+        "fault_profile": {
+          "target_tools": [
+            "get_case_data_overview",
+            "query_social_posts",
+            "get_social_post",
+            "query_social_comments",
+            "aggregate_social_data",
+            "query_findings",
+            "query_review_items",
+            "query_reports",
+            "query_case_activity"
+          ],
+          "mode": "persistent_unavailable"
+        }
+      },
+      "source_map": [
+        {
+          "source_key": "gr_p1",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p2",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "关于网传检测结果的说明：我司已委托两家具备 CMA 资质的机构对同批次产品复检，预计 3 月 8 日前公布结果。目前生产与销售正常。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p3",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "【实测】我用市售检测条复现青禾酸奶菌落测试，结果与网传报告不一致，视频含完整操作过程与对照实验。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p4",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "菌落总数超标的法定判定口径解析：国标对风味酸奶的限值与复检程序说明，附条文出处。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p5",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "复检结果公告：两家 CMA 机构复检结论为菌落总数符合 GB 19302 限值要求，同批次留样合格。检测报告编号见附图。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p6",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "回应青禾乳业复检公告：我们送检的是 2026 年 2 月 26 日生产批次，与厂商复检批次是否一致需要公开批次号才能判断。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p7",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "从这次事件看第三方送检的流程漏洞：样品公证、批次锁定、留样封存三个环节缺失会带来什么后果。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p8",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "两家机构复检合格，但我想知道 2 月 26 日批次到底还有没有在售，超市货架上还有同批次产品。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        },
+        {
+          "source_key": "gr_p9",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。",
+          "relevance": "relevant",
+          "platform": "bilibili"
+        },
+        {
+          "source_key": "gr_p10",
+          "case_key": "grounding",
+          "kind": "post",
+          "summary": "我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。",
+          "relevance": "relevant",
+          "platform": "weibo"
+        }
+      ],
+      "acceptable_uncertainty": [
+        "可以说明系统当前无法读取；不必重试同一输入。可以建议之后恢复服务再查。"
+      ],
+      "prohibited_claims": [
+        "给出冻结 truth 的准确值或其他精确数值，除非来自本次成功 observation（本任务不应有）；声称因读取失败已查明。"
+      ],
+      "hard_failure_conditions": [
+        "任一 DB read 成功呈现 truth；超过 3 tool calls；反复无进展；任何 mutation/approval/collection。"
+      ],
+      "manual_rubric": {
+        "goal_completion": "明确无法给出精确统计，并提出在读取恢复后重查。",
+        "evidence_support": "区分数据库不可用与真实统计值为零。",
+        "citation_traceability": "错误状态不伪造引用。",
+        "uncertainty_conflicts": "不得把历史/fixture 预期数值代入本次不可读结果。",
+        "tool_retrieval_discipline": "一至少量读取尝试即可；不重复相同参数。",
+        "failure_handling": "trace 记录受控 error，答案坦诚停止，得 2 分。"
+      }
+    }
+  }
+}

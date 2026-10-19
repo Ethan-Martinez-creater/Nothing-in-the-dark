@@ -1,0 +1,17 @@
+attempt,task,status,deterministic_pass,codex_acceptance,goal,evidence,citations,uncertainty,tools,failure,latency_ms,requests,parent_tools,child_tools,input_tokens,output_tokens,input_tokens_measured_lower_bound,output_tokens_measured_lower_bound,cost,cost_status,run_id
+feasibility-02,IR01,completed,True,1,2,2,1,2,2,2,7984,2,2,0,16253,367,16253,367,,NOT_MEASURABLE,3eedce02-832f-41fc-8e6e-4b0b280285a4
+feasibility-02,IR05,completed,True,1,2,1,2,2,1,2,19389,3,6,0,25753,1596,25753,1596,,NOT_MEASURABLE,314a9063-9394-4fb9-bd69-f0a517fa92e0
+baseline-01,IR01,completed,True,1,2,2,1,2,2,2,8640,2,2,0,16231,393,16231,393,,NOT_MEASURABLE,53ba35ba-f400-4b55-8fea-83e560f0399a
+baseline-01,IR02,cancelled,False,0,0,0,0,0,1,1,120172,8,11,5,,,55029,4512,,NOT_MEASURABLE,20c08073-c140-47df-96a5-1fe3a6479ef2
+baseline-01,IR03,completed,False,0,2,2,1,2,1,2,89844,14,15,0,,,117571,7820,,NOT_MEASURABLE,0c34bc9c-9ef5-41a9-995c-c1e5d5ffd674
+baseline-01,IR04,completed,False,0,1,1,1,2,2,2,29656,4,5,0,35306,1996,35306,1996,,NOT_MEASURABLE,eb5486ed-7d3d-47de-8633-6496d7b270ca
+baseline-01,IR05,completed,True,1,2,2,1,2,1,2,16547,2,6,0,16649,1270,16649,1270,,NOT_MEASURABLE,495dc0b2-de58-483e-a93d-3a3f812b752c
+baseline-01,IR06,completed,True,0,2,1,1,2,1,2,64594,8,16,0,72908,5406,72908,5406,,NOT_MEASURABLE,4fd86e5d-e469-46ea-a0e0-2bd14bd4b311
+baseline-01,IR07,completed,True,1,1,1,2,2,2,2,23702,3,6,0,30631,1643,30631,1643,,NOT_MEASURABLE,b6194329-3984-43ec-932b-817bb7489916
+baseline-01,IR08,cancelled,False,0,2,1,1,2,0,1,120094,16,11,26,99156,14305,99156,14305,,NOT_MEASURABLE,f5d812fd-3cd8-4df0-bd9a-85ebdc1ec1e4
+baseline-01,IR09,cancelled,False,0,0,0,0,0,1,1,150141,8,13,6,,,54765,6102,,NOT_MEASURABLE,ff43cffb-2e4f-4919-924f-b5171a7361ca
+baseline-01,IR10,completed,False,0,2,2,2,2,0,1,33030,6,9,0,42776,4067,42776,4067,,NOT_MEASURABLE,370bd8a0-06b3-456d-85b0-a4476de20acd
+repeat-01,IR09,completed,True,0,2,2,1,2,1,2,53640,6,12,0,51857,4113,51857,4113,,NOT_MEASURABLE,82f70548-5855-4f36-bbf1-ad12cdcd501f
+repeat-01,IR10,completed,False,0,2,2,2,2,1,1,10905,3,4,0,24374,970,24374,970,,NOT_MEASURABLE,ccb4164f-b9d4-47b2-addb-ae976003eebf
+repeat-02,IR09,cancelled,False,0,2,2,1,2,0,1,150139,12,13,10,85604,17465,85604,17465,,NOT_MEASURABLE,8b7aab87-fb97-471c-b0dd-87a8e66f8441
+repeat-02,IR10,completed,False,0,2,2,2,2,0,1,28797,6,10,0,42773,2416,42773,2416,,NOT_MEASURABLE,2d0af368-f582-417e-b05c-33fb02ff2fc2

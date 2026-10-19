@@ -49,6 +49,11 @@ from app.evaluation.agent_trace import (
     diff_snapshots,
     review_item_views,
 )
+from app.evaluation.investigation_real_eval import (
+    INVESTIGATION_REAL_SUITE,
+    EvalToolRegistry,
+    process_metrics,
+)
 
 EvalMode = Literal["contract", "real_model"]
 CONTRACT_MODE: EvalMode = "contract"
@@ -268,7 +273,11 @@ def build_contract_steps(
 ) -> list[Any]:
     """把“期望行为”翻译成 scripted model 的执行步骤。"""
     steps: list[Any] = []
-    for tool_name in task.expected.required_tools:
+    tool_names = list(task.expected.required_tools)
+    # Contract mode may choose a representative from each OR group. Real mode
+    # never reads expected tools to constrain the model's requested tool list.
+    tool_names.extend(group[0] for group in task.expected.required_tool_groups if group)
+    for tool_name in tool_names:
         spec = tool_specs.get(tool_name)
         arguments = build_tool_arguments(
             tool_name,
@@ -301,6 +310,9 @@ class TaskResult:
     trace_bundle: dict[str, object] = field(default_factory=dict)
     latency_ms: int = 0
     error: str | None = None
+    model_metrics: dict[str, object] | None = None
+    model_measurements: tuple[dict[str, object], ...] = ()
+    task_database_path: str | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -321,6 +333,8 @@ class TaskResult:
         return None
 
     def to_dict(self) -> dict[str, object]:
+        trace_metrics = self.trace_bundle.get("metrics", {})
+        model_metrics = self.model_metrics
         return {
             "task_id": self.task_id,
             "category": self.category,
@@ -333,11 +347,51 @@ class TaskResult:
             "failure_categories": list(self.failure_categories),
             "failure_details": list(self.failure_details),
             "metrics": {
-                "input_tokens": self.trace_bundle.get("metrics", {}).get("input_tokens"),
-                "output_tokens": self.trace_bundle.get("metrics", {}).get("output_tokens"),
-                "estimated_cost": self.trace_bundle.get("metrics", {}).get("estimated_cost"),
-                "tool_calls": self.trace_bundle.get("metrics", {}).get("tool_call_count"),
+                "input_tokens": (
+                    model_metrics.get("input_tokens")
+                    if model_metrics is not None
+                    else trace_metrics.get("input_tokens")
+                ),
+                "output_tokens": (
+                    model_metrics.get("output_tokens")
+                    if model_metrics is not None
+                    else trace_metrics.get("output_tokens")
+                ),
+                "estimated_cost": (
+                    model_metrics.get("estimated_cost_usd")
+                    if model_metrics is not None
+                    else trace_metrics.get("estimated_cost")
+                ),
+                "cost_currency": (
+                    model_metrics.get("cost_currency")
+                    if model_metrics is not None
+                    else None
+                ),
+                "usage_status": (
+                    model_metrics.get("usage_status")
+                    if model_metrics is not None
+                    else None
+                ),
+                "usage_reason": (
+                    model_metrics.get("usage_reason")
+                    if model_metrics is not None
+                    else None
+                ),
+                "cost_status": (
+                    model_metrics.get("cost_status")
+                    if model_metrics is not None
+                    else None
+                ),
+                "cost_reason": (
+                    model_metrics.get("cost_reason")
+                    if model_metrics is not None
+                    else None
+                ),
+                "tool_calls": trace_metrics.get("tool_call_count"),
             },
+            "model_measurements": list(self.model_measurements),
+            "trace_bundle": self.trace_bundle,
+            "task_database_path": self.task_database_path,
             "error": self.error,
         }
 
@@ -410,23 +464,31 @@ _COUNT_METRICS = (
 def aggregate_metrics(results: Sequence[TaskResult]) -> dict[str, float]:
     """把逐任务结果聚合为 suite 级指标（rate 取均值，count 取求和）。"""
     metrics: dict[str, float] = {}
-    total = len(results)
-    if total == 0:
+    selected_count = len(results)
+    if selected_count == 0:
         return metrics
+    attempted = [result for result in results if result.status != "blocked"]
 
     def values(name: str) -> list[float]:
         return [
             value
-            for value in (result.metric(name) for result in results)
+            for value in (result.metric(name) for result in attempted)
             if value is not None
         ]
 
     # task_success 来自 E1 的 agent.task_success（0/1）
     success = values("agent.task_success")
-    metrics["agent.task_success_rate"] = round(sum(success) / total, 4) if success else 0.0
-    metrics["agent.tasks_total"] = float(total)
+    metrics["agent.task_success_rate"] = (
+        round(sum(success) / len(attempted), 4) if success and attempted else 0.0
+    )
+    metrics["agent.tasks_selected"] = float(selected_count)
+    metrics["agent.tasks_attempted"] = float(len(attempted))
+    metrics["agent.tasks_total"] = float(selected_count)
     metrics["agent.tasks_completed"] = float(
         sum(1 for result in results if result.status == "completed")
+    )
+    metrics["agent.tasks_blocked"] = float(
+        sum(1 for result in results if result.status == "blocked")
     )
     for name in _RATE_METRICS[1:]:
         items = values(name)
@@ -456,22 +518,25 @@ def aggregate_metrics(results: Sequence[TaskResult]) -> dict[str, float]:
         if outcome.evaluator == "E9_efficiency"
     ]
     input_tokens = [
-        float(outcome.details.get("input_tokens", 0))
+        float(outcome.details["input_tokens"])
         for result in results
         for outcome in result.outcomes
         if outcome.evaluator == "E9_efficiency"
+        and isinstance(outcome.details.get("input_tokens"), (int, float))
     ]
     output_tokens = [
-        float(outcome.details.get("output_tokens", 0))
+        float(outcome.details["output_tokens"])
         for result in results
         for outcome in result.outcomes
         if outcome.evaluator == "E9_efficiency"
+        and isinstance(outcome.details.get("output_tokens"), (int, float))
     ]
     costs = [
-        float(outcome.details.get("estimated_cost", 0))
+        float(outcome.details["estimated_cost"])
         for result in results
         for outcome in result.outcomes
         if outcome.evaluator == "E9_efficiency"
+        and isinstance(outcome.details.get("estimated_cost"), (int, float))
     ]
     if steps:
         metrics["agent.avg_steps"] = round(sum(steps) / len(steps), 2)
@@ -512,7 +577,7 @@ def aggregate_metrics(results: Sequence[TaskResult]) -> dict[str, float]:
             sum(grounding_rates) / len(grounding_rates), 4
         )
 
-    critical = [result for result in results if result.critical]
+    critical = [result for result in attempted if result.critical]
     if critical:
         critical_success = [
             value
@@ -546,6 +611,79 @@ def _percentile(ordered: Sequence[float], percentile: float) -> float:
     upper = min(lower + 1, len(ordered) - 1)
     weight = index - lower
     return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
+def _summarize_gateway_measurements(
+    measurements: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    """Aggregate only fields measured by the gateway instrumentation."""
+    def total(field_name: str) -> tuple[int | None, str, str | None]:
+        if not measurements:
+            return None, "NOT_MEASURABLE", "gateway exposed no per-request measurements"
+        values = [item.get(field_name) for item in measurements]
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in values
+        ):
+            missing = sum(value is None for value in values)
+            reason = (
+                f"{missing} of {len(values)} requests did not report {field_name}"
+                if missing
+                else f"one or more requests reported invalid {field_name}"
+            )
+            return None, "NOT_MEASURABLE", reason
+        return sum(int(value) for value in values), "MEASURED", None
+
+    input_tokens, input_status, input_reason = total("input_tokens")
+    output_tokens, output_status, output_reason = total("output_tokens")
+    request_duration_ms, duration_status, duration_reason = total("duration_ms")
+
+    cost_values = [item.get("cost") for item in measurements]
+    currencies = {str(item.get("currency")) for item in measurements if item.get("currency")}
+    pricing_statuses = {str(item.get("pricing_status") or "UNKNOWN") for item in measurements}
+    cost_is_verified_usd = bool(measurements) and all(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value >= 0
+        for value in cost_values
+    ) and currencies == {"USD"} and pricing_statuses == {"VERIFIED"}
+    estimated_cost_usd = (
+        round(sum(float(value) for value in cost_values), 8)
+        if cost_is_verified_usd
+        else None
+    )
+    cost_reason = None if cost_is_verified_usd else (
+        "pricing was not verified in USD for every request"
+        if measurements
+        else "gateway exposed no per-request measurements"
+    )
+    return {
+        "input_tokens": input_tokens,
+        "input_tokens_status": input_status,
+        "input_tokens_reason": input_reason,
+        "output_tokens": output_tokens,
+        "output_tokens_status": output_status,
+        "output_tokens_reason": output_reason,
+        "usage_status": (
+            "MEASURED"
+            if input_tokens is not None and output_tokens is not None
+            else (
+                "PARTIAL"
+                if input_tokens is not None or output_tokens is not None
+                else "NOT_MEASURABLE"
+            )
+        ),
+        "usage_reason": "; ".join(
+            reason for reason in (input_reason, output_reason) if reason
+        ) or None,
+        "estimated_cost_usd": estimated_cost_usd,
+        "cost_currency": "USD" if cost_is_verified_usd else None,
+        "cost_status": "MEASURED" if cost_is_verified_usd else "NOT_MEASURABLE",
+        "cost_reason": cost_reason,
+        "model_request_duration_ms": request_duration_ms,
+        "model_request_duration_status": duration_status,
+        "model_request_duration_reason": duration_reason,
+    }
 
 
 def evaluate_hard_gates(report: AgentEvaluationReport) -> list[dict[str, object]]:
@@ -616,7 +754,12 @@ class AgentSuiteRunner:
         self._stack = stack
         return stack
 
-    def _build_tools(self, stack: EvalDataStack, gateway: Any) -> Any:
+    def _build_tools(
+        self,
+        stack: EvalDataStack,
+        gateway: Any,
+        task: AgentGoldenTask | None = None,
+    ) -> Any:
         """构造真实 Tool Registry（生产 build_tool_registry，非 eval 专用）。
 
         FC-IR-01：DB01–DB09 与 Intelligence Tool 必须接**生产只读服务**
@@ -648,6 +791,13 @@ class AgentSuiteRunner:
         )
         register_database_tools(registry, self._read_recorder.wrap(agent_database))
         register_intelligence_tools(registry, self._read_recorder.wrap(intelligence))
+        if task is not None and self._suite.suite_version == INVESTIGATION_REAL_SUITE:
+            return EvalToolRegistry(
+                registry,
+                task_tags=task.tags,
+                observation_recorder=self._read_recorder,
+                enable_faults=True,
+            )
         return registry
 
     def _build_worker(self, stack: EvalDataStack, gateway: Any, tools: Any, task: AgentGoldenTask) -> Any:
@@ -690,6 +840,25 @@ class AgentSuiteRunner:
         started = datetime.now(timezone.utc)
         results: list[TaskResult] = []
         for task in selected:
+            hard_stop_reason = getattr(self._gateway, "hard_stop_reason", None)
+            if (
+                self._mode == REAL_MODEL_MODE
+                and suite.suite_version == INVESTIGATION_REAL_SUITE
+                and hard_stop_reason
+            ):
+                results.append(
+                    TaskResult(
+                        task_id=task.id,
+                        category=task.category,
+                        critical=task.critical,
+                        mode=self._mode,
+                        status="blocked",
+                        run_id="",
+                        case_id=task.case_id or "",
+                        error=f"BLOCKED_NOT_RUN: {hard_stop_reason}"[:300],
+                    )
+                )
+                continue
             results.append(await self._run_task(stack, task))
         finished = datetime.now(timezone.utc)
         metrics = aggregate_metrics(results)
@@ -716,12 +885,26 @@ class AgentSuiteRunner:
             ),
         )
         violations = evaluate_hard_gates(report)
+        hard_stop_reason = getattr(self._gateway, "hard_stop_reason", None)
+        if (
+            self._mode == REAL_MODEL_MODE
+            and suite.suite_version == INVESTIGATION_REAL_SUITE
+            and hard_stop_reason
+        ):
+            violations.append(
+                {
+                    "metric": "agent.gateway_hard_stop",
+                    "value": str(hard_stop_reason),
+                    "required": None,
+                    "reason": "gateway hard stop prevents a complete real-model evaluation",
+                }
+            )
         return replace(report, hard_gate_violations=tuple(violations))
 
     async def _run_task(
         self, shared_stack: EvalDataStack | None, task: AgentGoldenTask
     ) -> TaskResult:
-        """per-task 隔离：每个任务一个全新临时库，用完即删。"""
+        """Per-task isolation with a retained, closed synthetic database."""
         if not self._per_task_isolation:
             assert shared_stack is not None
             return await self._run_task_on_stack(shared_stack, task)
@@ -731,7 +914,8 @@ class AgentSuiteRunner:
         await task_db.create_schema()
         stack = build_stack(task_db)
         try:
-            return await self._run_task_on_stack(stack, task)
+            result = await self._run_task_on_stack(stack, task)
+            return replace(result, task_database_path=str(task_db.path))
         finally:
             await task_db.dispose()
 
@@ -755,12 +939,12 @@ class AgentSuiteRunner:
                 raise RuntimeError(
                     "real_model mode requires an explicit gateway (production LLM)"
                 )
-            tools_for_args = self._build_tools(stack, None)
+            tools_for_args = self._build_tools(stack, None, task)
             specs = {name: tools_for_args.get(name) for name in tools_for_args.names()}
             steps = build_contract_steps(task, seeded, specs)
             gateway = ContractGateway(steps)
 
-        tools = self._build_tools(stack, gateway)
+        tools = self._build_tools(stack, gateway, task)
         if not self._tool_schema_hash:
             from app.evaluation.agent_manifest import tool_schema_hash
 
@@ -774,6 +958,10 @@ class AgentSuiteRunner:
             finding_repository=stack.finding_repository,
             social_repository=stack.social,
         )
+        gateway_measurements = getattr(gateway, "evaluation_measurements", None)
+        measurement_start = (
+            len(gateway_measurements) if isinstance(gateway_measurements, list) else None
+        )
         started_ms = time.monotonic()
         run = await service.start(
             case_id=case_id,
@@ -783,7 +971,12 @@ class AgentSuiteRunner:
         )
         error: str | None = None
         try:
-            await self._drive(stack, worker, run.id)
+            await self._drive(
+                stack,
+                worker,
+                run.id,
+                task_timeout_seconds=task.budgets.task_timeout_seconds,
+            )
         except Exception as exc:  # noqa: BLE001 - 任务级失败必须记录而非中断整套
             error = f"{type(exc).__name__}: {exc}"[:300]
         elapsed_ms = int((time.monotonic() - started_ms) * 1000)
@@ -800,6 +993,20 @@ class AgentSuiteRunner:
         trace = await collect_trace(
             stack.repository, run.id, finding_repository=stack.finding_repository
         )
+        current_measurements = getattr(gateway, "evaluation_measurements", None)
+        measurements: tuple[dict[str, object], ...] = ()
+        if isinstance(current_measurements, list) and measurement_start is not None:
+            measurements = tuple(
+                dict(item)
+                for item in current_measurements[measurement_start:]
+                if isinstance(item, dict)
+            )
+        is_real_eval_suite = self._suite.suite_version == INVESTIGATION_REAL_SUITE
+        model_metrics = (
+            _summarize_gateway_measurements(measurements)
+            if is_real_eval_suite
+            else None
+        )
         outcomes = run_deterministic_evaluators(
             EvalContext(
                 task=task,
@@ -814,11 +1021,65 @@ class AgentSuiteRunner:
                 expected_case_id=case_id,
                 wall_clock_ms=elapsed_ms,
                 observation_texts=(
-                    self._read_recorder.texts() if self._read_recorder else ()
+                    self._read_recorder.tool_texts()
+                    if is_real_eval_suite and self._read_recorder
+                    else self._read_recorder.texts()
+                    if self._read_recorder
+                    else ()
                 ),
+                model_metrics=model_metrics,
             )
         )
         categories = failure_categories(outcomes)
+        trace_bundle = trace.to_bundle()
+        if is_real_eval_suite:
+            observations = (
+                [
+                    item
+                    for item in self._read_recorder.observations()
+                    if item.get("kind") == "tool_observation"
+                ]
+                if self._read_recorder
+                else []
+            )
+            relevant_observations = [
+                item for item in observations if item.get("kind") == "tool_observation"
+            ]
+            process = process_metrics(
+                tool_calls=tuple(trace.tool_calls) + tuple(trace.child_tool_calls),
+                observations=relevant_observations,
+            )
+            trace_bundle["child_tool_calls"] = [
+                call.to_dict() for call in trace.child_tool_calls
+            ]
+            trace_bundle["observations"] = observations
+            trace_bundle["ref_map"] = dict(seeded.ref_map)
+            trace_bundle["source_map"] = {
+                runtime_id: logical_key
+                for logical_key, runtime_id in seeded.ref_map.items()
+            }
+            trace_bundle["process_metrics"] = process
+            trace_bundle["model_measurements"] = list(measurements)
+            trace_bundle["model_metrics"] = model_metrics
+            fault_summary = getattr(tools, "fault_summary", None)
+            trace_bundle["fault_injection"] = (
+                fault_summary()
+                if callable(fault_summary)
+                else {"profiles": [], "injected_failure_count": 0}
+            )
+            if isinstance(trace_bundle.get("metrics"), dict) and model_metrics is not None:
+                trace_bundle["metrics"].update(
+                    {
+                        "input_tokens": model_metrics.get("input_tokens"),
+                        "output_tokens": model_metrics.get("output_tokens"),
+                        "estimated_cost": model_metrics.get("estimated_cost_usd"),
+                        "cost_currency": model_metrics.get("cost_currency"),
+                        "usage_status": model_metrics.get("usage_status"),
+                        "usage_reason": model_metrics.get("usage_reason"),
+                        "cost_status": model_metrics.get("cost_status"),
+                        "cost_reason": model_metrics.get("cost_reason"),
+                    }
+                )
         return TaskResult(
             task_id=task.id,
             category=task.category,
@@ -830,12 +1091,21 @@ class AgentSuiteRunner:
             outcomes=outcomes,
             failure_categories=tuple(categories),
             failure_details=tuple(iter_failure_details(task, outcomes)),
-            trace_bundle=trace.to_bundle(),
+            trace_bundle=trace_bundle,
             latency_ms=elapsed_ms or trace.total_duration_ms(),
             error=error,
+            model_metrics=model_metrics,
+            model_measurements=measurements,
         )
 
-    async def _drive(self, stack: EvalDataStack, worker: Any, run_id: str) -> None:
+    async def _drive(
+        self,
+        stack: EvalDataStack,
+        worker: Any,
+        run_id: str,
+        *,
+        task_timeout_seconds: int | None = None,
+    ) -> None:
         """驱动 worker 直到 run 到达终态（含等待审批）。
 
         必须用后台循环而非 ``tick(wait=True)``：``dispatch_expert`` 会同步等待
@@ -844,7 +1114,12 @@ class AgentSuiteRunner:
         """
         await worker.start()
         try:
-            deadline = time.monotonic() + self._task_timeout
+            timeout_seconds = (
+                min(self._task_timeout, task_timeout_seconds)
+                if task_timeout_seconds is not None
+                else self._task_timeout
+            )
+            deadline = time.monotonic() + timeout_seconds
             while time.monotonic() < deadline:
                 run = await stack.repository.get_agent_run(run_id)
                 if run.status in {
@@ -857,7 +1132,7 @@ class AgentSuiteRunner:
                     return
                 await asyncio.sleep(0.1)
             raise TimeoutError(
-                f"run {run_id} did not reach a terminal state in time"
+                f"run {run_id} did not reach a terminal state within {timeout_seconds}s"
             )
         finally:
             await worker.stop()

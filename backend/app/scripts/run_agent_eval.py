@@ -62,6 +62,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--database-url", default="", help="默认使用临时 SQLite")
     parser.add_argument("--output", default="", help="报告 JSON 输出路径")
+    parser.add_argument("--llm-config-file", default=".env", help="explicit fresh LLM-only config")
+    parser.add_argument(
+        "--preflight-receipt", default="artifacts/agent_eval/real_v1/preflight.json",
+        help="fresh authenticated preflight receipt required before a real run",
+    )
     parser.add_argument(
         "--max-tasks",
         type=int,
@@ -86,19 +91,34 @@ def _resolve_database_url(explicit: str) -> tuple[str, str]:
     return f"sqlite+aiosqlite:///{tmp / 'eval.db'}", str(tmp)
 
 
-def _build_real_model_gateway() -> Any:
+def _build_real_model_gateway(
+    config_file: str = ".env",
+    receipt: str = "artifacts/agent_eval/real_v1/preflight.json",
+) -> Any:
     """复用生产 gateway（含 telemetry 与 pricing），不另建第二套模型层。"""
-    from app.bootstrap import ApplicationContainer
-    from app.core.config import get_settings
+    from app.evaluation.investigation_preflight import verified_gateway
 
-    container = ApplicationContainer(get_settings())
-    gateway = container.llm
-    if not getattr(gateway, "configured", False):
-        raise SystemExit(
-            "real_model mode requires a configured LLM gateway "
-            "(set LLM_API_KEY); refusing to fabricate results."
-        )
-    return gateway
+    return verified_gateway(config_file, receipt)
+
+
+def _investigation_database_url(explicit: str) -> str:
+    """Never accept production DBs or reuse an existing database for this study."""
+    from uuid import uuid4
+
+    from sqlalchemy.engine import make_url
+
+    root = Path("artifacts/agent_eval/real_v1").resolve()
+    if explicit:
+        url = make_url(explicit)
+        if url.drivername != "sqlite+aiosqlite" or not url.database:
+            raise ValueError("Investigation evaluation requires a new local SQLite report DB")
+        path = Path(url.database).resolve()
+        if not path.is_relative_to(root) or path.exists():
+            raise ValueError("Report DB must be new and under artifacts/agent_eval/real_v1")
+    else:
+        path = root / f"metadata-{uuid4().hex}.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite+aiosqlite:///{path}"
 
 
 def _render_markdown(
@@ -188,17 +208,35 @@ async def _run(args: argparse.Namespace) -> int:
     from app.infrastructure.database import Database
     from app.services.quality_gate import GATE_BLOCK
 
-    database_url, _tmp = _resolve_database_url(args.database_url)
-    database = Database(database_url)
-    await database.create_schema()
-
     gateway = None
     model_label = "contract-scripted-model"
+    investigation = args.suite_version == "investigation_real_eval_v1"
+    if investigation:
+        if not args.output:
+            from datetime import UTC, datetime
+
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            args.output = f"artifacts/agent_eval/real_v1/{args.mode}-{stamp}.json"
+        if Path(args.output).exists():
+            raise ValueError("Preserve previous attempts; choose a new --output path")
+        if Path(args.output).with_name(Path(args.output).stem + "-requests.json").exists():
+            raise ValueError("Preserve prior request observations; choose a new --output path")
     if args.mode == REAL_MODEL_MODE:
-        gateway = _build_real_model_gateway()
+        gateway = _build_real_model_gateway(args.llm_config_file, args.preflight_receipt)
         model_label = getattr(gateway, "model_for", lambda _route: "unknown")(
             "fast"
         ) if hasattr(gateway, "model_for") else "production-gateway"
+
+    if investigation:
+        database_url = _investigation_database_url(args.database_url)
+    else:
+        database_url, _tmp = _resolve_database_url(args.database_url)
+    database = Database(database_url)
+    if investigation:
+        from app.evaluation.agent_eval_runtime import configure_disposable_sqlite
+
+        configure_disposable_sqlite(database)
+    await database.create_schema()
 
     service = AgentEvaluationService(database, gateway=gateway)
     repository = ApplicationRepository(database)
@@ -257,6 +295,15 @@ async def _run(args: argparse.Namespace) -> int:
             regression = service.compare_to_baseline(report, baseline_metrics)
     finally:
         await database.dispose()
+        if gateway is not None and hasattr(gateway, "aclose"):
+            if investigation:
+                requests = Path(args.output).with_name(Path(args.output).stem + "-requests.json")
+                requests.parent.mkdir(parents=True, exist_ok=True)
+                requests.write_text(json.dumps({
+                    "hard_stop_reason": getattr(gateway, "hard_stop_reason", None),
+                    "model_requests": getattr(gateway, "evaluation_measurements", []),
+                }, ensure_ascii=False, indent=2), encoding="utf-8")
+            await gateway.aclose()
 
     gate_blocked = [
         gate for gate in gate_results if gate.get("decision") == GATE_BLOCK
@@ -271,6 +318,16 @@ async def _run(args: argparse.Namespace) -> int:
     payload["gate_results"] = gate_results
     payload["baseline_regression"] = regression
     payload["overall_passed"] = overall_ok
+    if investigation:
+        from app.evaluation.investigation_preflight import config_metadata
+
+        payload["real_model_status"] = (
+            "REAL_MODEL_RUN" if args.mode == REAL_MODEL_MODE else "REAL_MODEL_NOT_RUN"
+        )
+        payload["manual_adjudication"] = "PENDING; deterministic checks are not human scores"
+        payload["model_config"] = config_metadata(gateway._settings) if gateway else None
+        payload["hard_stop_reason"] = getattr(gateway, "hard_stop_reason", None)
+        payload["model_requests"] = getattr(gateway, "evaluation_measurements", [])
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
     markdown = _render_markdown(
         report,
@@ -286,6 +343,10 @@ async def _run(args: argparse.Namespace) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(rendered, encoding="utf-8")
         out.with_suffix(".md").write_text(markdown, encoding="utf-8")
+        if investigation:
+            from app.evaluation.investigation_export import export_run
+
+            export_run(report, payload, out)
         print(f"wrote {out} and {out.with_suffix('.md')}")
     else:
         print(rendered)

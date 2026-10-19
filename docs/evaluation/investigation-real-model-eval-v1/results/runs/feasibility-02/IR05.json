@@ -1,0 +1,106 @@
+{
+  "task_id": "IR05",
+  "run_id": "314a9063-9394-4fb9-bd69-f0a517fa92e0",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 1,
+      "citations": 2,
+      "uncertainty": 2,
+      "tools": 1,
+      "failure": 2
+    },
+    "notes": [
+      "overview/posts/aggregation confirm empty fixture; answer refuses propagation statistics and performs no collection/write.",
+      "Unnecessary broad product-capability claims are not all established by observations. Six calls and seven steps exceed E9's recorded thresholds.",
+      "collection_run_unavailable was accurately disclosed, although process failure count is zero. Tool/result anchors locate the empty-state evidence."
+    ]
+  },
+  "input_tokens": 25753,
+  "output_tokens": 1596,
+  "usage_lower_bound": {
+    "input_tokens": 25753,
+    "input_tokens_measured_lower_bound": 25753,
+    "output_tokens": 1596,
+    "output_tokens_measured_lower_bound": 1596
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 3,
+  "latency_ms": 19389,
+  "parent_tool_calls": 6,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7872,
+      "output_tokens": 173,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 7500.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8689,
+      "output_tokens": 375,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3016.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9192,
+      "output_tokens": 1048,
+      "cached_input_tokens": 8576,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 7640.0
+    }
+  ],
+  "raw_report_sha256": "b9aa810bd88b6d1eef5dfad8a0e3d8a57dc738a8f0a1188a385e4bdbb73098c1",
+  "raw_trace_sha256": "610e10852f8be2640ec89ead71c136acc6869d3c3dc5b0883e2bc3a7fa5fefee",
+  "raw_requests_sha256": "42ca3f7b83ae60a7de237ec9d94aa248f9ded893e4d45bbb47e30656ec6f68cc",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/feasibility-02",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

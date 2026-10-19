@@ -1,0 +1,91 @@
+{
+  "task_id": "IR05",
+  "run_id": "495dc0b2-de58-483e-a93d-3a3f812b752c",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 1,
+      "failure": 2
+    },
+    "notes": [
+      "overview, platform/day aggregate, post/comment queries confirm zero records. Answer refuses propagation conclusions and does not collect/write.",
+      "Tool names locate observations, but no stable logical source anchor is shown. Six calls/seven steps exceed E9 thresholds, with redundant collection-run/day queries.",
+      "collection_run_unavailable is disclosed; no invented statistics or attempted collection."
+    ]
+  },
+  "input_tokens": 16649,
+  "output_tokens": 1270,
+  "usage_lower_bound": {
+    "input_tokens": 16649,
+    "input_tokens_measured_lower_bound": 16649,
+    "output_tokens": 1270,
+    "output_tokens_measured_lower_bound": 1270
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 16547,
+  "parent_tool_calls": 6,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7872,
+      "output_tokens": 442,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5203.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8777,
+      "output_tokens": 828,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 10250.0
+    }
+  ],
+  "raw_report_sha256": "32d9620b85fc28b7e99c201510c8c2f5769a43da189b94cb7d292b8fc1caf41a",
+  "raw_trace_sha256": "f11a87391d1d6bee23b5d3546c35ffa65b30aa05877a633401741baf939ec4cf",
+  "raw_requests_sha256": "af2d1ac8e2ec2d2cc893f80279484b4ea70aa509cf0d6685c1464bde10e7d2d5",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

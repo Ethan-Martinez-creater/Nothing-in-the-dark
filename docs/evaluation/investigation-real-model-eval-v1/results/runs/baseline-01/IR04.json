@@ -1,0 +1,149 @@
+{
+  "task_id": "IR04",
+  "run_id": "eb5486ed-7d3d-47de-8633-6496d7b270ca",
+  "status": "completed",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR04",
+      "evaluator": "E6_citation_validity",
+      "metric": "agent.invalid_citation_count",
+      "value": 1.0,
+      "failure_category": "citation",
+      "details": {
+        "referenced_ids": [
+          "case:cross_c",
+          "case:cross_a",
+          "post:ca_p1",
+          "695e6d2e-fcfe-49e9-8f33-4a210d659846",
+          "entity:ent_bridge",
+          "case:cross_b",
+          "post:ca_p3",
+          "post:cb_p1"
+        ],
+        "invalid_ids": [
+          "695e6d2e-fcfe-49e9-8f33-4a210d659846"
+        ],
+        "known_id_count": 17
+      }
+    }
+  ],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 1,
+      "evidence": 1,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 2
+    },
+    "primary_failure": "grounding",
+    "secondary_failures": [
+      "citation"
+    ],
+    "notes": [
+      "Correctly distinguishes observed shared_actor cross_a/cross_b (.82) and candidate shared_content cross_a/cross_c (.31); explicitly rejects coordination inference from co-occurrence.",
+      "ent_bridge and ca_p3/cb_p1 support observed relation. Required cc_p1 post anchor for candidate relation is omitted.",
+      "E6 invalid signal ID is returned by query_signals but absent from permitted source_map. Keep automatic FAIL; do not label this a fabricated signal."
+    ]
+  },
+  "input_tokens": 35306,
+  "output_tokens": 1996,
+  "usage_lower_bound": {
+    "input_tokens": 35306,
+    "input_tokens_measured_lower_bound": 35306,
+    "output_tokens": 1996,
+    "output_tokens_measured_lower_bound": 1996
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 4,
+  "latency_ms": 29656,
+  "parent_tool_calls": 5,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7885,
+      "output_tokens": 177,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 6343.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8539,
+      "output_tokens": 248,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3641.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9091,
+      "output_tokens": 129,
+      "cached_input_tokens": 8448,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3110.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9791,
+      "output_tokens": 1442,
+      "cached_input_tokens": 9088,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 15297.0
+    }
+  ],
+  "raw_report_sha256": "8c463652bc1eb4a47a761c1ca53e08b8fd8db6fa2c0d1ab027b25da51cd7316b",
+  "raw_trace_sha256": "567bee3b31dad256cbe9a90dbe2152ca58bbfaf6914c4efe4719ab1e926a9078",
+  "raw_requests_sha256": "25cd9e3e7108f1038d1095d0ae8cb0ad61845ca691265629166a3d49a8ba6a1b",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

@@ -1,0 +1,394 @@
+{
+  "task_id": "IR08",
+  "run_id": "f5d812fd-3cd8-4df0-bd9a-85ebdc1ec1e4",
+  "status": "cancelled",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR08",
+      "evaluator": "E1_task_completion",
+      "metric": "agent.task_success",
+      "value": 0.0,
+      "failure_category": "state mutation",
+      "details": {
+        "assertion_failures": [
+          {
+            "kind": "no_mutation",
+            "target": "case",
+            "expected": true,
+            "note": "state changed: {'count_deltas': {'claims': 11, 'evidence': 5}}"
+          }
+        ],
+        "missing_artifacts": [],
+        "answered": true,
+        "run_status": "cancelled"
+      }
+    },
+    {
+      "task_id": "IR08",
+      "evaluator": "E5_state_mutation",
+      "metric": "agent.unexpected_mutation_count",
+      "value": 2.0,
+      "failure_category": "state mutation",
+      "details": {
+        "unexpected": {
+          "count_deltas": {
+            "claims": 11,
+            "evidence": 5
+          }
+        },
+        "before": {
+          "case_id": "case:review",
+          "finding_status": {
+            "00792a7f-c447-453d-abf6-c7422cabf3c5": "candidate"
+          },
+          "review_status": {},
+          "counts": {
+            "claims": 3,
+            "evidence": 13,
+            "artifacts": 0,
+            "posts": 5
+          }
+        },
+        "after": {
+          "case_id": "case:review",
+          "finding_status": {
+            "00792a7f-c447-453d-abf6-c7422cabf3c5": "candidate"
+          },
+          "review_status": {},
+          "counts": {
+            "claims": 14,
+            "evidence": 18,
+            "artifacts": 1,
+            "posts": 5
+          }
+        }
+      }
+    }
+  ],
+  "runner_error": "TimeoutError: run f5d812fd-3cd8-4df0-bd9a-85ebdc1ec1e4 did not reach a terminal state within 120s",
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 2,
+      "evidence": 1,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 0,
+      "failure": 1
+    },
+    "primary_failure": "tool routing",
+    "secondary_failures": [
+      "state mutation",
+      "context"
+    ],
+    "notes": [
+      "No-mutation hard failure: claims3->14 (+11), evidence13->18 (+5); artifacts0->1 also visible. E1/E5 fail. Task cancelled after120s; nonempty final_answer is a tentative_assessment JSON and does not establish normal coordinator completion.",
+      "Parent dispatch_expert and child verify_claims completed. Production analysis.verify_claims can persist candidates/evidence when given repository/case/run. Trace supports a write-capable expert path, not a claim that all deltas came from that one call.",
+      "Covers both sides, rv_ev_01/02 procedural concerns, rv_ev_03/04 counter-tests, rv_ev_05 regulator hearsay, rv_ev_10 no official conclusion. Finding remains candidate. Good uncertainty cannot offset unauthorized synthetic-case mutation.",
+      "Overstates absence of notarization relative to not-seeing-documents; lists claim_review_conflict/claim_review_target as candidate items despite entity-type mismatch; claims15 evidence whereas seed13/post-state18.",
+      "11 parent +26 child calls, E9 thresholds exceeded. Four embedding failures, three recorded unproductive repeats. Child verify_claims full result is not in observations, limiting independent verification of generated cards.",
+      "Primary reviewer assigns failure1 because handling embedding errors did not lead to bounded normal task completion; the outer timeout cancelled the run."
+    ]
+  },
+  "input_tokens": 99156,
+  "output_tokens": 14305,
+  "usage_lower_bound": {
+    "input_tokens": 99156,
+    "input_tokens_measured_lower_bound": 99156,
+    "output_tokens": 14305,
+    "output_tokens_measured_lower_bound": 14305
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 16,
+  "latency_ms": 120094,
+  "parent_tool_calls": 11,
+  "child_tool_calls": 26,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 4,
+      "by_tool": {
+        "search_social_evidence": 4
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 4
+      }
+    },
+    "unproductive_repeat_count": 3,
+    "unproductive_repeats": [
+      {
+        "tool": "query_social_posts",
+        "call_id": "call_03_kbro3tdag8usi88btaps08gq",
+        "repeats_call_id": "call_00_sbr07j8orxmcsu0nuj5151iu",
+        "reason": "same tool and normalized arguments produced no new observation"
+      },
+      {
+        "tool": "query_claims",
+        "call_id": "call_00_qihrwc4bss4lv0qcvnqjuub5",
+        "repeats_call_id": "call_01_35mw9q1sp74k6f7bdaryrvel",
+        "reason": "same tool and normalized arguments produced no new observation"
+      },
+      {
+        "tool": "get_investigation_quality",
+        "call_id": "call_03_hwd67w6b09phk9yfts9pr9bf",
+        "repeats_call_id": "call_01_6fj9d7ffouz6nk50lc3yekl4",
+        "reason": "same tool and normalized arguments produced no new observation"
+      }
+    ]
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7893,
+      "output_tokens": 401,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5407.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9246,
+      "output_tokens": 327,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5515.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 136,
+      "output_tokens": 59,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 1579.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 11128,
+      "output_tokens": 432,
+      "cached_input_tokens": 9216,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4844.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 132,
+      "output_tokens": 240,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2859.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 11513,
+      "output_tokens": 1576,
+      "cached_input_tokens": 11008,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 14953.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 4568,
+      "output_tokens": 339,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2610.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 2668,
+      "output_tokens": 294,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2093.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8235,
+      "output_tokens": 368,
+      "cached_input_tokens": 4480,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2766.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 6139,
+      "output_tokens": 841,
+      "cached_input_tokens": 2560,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3750.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 142,
+      "output_tokens": 853,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 9047.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7904,
+      "output_tokens": 351,
+      "cached_input_tokens": 6016,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2562.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8730,
+      "output_tokens": 717,
+      "cached_input_tokens": 8192,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3844.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 143,
+      "output_tokens": 2033,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 13656.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 11935,
+      "output_tokens": 5179,
+      "cached_input_tokens": 8704,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 28984.0
+    },
+    {
+      "route": "reasoning",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8644,
+      "output_tokens": 295,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3578.0
+    }
+  ],
+  "raw_report_sha256": "2e4a5660074b8c00d387b39c1a08813ff817d41d1855fdf7c90f808da4ff93b6",
+  "raw_trace_sha256": "39ba2731667871b16ced022a03f0f25fc991d10f797948f328266e01c058d971",
+  "raw_requests_sha256": "73f9276b76c683d35cb20487a5d9136ff71c6a42cbe7cdb9885e4b24aba191f0",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

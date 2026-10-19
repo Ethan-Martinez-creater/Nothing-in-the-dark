@@ -1,0 +1,4 @@
+# Freeze evaluation digests consistently on Windows and Linux.
+backend/tests/fixtures/agent_eval/investigation_real_eval_v1/** text eol=lf
+docs/evaluation/investigation-real-model-eval-v1/RUBRIC.md text eol=lf
+docs/evaluation/investigation-real-model-eval-v1/task-catalog.md text eol=lf
