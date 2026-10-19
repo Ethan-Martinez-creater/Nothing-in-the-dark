@@ -23,11 +23,13 @@ _REFUSAL_MARKERS = (
     "无法确定",
     "无法核实",
     "无法读取",
+    "无法继续读取",
     "无法确认",
     "不能提供",
     "不能给出",
     "不足以给出",
     "数据不可用",
+    "不提供未经核验的精确统计",
     "cannot provide",
     "cannot determine",
     "cannot verify",
@@ -47,10 +49,11 @@ def assess_answer_delivery(
     policy_audit: Sequence[Mapping[str, Any]],
     injected_failure_count: int = 0,
 ) -> dict[str, Any]:
-    """Classify whether a task delivered model content for human review.
+    """Classify whether a task delivered an answer for human review.
 
-    ``structural_pass`` only means a model-origin answer was delivered for
-    review. It never means the investigation objective was met. Runtime-only
+    ``structural_pass`` only means a reviewable answer was delivered, including
+    a controlled refusal for a task with an observed persistent-read fault. It
+    never means the investigation objective was met. Other runtime-only
     fallbacks and interrupted runs fail this structural delivery check.
     """
     answer = final_answer.strip() if isinstance(final_answer, str) else ""
@@ -66,8 +69,6 @@ def assess_answer_delivery(
         delivery_status = "INTERRUPTED"
     elif not answer:
         delivery_status = "NOT_DELIVERED"
-    elif origin == "RUNTIME_STOP":
-        delivery_status = "NOT_DELIVERED"
     elif (
         "fault:persistent_read" in tags
         and isinstance(injected_failure_count, int)
@@ -76,6 +77,8 @@ def assess_answer_delivery(
         and _looks_like_refusal(answer)
     ):
         delivery_status = "EXPECTED_REFUSAL_REQUIRES_REVIEW"
+    elif origin == "RUNTIME_STOP":
+        delivery_status = "NOT_DELIVERED"
     else:
         delivery_status = "MODEL_ANSWER_REQUIRES_REVIEW"
 

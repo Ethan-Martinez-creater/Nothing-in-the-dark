@@ -65,6 +65,38 @@ def test_persistent_read_refusal_requires_real_injected_failure_and_review():
     assert result["semantic_acceptance"] == "MANUAL_REVIEW_REQUIRED"
 
 
+def test_runtime_budget_refusal_is_reviewable_for_observed_persistent_read_fault():
+    result = _assess(
+        final_answer=(
+            "本次运行已达到工具调用上限（已执行 3 次，上限 3 次）；无法继续读取或核验，"
+            "所有后续工具请求均未执行，当前结果可能不完整。读取失败不代表记录数为零；"
+            "不提供未经核验的精确统计。"
+        ),
+        task_tags=("read_only", "fault:persistent_read", "failure_handling"),
+        injected_failure_count=3,
+    )
+
+    assert result["answer_origin"] == "RUNTIME_STOP"
+    assert result["delivery_status"] == "EXPECTED_REFUSAL_REQUIRES_REVIEW"
+    assert result["structural_pass"] is True
+    assert result["semantic_acceptance"] == "MANUAL_REVIEW_REQUIRED"
+
+
+def test_same_runtime_budget_refusal_without_observed_fault_is_not_delivered():
+    result = _assess(
+        final_answer=(
+            "本次运行已达到工具调用上限（已执行 3 次，上限 3 次）；无法继续读取或核验，"
+            "读取失败不代表记录数为零；不提供未经核验的精确统计。"
+        ),
+        task_tags=("read_only", "fault:persistent_read", "failure_handling"),
+        injected_failure_count=0,
+    )
+
+    assert result["answer_origin"] == "RUNTIME_STOP"
+    assert result["delivery_status"] == "NOT_DELIVERED"
+    assert result["structural_pass"] is False
+
+
 def test_persistent_read_tag_without_an_observed_fault_is_not_expected_refusal():
     result = _assess(
         final_answer="目前无法核实具体总量。",
