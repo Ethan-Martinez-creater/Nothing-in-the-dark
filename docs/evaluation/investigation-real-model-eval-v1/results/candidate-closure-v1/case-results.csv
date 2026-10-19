@@ -1,0 +1,6 @@
+attempt,task,status,deterministic_pass,codex_acceptance,goal,evidence,citations,uncertainty,tools,failure,latency_ms,requests,parent_tools,child_tools,input_tokens,output_tokens,input_tokens_measured_lower_bound,output_tokens_measured_lower_bound,cost,cost_status,run_id
+candidate-01,IR01,completed,True,1,2,2,1,2,2,2,11530,2,2,0,14151,361,14151,361,,NOT_MEASURABLE,4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b
+candidate-01,IR02,completed,True,0,0,0,0,1,1,2,7030,2,6,0,16269,628,16269,628,,NOT_MEASURABLE,83f8c744-247a-4dd1-939c-fb6d9599cec1
+candidate-01,IR08,completed,True,0,0,0,0,1,1,2,14250,3,6,0,15042,635,15042,635,,NOT_MEASURABLE,e01ae6d0-a020-4e90-93d4-3d8a1578c22f
+candidate-01,IR09,completed,True,0,0,0,0,1,1,2,8359,2,6,0,14619,772,14619,772,,NOT_MEASURABLE,f2325760-1c7f-4c0b-9450-0b39ca5dc969
+candidate-01,IR10,completed,True,1,1,2,2,2,2,2,9921,2,3,0,13970,552,13970,552,,NOT_MEASURABLE,0e62590d-3b1d-497a-869f-86674f7fae87

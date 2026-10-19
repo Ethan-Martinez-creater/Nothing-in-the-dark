@@ -1,0 +1,655 @@
+[
+  {
+    "kind": "EVALUATOR_ONLY_NO_MODEL_RERUN",
+    "task_id": "IR09",
+    "source_attempt": "repeat-02",
+    "run_id": "8b7aab87-fb97-471c-b0dd-87a8e66f8441",
+    "source_report_sha256": "0d43e76639d51029b118968e55c1445659ed99570d06730a6a0ecb0cb9390427",
+    "evaluator_version": "investigation-evaluators-v2",
+    "confirmed_added_refs": {
+      "comment:gr-c-2001-1": "4a76acee-a373-420b-bd1d-1dace92c919a",
+      "comment:gr-c-1001-2": "537ac964-6e30-470c-b02c-22ece75ec69c",
+      "comment:gr-c-1001-1": "fa32255b-379d-4e7b-a3ba-ca78b033d149"
+    },
+    "original_outcomes": [
+      {
+        "evaluator": "E6_citation_validity",
+        "metric": "agent.invalid_citation_count",
+        "value": 3.0,
+        "passed": false,
+        "details": {
+          "referenced_ids": [
+            "193fad04-772e-403c-842a-fe7e9fdd7e6c",
+            "40024500-2de5-4c4c-a7d3-671c8cfbfc3d",
+            "492c47e0-9d07-481c-a5d6-456255f3c0d7",
+            "4a76acee-a373-420b-bd1d-1dace92c919a",
+            "537ac964-6e30-470c-b02c-22ece75ec69c",
+            "747ba041-31bb-4367-b3ba-80adfffc60b8",
+            "89fbebc3-a15c-4e2c-a3b0-1513fb74ea58",
+            "95f67547-3e3a-4c52-90a8-ffdf66fcd281",
+            "9a03be25-dd3e-4956-8ba5-44fc156e5c02",
+            "9f6e332c-ebb4-4932-9250-254c4925f66a",
+            "e519c8a4-b623-4988-bd31-94dedc6c1b42",
+            "e86f1fd1-1751-40c8-a3f7-f89633d473d3",
+            "fa32255b-379d-4e7b-a3ba-ca78b033d149"
+          ],
+          "invalid_ids": [
+            "4a76acee-a373-420b-bd1d-1dace92c919a",
+            "537ac964-6e30-470c-b02c-22ece75ec69c",
+            "fa32255b-379d-4e7b-a3ba-ca78b033d149"
+          ],
+          "known_id_count": 25
+        },
+        "failure_category": "citation"
+      },
+      {
+        "evaluator": "E13_controlled_tool_fault",
+        "metric": "agent.controlled_tool_fault_observed",
+        "value": 1.0,
+        "passed": true,
+        "details": {
+          "profile": "fault:transient_read",
+          "first_query_social_posts": {
+            "id": "call_03_uns713r56tpb0msoei5woqvz",
+            "tool": "query_social_posts",
+            "status": "failed",
+            "arguments": {
+              "limit": 50,
+              "sort_order": "newest",
+              "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+            },
+            "error_code": "eval_injected_transient_read",
+            "duration_ms": 0,
+            "approval_id": null,
+            "cached": false
+          },
+          "fault_observed_in_trace": true,
+          "recovered_with_exact_db_read": true,
+          "recovery_calls": [
+            {
+              "id": "call_00_n2fy06ulk93d1ci3a1zwg9nv",
+              "tool": "get_case_data_overview",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 77,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_jelloe31hiar168idkm5cwy7",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "day",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 11,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_00_kycdm45od2y8g8gy3mebkcz1",
+              "tool": "query_social_posts",
+              "status": "completed",
+              "arguments": {
+                "limit": 50,
+                "sort_order": "newest",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 35,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_0g32hjbh229t9iqk0n2kn026",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "day",
+                "platforms": [
+                  "weibo"
+                ],
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 15,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_03_1w6y5um5kkpcna5w5tfh9wi6",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "day",
+                "platforms": [
+                  "bilibili"
+                ],
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 60,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_04_kxr8pnntk1vo0kvnb9qjavd1",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "content_type",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 36,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_fk080tvdm1vt18doe6ufuz6u",
+              "tool": "query_reports",
+              "status": "completed",
+              "arguments": {
+                "limit": 10,
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 19,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_01_831gno126x7rrqb09odocxk4",
+              "tool": "query_findings",
+              "status": "completed",
+              "arguments": {
+                "limit": 20,
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 19,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_00_49fmj3pk3v5an5rthge9pbz4",
+              "tool": "query_social_comments",
+              "status": "completed",
+              "arguments": {
+                "limit": 30,
+                "sort_order": "newest",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 28,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_00_c9unlngt0mit684gz8thzr5p",
+              "tool": "query_social_posts",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7",
+                "sort_order": "oldest",
+                "limit": 100
+              },
+              "error_code": null,
+              "duration_ms": 10,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_01_jyg83jqkw07w8tqdhsjedvva",
+              "tool": "query_social_comments",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7",
+                "sort_order": "oldest",
+                "limit": 100
+              },
+              "error_code": null,
+              "duration_ms": 21,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_mkuw1rhq0002nsy8d2fswm86",
+              "tool": "get_social_post",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7",
+                "post_id": "9f6e332c-ebb4-4932-9250-254c4925f66a",
+                "include_comment_preview": true,
+                "comment_preview_limit": 10
+              },
+              "error_code": null,
+              "duration_ms": 100,
+              "approval_id": null,
+              "cached": false
+            }
+          ]
+        },
+        "failure_category": null
+      }
+    ],
+    "repaired_outcomes": [
+      {
+        "evaluator": "E6_citation_validity",
+        "metric": "agent.invalid_citation_count",
+        "value": 0.0,
+        "passed": true,
+        "details": {
+          "referenced_ids": [
+            "193fad04-772e-403c-842a-fe7e9fdd7e6c",
+            "40024500-2de5-4c4c-a7d3-671c8cfbfc3d",
+            "492c47e0-9d07-481c-a5d6-456255f3c0d7",
+            "4a76acee-a373-420b-bd1d-1dace92c919a",
+            "537ac964-6e30-470c-b02c-22ece75ec69c",
+            "747ba041-31bb-4367-b3ba-80adfffc60b8",
+            "89fbebc3",
+            "89fbebc3-a15c-4e2c-a3b0-1513fb74ea58",
+            "95f67547-3e3a-4c52-90a8-ffdf66fcd281",
+            "9a03be25",
+            "9a03be25-dd3e-4956-8ba5-44fc156e5c02",
+            "9f6e332c-ebb4-4932-9250-254c4925f66a",
+            "e519c8a4-b623-4988-bd31-94dedc6c1b42",
+            "e86f1fd1-1751-40c8-a3f7-f89633d473d3",
+            "fa32255b-379d-4e7b-a3ba-ca78b033d149"
+          ],
+          "invalid_ids": [],
+          "known_id_count": 28,
+          "ambiguous_prefixes": [],
+          "out_of_scope_ids": [],
+          "resolved_short_ids": {
+            "89fbebc3": "89fbebc3-a15c-4e2c-a3b0-1513fb74ea58",
+            "9a03be25": "9a03be25-dd3e-4956-8ba5-44fc156e5c02"
+          },
+          "scope_enforced": true
+        },
+        "failure_category": null
+      },
+      {
+        "evaluator": "E13_controlled_tool_fault",
+        "metric": "agent.controlled_tool_fault_observed",
+        "value": 1.0,
+        "passed": true,
+        "details": {
+          "profile": "fault:transient_read",
+          "first_query_social_posts": {
+            "id": "call_03_uns713r56tpb0msoei5woqvz",
+            "tool": "query_social_posts",
+            "status": "failed",
+            "arguments": {
+              "limit": 50,
+              "sort_order": "newest",
+              "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+            },
+            "error_code": "eval_injected_transient_read",
+            "duration_ms": 0,
+            "approval_id": null,
+            "cached": false
+          },
+          "fault_observed_in_trace": true,
+          "recovered_with_exact_db_read": true,
+          "recovery_calls": [
+            {
+              "id": "call_00_n2fy06ulk93d1ci3a1zwg9nv",
+              "tool": "get_case_data_overview",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 77,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_jelloe31hiar168idkm5cwy7",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "day",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 11,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_00_kycdm45od2y8g8gy3mebkcz1",
+              "tool": "query_social_posts",
+              "status": "completed",
+              "arguments": {
+                "limit": 50,
+                "sort_order": "newest",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 35,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_0g32hjbh229t9iqk0n2kn026",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "day",
+                "platforms": [
+                  "weibo"
+                ],
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 15,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_03_1w6y5um5kkpcna5w5tfh9wi6",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "day",
+                "platforms": [
+                  "bilibili"
+                ],
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 60,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_04_kxr8pnntk1vo0kvnb9qjavd1",
+              "tool": "aggregate_social_data",
+              "status": "completed",
+              "arguments": {
+                "group_by": "content_type",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 36,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_fk080tvdm1vt18doe6ufuz6u",
+              "tool": "query_reports",
+              "status": "completed",
+              "arguments": {
+                "limit": 10,
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 19,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_01_831gno126x7rrqb09odocxk4",
+              "tool": "query_findings",
+              "status": "completed",
+              "arguments": {
+                "limit": 20,
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 19,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_00_49fmj3pk3v5an5rthge9pbz4",
+              "tool": "query_social_comments",
+              "status": "completed",
+              "arguments": {
+                "limit": 30,
+                "sort_order": "newest",
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7"
+              },
+              "error_code": null,
+              "duration_ms": 28,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_00_c9unlngt0mit684gz8thzr5p",
+              "tool": "query_social_posts",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7",
+                "sort_order": "oldest",
+                "limit": 100
+              },
+              "error_code": null,
+              "duration_ms": 10,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_01_jyg83jqkw07w8tqdhsjedvva",
+              "tool": "query_social_comments",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7",
+                "sort_order": "oldest",
+                "limit": 100
+              },
+              "error_code": null,
+              "duration_ms": 21,
+              "approval_id": null,
+              "cached": false
+            },
+            {
+              "id": "call_02_mkuw1rhq0002nsy8d2fswm86",
+              "tool": "get_social_post",
+              "status": "completed",
+              "arguments": {
+                "case_id": "b9b0ffc1-c531-40fd-973f-662478ce42b7",
+                "post_id": "9f6e332c-ebb4-4932-9250-254c4925f66a",
+                "include_comment_preview": true,
+                "comment_preview_limit": 10
+              },
+              "error_code": null,
+              "duration_ms": 100,
+              "approval_id": null,
+              "cached": false
+            }
+          ]
+        },
+        "failure_category": null
+      }
+    ],
+    "original_status": "cancelled",
+    "retained_trace_diagnostics": {
+      "version": "investigation-diagnostics-v1",
+      "observed_layers": [
+        "embedding_service_unavailable",
+        "controlled_tool_fault",
+        "agent_execution_timeout",
+        "tool_business_result_unavailable"
+      ],
+      "agent": {
+        "status": "cancelled",
+        "coordinator_completed": false,
+        "deadline_exceeded": true,
+        "run_error_code": null,
+        "runtime_stop_reasons": [],
+        "has_recorded_answer_content": true,
+        "answer_may_be_partial": true
+      },
+      "tools": {
+        "failed_invocations_by_error": {
+          "embedding_worker_unavailable": 3,
+          "eval_injected_transient_read": 1
+        },
+        "failed_invocations_by_tool": {
+          "query_social_posts": 1,
+          "search_social_evidence": 3
+        },
+        "business_failures": [
+          {
+            "tool": "get_artifact",
+            "error_code": "invalid_request"
+          },
+          {
+            "tool": "get_artifact",
+            "error_code": "invalid_request"
+          },
+          {
+            "tool": "get_artifact",
+            "error_code": "invalid_request"
+          },
+          {
+            "tool": "get_artifact",
+            "error_code": "invalid_request"
+          }
+        ]
+      },
+      "provider": {
+        "observed_request_count": 12,
+        "failed_measurements": [],
+        "cancelled_inflight_usage": "NOT_MEASURABLE"
+      },
+      "causal_attribution": "NOT_ESTABLISHED",
+      "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+    },
+    "baseline_or_manual_acceptance_recalculated": false
+  },
+  {
+    "kind": "EVALUATOR_ONLY_NO_MODEL_RERUN",
+    "task_id": "IR10",
+    "source_attempt": "repeat-02",
+    "run_id": "2d0af368-f582-417e-b05c-33fb02ff2fc2",
+    "source_report_sha256": "f7be2a12596f906cf722a5a53fc6eabb7c4cea3de1503317e9d40c73541bd078",
+    "evaluator_version": "investigation-evaluators-v2",
+    "confirmed_added_refs": {},
+    "original_outcomes": [
+      {
+        "evaluator": "E6_citation_validity",
+        "metric": "agent.invalid_citation_count",
+        "value": 0.0,
+        "passed": true,
+        "details": {
+          "referenced_ids": [
+            "9707fc59-8f3e-4182-a7b7-202b24fc273e"
+          ],
+          "invalid_ids": [],
+          "known_id_count": 25
+        },
+        "failure_category": null
+      },
+      {
+        "evaluator": "E13_controlled_tool_fault",
+        "metric": "agent.controlled_tool_fault_observed",
+        "value": 1.0,
+        "passed": false,
+        "details": {
+          "profile": "fault:persistent_read",
+          "exact_db_read_call_count": 8,
+          "injected_failure_count": 8,
+          "fault_observed_in_trace": true,
+          "all_exact_reads_failed": true,
+          "acknowledges_unavailability": false,
+          "numeric_count_claims_without_observation": []
+        },
+        "failure_category": "tool execution"
+      }
+    ],
+    "repaired_outcomes": [
+      {
+        "evaluator": "E6_citation_validity",
+        "metric": "agent.invalid_citation_count",
+        "value": 0.0,
+        "passed": true,
+        "details": {
+          "referenced_ids": [
+            "9707fc59-8f3e-4182-a7b7-202b24fc273e"
+          ],
+          "invalid_ids": [],
+          "known_id_count": 25,
+          "ambiguous_prefixes": [],
+          "out_of_scope_ids": [],
+          "resolved_short_ids": {},
+          "scope_enforced": true
+        },
+        "failure_category": null
+      },
+      {
+        "evaluator": "E13_controlled_tool_fault",
+        "metric": "agent.controlled_tool_fault_observed",
+        "value": 1.0,
+        "passed": true,
+        "details": {
+          "profile": "fault:persistent_read",
+          "exact_db_read_call_count": 8,
+          "injected_failure_count": 8,
+          "fault_observed_in_trace": true,
+          "all_exact_reads_failed": true,
+          "acknowledges_unavailability": true,
+          "numeric_count_claims_without_observation": []
+        },
+        "failure_category": null
+      }
+    ],
+    "original_status": "completed",
+    "retained_trace_diagnostics": {
+      "version": "investigation-diagnostics-v1",
+      "observed_layers": [
+        "embedding_service_unavailable",
+        "controlled_tool_fault",
+        "tool_business_result_unavailable"
+      ],
+      "agent": {
+        "status": "completed",
+        "coordinator_completed": true,
+        "deadline_exceeded": false,
+        "run_error_code": null,
+        "runtime_stop_reasons": [],
+        "has_recorded_answer_content": true,
+        "answer_may_be_partial": false
+      },
+      "tools": {
+        "failed_invocations_by_error": {
+          "embedding_worker_unavailable": 1,
+          "eval_injected_persistent_read": 8
+        },
+        "failed_invocations_by_tool": {
+          "aggregate_social_data": 1,
+          "get_case_data_overview": 1,
+          "query_case_activity": 1,
+          "query_findings": 1,
+          "query_reports": 1,
+          "query_review_items": 1,
+          "query_social_comments": 1,
+          "query_social_posts": 1,
+          "search_social_evidence": 1
+        },
+        "business_failures": [
+          {
+            "tool": "get_collection_run",
+            "error_code": "collection_run_unavailable"
+          }
+        ]
+      },
+      "provider": {
+        "observed_request_count": 6,
+        "failed_measurements": [],
+        "cancelled_inflight_usage": "NOT_MEASURABLE"
+      },
+      "causal_attribution": "NOT_ESTABLISHED",
+      "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+    },
+    "baseline_or_manual_acceptance_recalculated": false
+  }
+]

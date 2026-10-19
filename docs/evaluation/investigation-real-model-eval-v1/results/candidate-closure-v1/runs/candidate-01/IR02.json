@@ -1,0 +1,402 @@
+{
+  "task_id": "IR02",
+  "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "independent_audit": "PENDING",
+    "acceptance": 0,
+    "scores": {
+      "goal": 0,
+      "evidence": 0,
+      "citations": 0,
+      "uncertainty": 1,
+      "tools": 1,
+      "failure": 2
+    },
+    "rationale": "Six successful reads exhausted the frozen budget. Only runtime notice, no platform comparison or two sources. Safe stopping is not task completion.",
+    "dimension_evidence": {
+      "goal": "entire final answer is notice",
+      "evidence": "no substantive comparison in answer",
+      "citations": "no source references",
+      "uncertainty": "generic incomplete-result notice",
+      "tools": "six reads before exhaustion",
+      "failure": "budget stop event; no additional model call"
+    },
+    "hard_failure_observed": false,
+    "answer_origin": "RUNTIME_BOUNDED_STOP"
+  },
+  "input_tokens": 16269,
+  "output_tokens": 628,
+  "usage_lower_bound": {
+    "input_tokens": 16269,
+    "input_tokens_measured_lower_bound": 16269,
+    "output_tokens": 628,
+    "output_tokens_measured_lower_bound": 628
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 7030,
+  "parent_tool_calls": 6,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 6,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "root_run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "requested_calls": 4,
+      "reserved_calls": 4,
+      "used_calls": 4,
+      "max_tool_calls": 6,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_02_hfr0n1n6t6h399hebihorggy",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_00_j6xjhgr4d3dnv1prwb8y39k6",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 6
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_03_e6vrr519ilghe1sobgeneoax",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 7
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_01_gnl80bsj1l1q0x08pt9kect0",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 8
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_01_gnl80bsj1l1q0x08pt9kect0",
+      "tool": "aggregate_social_data",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 21,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"group_by\": \"platform\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"metric\": \"post_count\", \"group_by\": \"platform\", \"total\": 10, \"buckets\": [{\"key\": \"bilibili\", \"count\": 4}, {\"key\": \"weibo\", \"count\": 6}], \"error\": null}}",
+      "rag": null,
+      "idempotency_key": "83f8c744-247a-4dd1-939c-fb6d9599cec1:call_01_gnl80bsj1l1q0x08pt9kect0",
+      "event_id": 9
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_02_hfr0n1n6t6h399hebihorggy",
+      "tool": "query_social_posts",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 52,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"platforms\": [\"weibo\"], \"limit\": 50}",
+      "output_summary": "{\"data\": {\"ok\": true, \"matched_count\": 6, \"returned_count\": 6, \"offset\": 0, \"next_offset\": null, \"posts\": [{\"id\": \"post:gr_p10\", \"platform\": \"weibo\", \"native_id\": \"gr-weibo-1006\", \"content_type\": \"post\", \"title\": \"\", \"content\": \"我们已向监管部门提交原始检测报告与样品留样凭证，等待官方核查结论，不再单独发布后续检测。\", \"author_id\": \"food-watch-8821\", \"author_name\": \"食品观察站\", \"source_url\": \"\", \"published_at\": \"2026-03-14T11:00:00\", \"engagement\": {\"reposts\": 3600, \"comments\": 2800, \"likes\": 13300, \"total\": 19700}}, {\"…",
+      "rag": null,
+      "idempotency_key": "83f8c744-247a-4dd1-939c-fb6d9599cec1:call_02_hfr0n1n6t6h399hebihorggy",
+      "event_id": 10
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_03_e6vrr519ilghe1sobgeneoax",
+      "tool": "query_social_posts",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 25,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"platforms\": [\"bilibili\"], \"limit\": 50}",
+      "output_summary": "{\"data\": {\"ok\": true, \"matched_count\": 4, \"returned_count\": 4, \"offset\": 0, \"next_offset\": null, \"posts\": [{\"id\": \"post:gr_p9\", \"platform\": \"bilibili\", \"native_id\": \"gr-bili-2004\", \"content_type\": \"video\", \"title\": \"\", \"content\": \"跟进：我拿到了 2 月 26 日同批次样品，第二次实测结果仍为合格，视频中公开了批次号与采样渠道。\", \"author_id\": \"lab-wang-556\", \"author_name\": \"实验室老王\", \"source_url\": \"\", \"published_at\": \"2026-03-12T15:40:00\", \"engagement\": {\"views\": 56000, \"danmaku\": 1800, \"likes\": 8600, \"total\": 64800}}, …",
+      "rag": null,
+      "idempotency_key": "83f8c744-247a-4dd1-939c-fb6d9599cec1:call_03_e6vrr519ilghe1sobgeneoax",
+      "event_id": 11
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_00_j6xjhgr4d3dnv1prwb8y39k6",
+      "tool": "get_case_data_overview",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 95,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"case\": {\"id\": \"case:grounding\", \"title\": \"青禾乳业酸奶添加剂争议\", \"topic\": \"青禾乳业酸奶添加剂争议\", \"status\": \"ready\", \"platforms\": [\"weibo\", \"bilibili\"], \"time_range\": {\"start\": null, \"end\": null}}, \"counts\": {\"posts\": 10, \"comments\": 3, \"collection_runs\": 0, \"claims\": 3, \"evidence\": 5, \"artifacts\": 1, \"findings\": 2, \"review_items\": 1, \"review_decisions\": 0, \"reports\": 1}, \"posts_by_platform\": [{\"platform\": \"bilibili\", \"count\": 4}, {\"platform\": \"weibo\", \"count\": 6}], \"l…",
+      "rag": null,
+      "idempotency_key": "83f8c744-247a-4dd1-939c-fb6d9599cec1:call_00_j6xjhgr4d3dnv1prwb8y39k6",
+      "event_id": 12
+    },
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "root_run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "requested_calls": 3,
+      "reserved_calls": 2,
+      "used_calls": 6,
+      "max_tool_calls": 6,
+      "event_id": 15
+    },
+    {
+      "event_type": "tool_execution_blocked",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "agent": "coordinator",
+      "tool_call_id": "call_02_mt1sn9jof88uso3qvtr4smn2",
+      "tool": "get_artifact",
+      "status": "blocked",
+      "reason": "tool_budget_exhausted",
+      "requested_by_model": true,
+      "handler_invoked": false,
+      "event_id": 16
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_00_jn1chpkk29tquxhd6bkjht95",
+      "tool": "query_social_comments",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 17
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_01_mzwpnrmdnuaslyz565kmfqrv",
+      "tool": "query_findings",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 18
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_00_jn1chpkk29tquxhd6bkjht95",
+      "tool": "query_social_comments",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 19,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"limit\": 30}",
+      "output_summary": "{\"data\": {\"ok\": true, \"matched_count\": 3, \"returned_count\": 3, \"offset\": 0, \"next_offset\": null, \"comments\": [{\"id\": \"comment:gr_p3:gr-c-2001-1\", \"post_id\": \"post:gr_p3\", \"platform\": \"bilibili\", \"native_id\": \"gr-c-2001-1\", \"parent_native_id\": null, \"content\": \"对照实验设计得不错，但采样批次信息缺失\", \"author_id\": \"user-1145\", \"author_name\": \"生物系学生\", \"published_at\": \"2026-03-06T12:00:00\", \"metrics\": {\"likes\": 890}}, {\"id\": \"comment:gr_p1:gr-c-1001-2\", \"post_id\": \"dec9…",
+      "rag": null,
+      "idempotency_key": "83f8c744-247a-4dd1-939c-fb6d9599cec1:call_00_jn1chpkk29tquxhd6bkjht95",
+      "event_id": 19
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "tool_call_id": "call_01_mzwpnrmdnuaslyz565kmfqrv",
+      "tool": "query_findings",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 21,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"found\": null, \"matched_count\": 2, \"returned_count\": 2, \"offset\": 0, \"next_offset\": null, \"findings\": [{\"id\": \"finding:finding_procedure\", \"kind\": \"opinion\", \"title\": \"第三方送检缺乏批次锁定程序\", \"statement\": \"爆料方的送检流程缺少样品公证与批次锁定环节，这使其结论在与厂商复检结果冲突时无法独立成立。\", \"status\": \"under_review\", \"confidence\": 0.65, \"attributes\": {}, \"source_run_id\": null, \"created_at\": \"2026-10-19T07:38:03.754188\", \"updated_at\": \"2026-10-19T07:38:03.770188\"}, {\"id\": \"finding:finding_batch_scope\"…",
+      "rag": null,
+      "idempotency_key": "83f8c744-247a-4dd1-939c-fb6d9599cec1:call_01_mzwpnrmdnuaslyz565kmfqrv",
+      "event_id": 20
+    },
+    {
+      "event_type": "agent_execution_stopped",
+      "run_id": "83f8c744-247a-4dd1-939c-fb6d9599cec1",
+      "turn_id": "97f54fdb-920b-4d88-8af6-df62ae8df72b",
+      "status": "completed",
+      "reason": "tool_budget_exhausted",
+      "used_calls": 6,
+      "max_tool_calls": 6,
+      "blocked_calls": 1,
+      "event_id": 21
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v1",
+    "observed_layers": [
+      "runtime_budget_stop"
+    ],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [
+        "tool_budget_exhausted"
+      ],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": true
+    },
+    "tools": {
+      "failed_invocations_by_error": {},
+      "failed_invocations_by_tool": {},
+      "business_failures": []
+    },
+    "provider": {
+      "observed_request_count": 2,
+      "failed_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "387bf4de-20f2-4a94-8320-b1a892f848f5": "under_review",
+      "27637834-776a-43e4-a391-d211d9d2c8b8": "candidate"
+    },
+    "review_status": {
+      "daeaca90-76bf-4fb0-a893-fa38656568b0": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "387bf4de-20f2-4a94-8320-b1a892f848f5": "under_review",
+      "27637834-776a-43e4-a391-d211d9d2c8b8": "candidate"
+    },
+    "review_status": {
+      "daeaca90-76bf-4fb0-a893-fa38656568b0": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "d525d4364191bbda605eb7d34b6b843decd562b747ce06e534aecf2c2427daca",
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 6865,
+      "output_tokens": 407,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3797.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 9404,
+      "output_tokens": 221,
+      "cached_input_tokens": 6784,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2250.0
+    }
+  ],
+  "raw_report_sha256": "359e2fae5203df7e385c9f14fde5ca08c07237afa035bc11d593328a2636ea11",
+  "raw_trace_sha256": "b36adea295587a4436fe2a49f5c65dbf4dd30a95bb8806dd1be0f14f484a7aa1",
+  "raw_requests_sha256": "4b1065497f26ce493e7910ab099362a1fd1782ad1ca6ebc7a00b582167bed3db",
+  "local_artifact_directory": "backend/artifacts/agent_eval/candidate_closure_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}
