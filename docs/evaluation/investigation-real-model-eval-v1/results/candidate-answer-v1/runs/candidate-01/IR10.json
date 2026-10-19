@@ -1,0 +1,295 @@
+{
+  "task_id": "IR10",
+  "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+  "status": "completed",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR10",
+      "evaluator": "E13_controlled_tool_fault",
+      "metric": "agent.controlled_tool_fault_observed",
+      "value": 1.0,
+      "failure_category": "tool execution",
+      "details": {
+        "profile": "fault:persistent_read",
+        "exact_db_read_call_count": 2,
+        "injected_failure_count": 2,
+        "fault_observed_in_trace": true,
+        "all_exact_reads_failed": true,
+        "acknowledges_unavailability": true,
+        "numeric_count_claims_without_observation": [
+          "0 条"
+        ]
+      }
+    }
+  ],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "reviewer": "Codex",
+    "independent_github_audit": "PENDING",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 2,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 1
+    },
+    "rationale": [
+      "Correct controlled refusal: both exact reads fail, no fabricated total/distribution; explicitly distinguishes failed read from empty data. No memory-write attempt.",
+      "Raw E13 FAIL retains extracted 0 条 from a negated quotation saying it cannot claim a platform has zero posts; manual review identifies a checker false positive.",
+      "Model falsely says shared budget exhausted despite 2/3 calls. Failure handling scores 1 for that explanation error.",
+      "Supplementary delivery-v1 misses the refusal wording 无法给出 and labels this MODEL_ANSWER_REQUIRES_REVIEW. Both labels require manual review; original classification is retained, no post-hoc relabel or model rerun."
+    ],
+    "rubric": "unchanged investigation_real_eval_v1 frozen RUBRIC.md and rubric.json"
+  },
+  "input_tokens": 14296,
+  "output_tokens": 1062,
+  "usage_lower_bound": {
+    "input_tokens": 14296,
+    "input_tokens_measured_lower_bound": 14296,
+    "output_tokens": 1062,
+    "output_tokens_measured_lower_bound": 1062
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 13578,
+  "parent_tool_calls": 2,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 2,
+      "by_tool": {
+        "aggregate_social_data": 1,
+        "get_case_data_overview": 1
+      },
+      "by_error_code": {
+        "eval_injected_persistent_read": 2
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 3,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "turn_id": "ed2432d0-e0b9-47c1-b7ce-a1614467f3d4",
+      "root_run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "requested_calls": 2,
+      "reserved_calls": 2,
+      "used_calls": 2,
+      "max_tool_calls": 3,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "turn_id": "ed2432d0-e0b9-47c1-b7ce-a1614467f3d4",
+      "tool_call_id": "call_00_9x2yqb66rwaiklury3s0vxqf",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "turn_id": "ed2432d0-e0b9-47c1-b7ce-a1614467f3d4",
+      "tool_call_id": "call_01_wqwm764uw7kyng1rc7euoput",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 6
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "turn_id": "ed2432d0-e0b9-47c1-b7ce-a1614467f3d4",
+      "tool_call_id": "call_00_9x2yqb66rwaiklury3s0vxqf",
+      "tool": "get_case_data_overview",
+      "status": "failed",
+      "error_code": "eval_injected_persistent_read",
+      "duration_ms": 0,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0.0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "",
+      "rag": null,
+      "idempotency_key": "3487ed02-1c18-4d20-9f5f-684307383520:call_00_9x2yqb66rwaiklury3s0vxqf",
+      "event_id": 7
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "turn_id": "ed2432d0-e0b9-47c1-b7ce-a1614467f3d4",
+      "tool_call_id": "call_01_wqwm764uw7kyng1rc7euoput",
+      "tool": "aggregate_social_data",
+      "status": "failed",
+      "error_code": "eval_injected_persistent_read",
+      "duration_ms": 0,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0.0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"group_by\": \"platform\"}",
+      "output_summary": "",
+      "rag": null,
+      "idempotency_key": "3487ed02-1c18-4d20-9f5f-684307383520:call_01_wqwm764uw7kyng1rc7euoput",
+      "event_id": 8
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v2",
+    "observed_layers": [
+      "controlled_tool_fault"
+    ],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": false
+    },
+    "tools": {
+      "failed_invocations_by_error": {
+        "eval_injected_persistent_read": 2
+      },
+      "failed_invocations_by_tool": {
+        "aggregate_social_data": 1,
+        "get_case_data_overview": 1
+      },
+      "business_failures": []
+    },
+    "provider": {
+      "observed_request_count": 2,
+      "failed_measurements": [],
+      "cancelled_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "answer_delivery": {
+    "version": "answer-delivery-v1",
+    "answer_origin": "MODEL_FINAL",
+    "delivery_status": "MODEL_ANSWER_REQUIRES_REVIEW",
+    "structural_pass": true,
+    "semantic_acceptance": "MANUAL_REVIEW_REQUIRED"
+  },
+  "retrieval_degradation": [],
+  "finalization_policy": {
+    "version": "bounded-synthesis-v1",
+    "read_only_only": true,
+    "requires_successful_tool_observation": true,
+    "max_attempts_per_run": 1,
+    "timeout_seconds": 15,
+    "tools_enabled": false,
+    "all_failed_reads": "runtime_refusal"
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "001982b8-c3b2-44e7-a4f2-939583ce443b": "under_review",
+      "3d621962-159a-4f66-9805-b9722879d0ee": "candidate"
+    },
+    "review_status": {
+      "b45a09ac-c657-42fe-b425-38f2430bfa5b": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "001982b8-c3b2-44e7-a4f2-939583ce443b": "under_review",
+      "3d621962-159a-4f66-9805-b9722879d0ee": "candidate"
+    },
+    "review_status": {
+      "b45a09ac-c657-42fe-b425-38f2430bfa5b": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "eccd069fe22b7567a716b37bdaf78fc53cd2d6f5fc643981b295a2f9d043083a",
+  "fault_injection": {
+    "profiles": [
+      "fault:persistent_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "get_case_data_overview",
+        "error_code": "eval_injected_persistent_read"
+      },
+      {
+        "tool": "aggregate_social_data",
+        "error_code": "eval_injected_persistent_read"
+      }
+    ],
+    "injected_failure_count": 2
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7030,
+      "output_tokens": 290,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 7203.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7266,
+      "output_tokens": 772,
+      "cached_input_tokens": 6912,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5672.0
+    }
+  ],
+  "raw_report_sha256": "ba60cbcefe13aaac8bfeb6a3bddc359f53eb12819878052aa07bc563c3ac6b31",
+  "raw_trace_sha256": "f62ca455171f6bb56fb68dfeb9d729a11916b8b50d80945731aedf855bc6474c",
+  "raw_requests_sha256": "a2a2150aef16b18194e183dd9070f21f39c0bcdfce34b70742c5bd8b6b265151",
+  "local_artifact_directory": "backend/artifacts/agent_eval/answer_quality_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

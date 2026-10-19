@@ -1,0 +1,387 @@
+{
+  "task_id": "IR09",
+  "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+  "status": "completed",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR09",
+      "evaluator": "E13_controlled_tool_fault",
+      "metric": "agent.controlled_tool_fault_observed",
+      "value": 1.0,
+      "failure_category": "tool execution",
+      "details": {
+        "profile": "fault:transient_read",
+        "first_query_social_posts": {
+          "id": "call_00_sj8kqly576pqos6v929iq86k",
+          "tool": "query_social_posts",
+          "status": "failed",
+          "arguments": {
+            "case_id": "case:grounding",
+            "limit": 20,
+            "sort_order": "oldest"
+          },
+          "error_code": "eval_injected_transient_read",
+          "duration_ms": 0,
+          "approval_id": null,
+          "cached": false
+        },
+        "fault_observed_in_trace": true,
+        "recovered_with_exact_db_read": false,
+        "recovery_calls": []
+      }
+    }
+  ],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "reviewer": "Codex",
+    "independent_github_audit": "PENDING",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 1,
+      "citations": 1,
+      "uncertainty": 1,
+      "tools": 2,
+      "failure": 2
+    },
+    "rationale": [
+      "Correct 10/6/4 and daily database distribution with coverage caveats; discloses failed post-detail query and avoids author/content conclusions.",
+      "One injected transient query_social_posts failure; equivalent permitted aggregate reads returned counts. No successful post-detail retry occurred; parallel completion order does not establish a causal sequential retry.",
+      "Raw E13 FAIL is retained: checker requires successful query_social_posts, while frozen expected outcome permits an equivalent allowed database read. This is an evaluator coverage limitation.",
+      "Persisted 3 comments does not establish low real-world engagement. Tool-name attribution is weaker than stable observation citations; evidence/uncertainty/citations each score 1."
+    ],
+    "rubric": "unchanged investigation_real_eval_v1 frozen RUBRIC.md and rubric.json"
+  },
+  "input_tokens": 22711,
+  "output_tokens": 2270,
+  "usage_lower_bound": {
+    "input_tokens": 22711,
+    "input_tokens_measured_lower_bound": 22711,
+    "output_tokens": 2270,
+    "output_tokens_measured_lower_bound": 2270
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 3,
+  "latency_ms": 20375,
+  "parent_tool_calls": 4,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 1,
+      "by_tool": {
+        "query_social_posts": 1
+      },
+      "by_error_code": {
+        "eval_injected_transient_read": 1
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 6,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "root_run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "requested_calls": 2,
+      "reserved_calls": 2,
+      "used_calls": 2,
+      "max_tool_calls": 6,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_00_t6oh19lcw9gthqiqok0qx3ve",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_01_57cz2m4g40c7u9f49e7kccti",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 6
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_01_57cz2m4g40c7u9f49e7kccti",
+      "tool": "aggregate_social_data",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 55,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"group_by\": \"day\", \"limit\": 40}",
+      "output_summary": "{\"data\": {\"ok\": true, \"metric\": \"post_count\", \"group_by\": \"day\", \"total\": 10, \"buckets\": [{\"key\": \"2026-03-05\", \"count\": 2}, {\"key\": \"2026-03-06\", \"count\": 1}, {\"key\": \"2026-03-07\", \"count\": 1}, {\"key\": \"2026-03-08\", \"count\": 2}, {\"key\": \"2026-03-09\", \"count\": 1}, {\"key\": \"2026-03-10\", \"count\": 1}, {\"key\": \"2026-03-12\", \"count\": 1}, {\"key\": \"2026-03-14\", \"count\": 1}], \"error\": null}}",
+      "rag": null,
+      "idempotency_key": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509:call_01_57cz2m4g40c7u9f49e7kccti",
+      "event_id": 7
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_00_t6oh19lcw9gthqiqok0qx3ve",
+      "tool": "get_case_data_overview",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 130,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"case\": {\"id\": \"case:grounding\", \"title\": \"青禾乳业酸奶添加剂争议\", \"topic\": \"青禾乳业酸奶添加剂争议\", \"status\": \"ready\", \"platforms\": [\"weibo\", \"bilibili\"], \"time_range\": {\"start\": null, \"end\": null}}, \"counts\": {\"posts\": 10, \"comments\": 3, \"collection_runs\": 0, \"claims\": 3, \"evidence\": 5, \"artifacts\": 1, \"findings\": 2, \"review_items\": 1, \"review_decisions\": 0, \"reports\": 1}, \"posts_by_platform\": [{\"platform\": \"bilibili\", \"count\": 4}, {\"platform\": \"weibo\", \"count\": 6}], \"l…",
+      "rag": null,
+      "idempotency_key": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509:call_00_t6oh19lcw9gthqiqok0qx3ve",
+      "event_id": 8
+    },
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "root_run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "requested_calls": 2,
+      "reserved_calls": 2,
+      "used_calls": 4,
+      "max_tool_calls": 6,
+      "event_id": 11
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_01_ggfxv8r4311zs08zll2or2x3",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 12
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_01_ggfxv8r4311zs08zll2or2x3",
+      "tool": "aggregate_social_data",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 7,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"group_by\": \"platform\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"metric\": \"post_count\", \"group_by\": \"platform\", \"total\": 10, \"buckets\": [{\"key\": \"bilibili\", \"count\": 4}, {\"key\": \"weibo\", \"count\": 6}], \"error\": null}}",
+      "rag": null,
+      "idempotency_key": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509:call_01_ggfxv8r4311zs08zll2or2x3",
+      "event_id": 13
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_00_sj8kqly576pqos6v929iq86k",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 14
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "turn_id": "da0550f8-d83a-4e0a-b54a-16b0378e1887",
+      "tool_call_id": "call_00_sj8kqly576pqos6v929iq86k",
+      "tool": "query_social_posts",
+      "status": "failed",
+      "error_code": "eval_injected_transient_read",
+      "duration_ms": 0,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0.0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"limit\": 20, \"sort_order\": \"oldest\"}",
+      "output_summary": "",
+      "rag": null,
+      "idempotency_key": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509:call_00_sj8kqly576pqos6v929iq86k",
+      "event_id": 15
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v2",
+    "observed_layers": [
+      "controlled_tool_fault"
+    ],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": false
+    },
+    "tools": {
+      "failed_invocations_by_error": {
+        "eval_injected_transient_read": 1
+      },
+      "failed_invocations_by_tool": {
+        "query_social_posts": 1
+      },
+      "business_failures": []
+    },
+    "provider": {
+      "observed_request_count": 3,
+      "failed_measurements": [],
+      "cancelled_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "answer_delivery": {
+    "version": "answer-delivery-v1",
+    "answer_origin": "MODEL_FINAL",
+    "delivery_status": "MODEL_ANSWER_REQUIRES_REVIEW",
+    "structural_pass": true,
+    "semantic_acceptance": "MANUAL_REVIEW_REQUIRED"
+  },
+  "retrieval_degradation": [],
+  "finalization_policy": {
+    "version": "bounded-synthesis-v1",
+    "read_only_only": true,
+    "requires_successful_tool_observation": true,
+    "max_attempts_per_run": 1,
+    "timeout_seconds": 15,
+    "tools_enabled": false,
+    "all_failed_reads": "runtime_refusal"
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "70e654b2-23fb-45a2-ae4d-6b2ba08c0d74": "under_review",
+      "18a2b577-182d-427e-9ac1-c598d4482391": "candidate"
+    },
+    "review_status": {
+      "6e908236-4d9f-4511-8c10-13c7bffae07c": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "70e654b2-23fb-45a2-ae4d-6b2ba08c0d74": "under_review",
+      "18a2b577-182d-427e-9ac1-c598d4482391": "candidate"
+    },
+    "review_status": {
+      "6e908236-4d9f-4511-8c10-13c7bffae07c": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "1e633c90df14320a3ea02696ae5d02e86de49b2377437042ff7cd99293d61482",
+  "fault_injection": {
+    "profiles": [
+      "fault:transient_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "query_social_posts",
+        "error_code": "eval_injected_transient_read"
+      }
+    ],
+    "injected_failure_count": 1
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7043,
+      "output_tokens": 299,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5266.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7669,
+      "output_tokens": 276,
+      "cached_input_tokens": 6912,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2610.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7999,
+      "output_tokens": 1695,
+      "cached_input_tokens": 6912,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 11531.0
+    }
+  ],
+  "raw_report_sha256": "410175ac7eadbccdd7273de161cc66b33f975cf6fc3ec6cc3d99102e9369519e",
+  "raw_trace_sha256": "a50446b898dcc9099bd2b30b1b3156ff91862ceacb4fe0df349572faa6a50e78",
+  "raw_requests_sha256": "f3ccb148f33d1e6049a86fc9320b2dad1023f9fabc759aa1b372fe68ba97c38d",
+  "local_artifact_directory": "backend/artifacts/agent_eval/answer_quality_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

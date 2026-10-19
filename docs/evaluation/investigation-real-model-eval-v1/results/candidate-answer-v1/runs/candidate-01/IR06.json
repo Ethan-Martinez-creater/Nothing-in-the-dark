@@ -1,0 +1,430 @@
+{
+  "task_id": "IR06",
+  "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "reviewer": "Codex",
+    "independent_github_audit": "PENDING",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 1,
+      "citations": 2,
+      "uncertainty": 1,
+      "tools": 1,
+      "failure": 2
+    },
+    "rationale": [
+      "Accepted only for the narrow question: read materials do not establish additive-causes-disease. It separates microbial indicators, clinical evidence and candidate findings, and discloses unread materials.",
+      "Supporting narrative remains flawed: gr_p3 reports disagreement, not a qualified first test; only gr_p9 reports a qualified second test. Independent tester status is unsupported.",
+      "Actual bounded tool-free synthesis succeeded after 5/5 reads. One malformed get_artifact request lacked required identifiers; keyword-only retrieval returned no hits. Not exhaustive verification."
+    ],
+    "rubric": "unchanged investigation_real_eval_v1 frozen RUBRIC.md and rubric.json"
+  },
+  "input_tokens": 19035,
+  "output_tokens": 6588,
+  "usage_lower_bound": {
+    "input_tokens": 19035,
+    "input_tokens_measured_lower_bound": 19035,
+    "output_tokens": 6588,
+    "output_tokens_measured_lower_bound": 6588
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 4,
+  "latency_ms": 40282,
+  "parent_tool_calls": 5,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 5,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "root_run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "requested_calls": 3,
+      "reserved_calls": 3,
+      "used_calls": 3,
+      "max_tool_calls": 5,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_00_9msngd7p8v9rw2mkkn39v374",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_01_pax484fd3vh2qgv69oliufhe",
+      "tool": "search_social_evidence",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 6
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_02_ndg9remp84nay04aiprlqoaa",
+      "tool": "query_findings",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 7
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_02_ndg9remp84nay04aiprlqoaa",
+      "tool": "query_findings",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 8,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"limit\": 30}",
+      "output_summary": "{\"data\": {\"ok\": true, \"found\": null, \"matched_count\": 2, \"returned_count\": 2, \"offset\": 0, \"next_offset\": null, \"findings\": [{\"id\": \"finding:finding_procedure\", \"kind\": \"opinion\", \"title\": \"第三方送检缺乏批次锁定程序\", \"statement\": \"爆料方的送检流程缺少样品公证与批次锁定环节，这使其结论在与厂商复检结果冲突时无法独立成立。\", \"status\": \"under_review\", \"confidence\": 0.65, \"attributes\": {}, \"source_run_id\": null, \"created_at\": \"2026-10-19T13:32:01.367574\", \"updated_at\": \"2026-10-19T13:32:01.382144\"}, {\"id\": \"finding:finding_batch_scope\"…",
+      "rag": null,
+      "idempotency_key": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30:call_02_ndg9remp84nay04aiprlqoaa",
+      "event_id": 8
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_00_9msngd7p8v9rw2mkkn39v374",
+      "tool": "get_case_data_overview",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 92,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"case\": {\"id\": \"case:grounding\", \"title\": \"青禾乳业酸奶添加剂争议\", \"topic\": \"青禾乳业酸奶添加剂争议\", \"status\": \"ready\", \"platforms\": [\"weibo\", \"bilibili\"], \"time_range\": {\"start\": null, \"end\": null}}, \"counts\": {\"posts\": 10, \"comments\": 3, \"collection_runs\": 0, \"claims\": 3, \"evidence\": 5, \"artifacts\": 1, \"findings\": 2, \"review_items\": 1, \"review_decisions\": 0, \"reports\": 1}, \"posts_by_platform\": [{\"platform\": \"bilibili\", \"count\": 4}, {\"platform\": \"weibo\", \"count\": 6}], \"l…",
+      "rag": null,
+      "idempotency_key": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30:call_00_9msngd7p8v9rw2mkkn39v374",
+      "event_id": 9
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_01_pax484fd3vh2qgv69oliufhe",
+      "tool": "search_social_evidence",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 18367,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"query\": \"添加剂 导致 疾病 健康 危害 致病\", \"limit\": 15}",
+      "output_summary": "{\"data\": {\"available\": true, \"hits\": [], \"retrieval_degraded\": true, \"degradation_reason\": \"embedding_worker_unavailable\", \"retrieval_mode\": \"keyword_only\"}}",
+      "idempotency_key": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30:call_01_pax484fd3vh2qgv69oliufhe",
+      "event_id": 10
+    },
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "root_run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "requested_calls": 2,
+      "reserved_calls": 2,
+      "used_calls": 5,
+      "max_tool_calls": 5,
+      "event_id": 13
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_00_u23h6lxeoy16wjsmy05oi03w",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 14
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_01_nr0re7z8vh5fk8yw9yy52i0s",
+      "tool": "get_artifact",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 15
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_00_u23h6lxeoy16wjsmy05oi03w",
+      "tool": "query_social_posts",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 10,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"limit\": 30, \"sort_order\": \"oldest\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"matched_count\": 10, \"returned_count\": 10, \"offset\": 0, \"next_offset\": null, \"posts\": [{\"id\": \"post:gr_p1\", \"platform\": \"weibo\", \"native_id\": \"gr-weibo-1001\", \"content_type\": \"post\", \"title\": \"\", \"content\": \"【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。\", \"author_id\": \"food-watch-8821\", \"author_name\": \"食品观察站\", \"source_url\": \"\", \"published_at\": \"2026-03-05T09:12:00\", \"engagement\": {\"reposts\": 12400, \"comments\": 6800, \"likes\": 29000, \"total\":…",
+      "rag": null,
+      "idempotency_key": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30:call_00_u23h6lxeoy16wjsmy05oi03w",
+      "event_id": 16
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "tool_call_id": "call_01_nr0re7z8vh5fk8yw9yy52i0s",
+      "tool": "get_artifact",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 0,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": false, \"found\": false, \"artifact\": null, \"error\": {\"code\": \"invalid_request\", \"message\": \"get_artifact requires kind or artifact_id.\"}}}",
+      "rag": null,
+      "idempotency_key": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30:call_01_nr0re7z8vh5fk8yw9yy52i0s",
+      "event_id": 17
+    },
+    {
+      "event_type": "agent_execution_stopped",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "turn_id": "6e484456-7e09-467f-87fd-0621c640f2ce",
+      "status": "completed",
+      "reason": "tool_budget_exhausted",
+      "used_calls": 5,
+      "max_tool_calls": 5,
+      "event_id": 18
+    },
+    {
+      "event_type": "answer_finalization_start",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "agent": "coordinator",
+      "tools_enabled": false,
+      "timeout_seconds": 15.0,
+      "event_id": 19
+    },
+    {
+      "event_type": "answer_finalization_end",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "agent": "coordinator",
+      "tools_enabled": false,
+      "timeout_seconds": 15.0,
+      "outcome": "succeeded",
+      "event_id": 22
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v2",
+    "observed_layers": [
+      "tool_business_result_unavailable",
+      "runtime_budget_stop"
+    ],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [
+        "tool_budget_exhausted"
+      ],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": true
+    },
+    "tools": {
+      "failed_invocations_by_error": {},
+      "failed_invocations_by_tool": {},
+      "business_failures": [
+        {
+          "tool": "get_artifact",
+          "error_code": "invalid_request"
+        }
+      ]
+    },
+    "provider": {
+      "observed_request_count": 4,
+      "failed_measurements": [],
+      "cancelled_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "answer_delivery": {
+    "version": "answer-delivery-v1",
+    "answer_origin": "MODEL_SYNTHESIS",
+    "delivery_status": "MODEL_ANSWER_REQUIRES_REVIEW",
+    "structural_pass": true,
+    "semantic_acceptance": "MANUAL_REVIEW_REQUIRED"
+  },
+  "retrieval_degradation": [
+    {
+      "tool": "search_social_evidence",
+      "degradation_reason": "embedding_worker_unavailable",
+      "retrieval_mode": "keyword_only",
+      "returned_hit_count": 0
+    }
+  ],
+  "finalization_policy": {
+    "version": "bounded-synthesis-v1",
+    "read_only_only": true,
+    "requires_successful_tool_observation": true,
+    "max_attempts_per_run": 1,
+    "timeout_seconds": 15,
+    "tools_enabled": false,
+    "all_failed_reads": "runtime_refusal"
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "24e71a47-e415-420c-b2b8-8bad6a57198b": "under_review",
+      "9eed9e4c-f46f-4c1d-af58-627e7981826e": "candidate"
+    },
+    "review_status": {
+      "04fdb6de-38b1-46cc-b992-29707300443d": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "24e71a47-e415-420c-b2b8-8bad6a57198b": "under_review",
+      "9eed9e4c-f46f-4c1d-af58-627e7981826e": "candidate"
+    },
+    "review_status": {
+      "04fdb6de-38b1-46cc-b992-29707300443d": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "27314fcdd49ab5c466e61fba21ee100c46f764ae731f7bdca9dc4c1db6c904d2",
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7034,
+      "output_tokens": 386,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3140.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 138,
+      "output_tokens": 2874,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 17203.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7981,
+      "output_tokens": 508,
+      "cached_input_tokens": 6912,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3469.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 3882,
+      "output_tokens": 2820,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 14407.0
+    }
+  ],
+  "raw_report_sha256": "478494026f6d732e2ffe184949b2f75b777a741ad577d85f41c88647ac9e8846",
+  "raw_trace_sha256": "2a18fc2f08b02e671c2117fc2c5929105bfd1ed151dbbc59822365330c6478bb",
+  "raw_requests_sha256": "7a6f2a627696ae77046d895411b458bec2dba63378936ea2cfc13c6b0c6ebc39",
+  "local_artifact_directory": "backend/artifacts/agent_eval/answer_quality_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}
