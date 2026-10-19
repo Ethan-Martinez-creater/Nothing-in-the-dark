@@ -7,8 +7,9 @@ seed 只做"数据预置"：不调用 agent、不调用模型、不访问公网�
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from app.schemas.cases import CreateCaseRequest
 
@@ -48,6 +49,9 @@ class SeededFixture:
     fixture_id: str
     cases: dict[str, str] = field(default_factory=dict)
     ref_map: dict[str, str] = field(default_factory=dict)
+    #: Logical case key -> real IDs directly visible in that case. Cross-case
+    #: links/signals are added to every linked case after fixture seeding.
+    case_ref_map: dict[str, set[str]] = field(default_factory=dict)
 
     def case_id(self, investigation_key: str) -> str:
         try:
@@ -68,6 +72,10 @@ class SeededFixture:
             "finding": set(),
             "artifact": set(),
             "review": set(),
+            "comment": set(),
+            "signal": set(),
+            "cross_link": set(),
+            "entity": set(),
         }
         for key, value in self.ref_map.items():
             category = key.split(":", 1)[0]
@@ -127,9 +135,11 @@ async def seed_fixture(
     repository = stack.repository
     cases: dict[str, str] = {}
     ref_map: dict[str, str] = {}
+    case_ref_map: dict[str, set[str]] = {}
 
     for investigation in fixture.get("investigations", []):
         inv_key = investigation["key"]
+        existing_ref_keys = set(ref_map)
         case = await repository.create_case(
             CreateCaseRequest(
                 topic=investigation["topic"],
@@ -170,6 +180,7 @@ async def seed_fixture(
             )
             posts = await stack.social.list_posts_by_case(case.id)
             by_native = {record.native_id: record.id for record in posts}
+            post_keys: dict[str, str] = {}
             for post in investigation["posts"]:
                 record_id = by_native.get(post["native_id"])
                 if record_id is None:
@@ -177,6 +188,22 @@ async def seed_fixture(
                         f"fixture {fixture_id}: post {post['key']} not persisted"
                     )
                 ref_map[f"post:{post['key']}"] = record_id
+                post_keys[post["key"]] = record_id
+
+            comments = await stack.social.list_comments_page(
+                case.id, limit=500, offset=0
+            )
+            comment_ids = {
+                (record.post_id, record.native_id): record.id for record in comments
+            }
+            for post in investigation["posts"]:
+                post_id = post_keys[post["key"]]
+                for comment in post.get("comments", []) or []:
+                    comment_id = comment_ids.get((post_id, comment["native_id"]))
+                    if comment_id is not None:
+                        ref_map[
+                            f"comment:{post['key']}:{comment['native_id']}"
+                        ] = comment_id
 
         # 媒体资产：跨调查的 shared_media detector 依赖 normalized_url / phash。
         for media in investigation.get("media", []) or []:
@@ -241,11 +268,12 @@ async def seed_fixture(
             ref_map[f"finding:{finding['key']}"] = record.id
             if finding.get("status") == "under_review":
                 # Finding → Review 的唯一原子入口（复合状态一致性）。
-                await repository.submit_finding_for_review(
+                _finding, review_item = await repository.submit_finding_for_review(
                     case_id=case.id,
                     finding_id=record.id,
                     actor=SEED_AGENT,
                 )
+                ref_map[f"review:{finding['key']}"] = review_item.id
 
         if investigation.get("report"):
             report = investigation["report"]
@@ -284,6 +312,12 @@ async def seed_fixture(
             )
             ref_map[f"report:{inv_key}"] = document.id
 
+        case_ref_map[inv_key] = {
+            value
+            for key, value in ref_map.items()
+            if key not in existing_ref_keys
+        }
+
     # -- fixture 级：跨调查实体 / 链接 / 信号 --------------------------------
 
     for entity in fixture.get("workspace_entities", []) or []:
@@ -300,6 +334,7 @@ async def seed_fixture(
             case_id = cases.get(case_key)
             if not case_id:
                 continue
+            case_ref_map.setdefault(case_key, set()).add(record.id)
             await stack.workspace_repository.upsert_case_link(
                 entity_id=record.id,
                 case_id=case_id,
@@ -313,7 +348,7 @@ async def seed_fixture(
         right = cases.get(link["right_case_key"])
         if not left or not right:
             continue
-        await stack.cross_repository.upsert_link(
+        record = await stack.cross_repository.upsert_link(
             left_case_id=left,
             right_case_id=right,
             relation_type=link["relation_type"],
@@ -330,6 +365,13 @@ async def seed_fixture(
             feature_scores=dict(link.get("feature_scores", {}) or {}),
             algorithm_version=link.get("algorithm_version", "v1"),
         )
+        ref_map[
+            "cross_link:"
+            f"{link['left_case_key']}:{link['right_case_key']}:"
+            f"{link['relation_type']}:{link.get('algorithm_version', 'v1')}"
+        ] = record.id
+        case_ref_map.setdefault(link["left_case_key"], set()).add(record.id)
+        case_ref_map.setdefault(link["right_case_key"], set()).add(record.id)
 
     for signal in fixture.get("signals", []) or []:
         case_id = cases.get(signal["case_key"])
@@ -340,7 +382,7 @@ async def seed_fixture(
             for key in signal.get("related_case_keys", []) or []
             if key in cases
         ]
-        await stack.signal_repository.upsert_observed_signal(
+        record = await stack.signal_repository.upsert_observed_signal(
             fingerprint=signal["fingerprint"],
             case_id=case_id,
             source_type=signal.get("source_type", "cross_investigation"),
@@ -363,8 +405,18 @@ async def seed_fixture(
             # 目标 case 自身也必须建 case link，否则 list_for_case 查不到。
             case_links=[case_id, *related_case_ids],
         )
+        ref_map[f"signal:{signal['fingerprint']}"] = record.id
+        case_ref_map.setdefault(signal["case_key"], set()).add(record.id)
+        for case_key in signal.get("related_case_keys", []) or []:
+            if case_key in cases:
+                case_ref_map.setdefault(case_key, set()).add(record.id)
 
-    return SeededFixture(fixture_id=fixture_id, cases=cases, ref_map=ref_map)
+    return SeededFixture(
+        fixture_id=fixture_id,
+        cases=cases,
+        ref_map=ref_map,
+        case_ref_map=case_ref_map,
+    )
 
 
 def build_stack(database: Any) -> EvalDataStack:
