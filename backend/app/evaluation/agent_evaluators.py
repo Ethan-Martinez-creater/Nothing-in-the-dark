@@ -54,8 +54,8 @@ _ID_PATTERN = re.compile(
 )
 
 _COUNT_UNIT_PATTERN = (
-    r"条帖子|条数据|个帖子|篇帖子|条评论|个评论|条回复|个回复|"
-    r"条|个|篇|%|posts?|comments?|items?|rows?|records?|results?|entries|"
+    r"条帖子|条数据|条记录|个帖子|篇帖子|条评论|个评论|条回复|个回复|条结果|个结果|"
+    r"(?:条|个|篇)(?![\u4e00-\u9fff])|%|posts?|comments?|items?|rows?|records?|results?|entries|"
     r"signals?|findings?|evidence records?"
 )
 _PRECISE_COUNT_PATTERN = re.compile(
@@ -70,7 +70,7 @@ _CONTRAST_BOUNDARY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CONDITIONAL_PATTERN = re.compile(
-    r"(?:^|[\s,，])(?:若|如果|假如|假设|当|一旦|(?:if|when|unless|assuming|"
+    r"(?:^|[\s,，:：])(?:若|如果|假如|假设|当|一旦|(?:if|when|unless|assuming|"
     r"supposing|provided that|in case)\b)",
     re.IGNORECASE,
 )

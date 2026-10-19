@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
 class UiContext(BaseModel):
@@ -29,6 +29,15 @@ class UiContext(BaseModel):
     time_range: dict[str, str | None] | None = None
 
 
+class ExecutionPolicyRequest(BaseModel):
+    """Explicit caller authorization; execution counters/roots are server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+    read_only: StrictBool = False
+    max_tool_calls: int = Field(default=48, strict=True, ge=1, le=48)
+    budget_scope: Literal["run_tree"] = "run_tree"
+
+
 class CreateMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
     approve_crawl: bool = False
@@ -37,6 +46,7 @@ class CreateMessageRequest(BaseModel):
     # M2.2 Contextual Copilot：结构化 UI 上下文，进入 Run metadata，
     # 由 ContextBuilder 生成为独立 system context block。
     ui_context: UiContext | None = None
+    execution_policy: ExecutionPolicyRequest | None = None
 
 
 class SteeringRequest(BaseModel):

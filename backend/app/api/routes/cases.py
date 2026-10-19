@@ -184,6 +184,10 @@ async def create_agent_message(
             if request.ui_context is not None
             else None
         ),
+        **(
+            {"execution_policy": request.execution_policy.model_dump()}
+            if request.execution_policy is not None else {}
+        ),
     )
     return AgentRunResponse.model_validate(record)
 

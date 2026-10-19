@@ -1,0 +1,33 @@
+{
+  "kind": "READ_ONLY_BASELINE_DB_FORENSICS_NO_MODEL",
+  "baseline_execution_sha": "518267bb2202568a5a894ce5317715877a2374ed",
+  "source_report_sha256": "2e4a5660074b8c00d387b39c1a08813ff817d41d1855fdf7c90f808da4ff93b6",
+  "source_db_sha256": "cbb1fb98f47a89b29c083bc7d960cca66607fb346c1c233528a6ec51982783fc",
+  "db_unchanged_after_read": true,
+  "parent_run_id": "f5d812fd-3cd8-4df0-bd9a-85ebdc1ec1e4",
+  "verification_child": {
+    "run_id": "68c753c3-0e92-4924-9f92-2d9c86fe99d1",
+    "agent": "verification",
+    "status": "cancelled"
+  },
+  "new_claim_groups": [
+    {
+      "status": "closed",
+      "verdict": "insufficient",
+      "count": 6
+    },
+    {
+      "status": "open",
+      "verdict": null,
+      "count": 5
+    }
+  ],
+  "new_evidence_groups": [
+    {
+      "claim_status": "open",
+      "stance": "context",
+      "count": 5
+    }
+  ],
+  "interpretation": "Five open claims plus five context evidence match verify_claims persistence; six closed insufficient claims match expert-finalization card persistence. Both production write paths require the read-only guard."
+}

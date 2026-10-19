@@ -234,6 +234,16 @@ def test_count_detector_understands_direct_negation_and_chinese_cardinals() -> N
     ) == ["十条帖子"]
 
 
+def test_count_detector_distinguishes_data_counts_from_tools_and_abstract_nouns() -> None:
+    assert _precise_count_claims(
+        '我尝试了四条独立的权威读取通道。不能给出一个数字。换一个可读的角度。'
+        '规则明确要求：若数据库返回 0 条或不可用，必须以当前结果为准。'
+    ) == []
+    assert _precise_count_claims('本案共有十条记录、8个结果及3条。') == [
+        '十条记录', '8个结果', '3条',
+    ]
+
+
 @pytest.mark.asyncio
 async def test_seeded_source_map_covers_comments_reviews_signals_and_cross_links() -> None:
     database = MemoryDatabase()
