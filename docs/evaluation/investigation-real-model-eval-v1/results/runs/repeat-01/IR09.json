@@ -1,0 +1,165 @@
+{
+  "task_id": "IR09",
+  "run_id": "82f70548-5855-4f36-bbf1-ad12cdcd501f",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 1,
+      "failure": 2
+    },
+    "primary_failure": "citation",
+    "notes": [
+      "Actual transient fault once, then retry recovers10posts and platform6/4; normal completed response acknowledges the gap and gives a sourced timeline. No mutation or forbidden tools.",
+      "Three actual comment short IDs are absent from permitted source_map. Same frozen literal rule as IR03/IR06 yields acceptance0; automatic E6 misses these prefixes. This is not fabricated evidence.",
+      "12calls/13steps exceed6/8 recorded thresholds; extra quality/finding/comment/search queries. One separate embedding error disclosed. Interaction48200/92400 corresponds to seeded engagement values."
+    ]
+  },
+  "input_tokens": 51857,
+  "output_tokens": 4113,
+  "usage_lower_bound": {
+    "input_tokens": 51857,
+    "input_tokens_measured_lower_bound": 51857,
+    "output_tokens": 4113,
+    "output_tokens_measured_lower_bound": 4113
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 6,
+  "latency_ms": 53640,
+  "parent_tool_calls": 12,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 2,
+      "by_tool": {
+        "query_social_posts": 1,
+        "search_social_evidence": 1
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 1,
+        "eval_injected_transient_read": 1
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [
+      "fault:transient_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "query_social_posts",
+        "error_code": "eval_injected_transient_read"
+      }
+    ],
+    "injected_failure_count": 1
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7898,
+      "output_tokens": 184,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5203.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 8636,
+      "output_tokens": 234,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 9125.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 135,
+      "output_tokens": 975,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 7203.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 10654,
+      "output_tokens": 357,
+      "cached_input_tokens": 8576,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4500.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 11752,
+      "output_tokens": 136,
+      "cached_input_tokens": 10624,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2672.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 12782,
+      "output_tokens": 2227,
+      "cached_input_tokens": 11648,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 22375.0
+    }
+  ],
+  "raw_report_sha256": "f8d8087f5b74066df510a27682a5752e25a1baee1a4764bba96f3cc5a59b3871",
+  "raw_trace_sha256": "704f4ce7ce348db330853535a309fd0bde4ae7c4c409a66384dfce7a7eb725d2",
+  "raw_requests_sha256": "c7defbebb884df609af06bfeaa5b7328905b00b60c4e8425a02c1c8349a834b7",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/repeat-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

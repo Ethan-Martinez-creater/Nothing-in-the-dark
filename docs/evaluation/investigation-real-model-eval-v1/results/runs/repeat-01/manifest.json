@@ -1,0 +1,151 @@
+{
+  "schema": "curated-investigation-study-v1",
+  "attempt": "repeat-01",
+  "mode": "real_model",
+  "status": "completed",
+  "started_at": "2026-10-19T01:32:22.878546+00:00",
+  "finished_at": "2026-10-19T01:33:43.529710+00:00",
+  "frozen_suite_content_sha256": "c63ed42883d16e73ec0594b9c023fd65a34c90fa10a48f952d887bf2f21d590d",
+  "raw_attempt_sha256": "1425d6b9aeb12306e02ef318823ad426016574e8ffdbf5d03b8873c379ed8343",
+  "hard_stop_reason": null,
+  "reproduction_command": "python -B -m app.scripts.run_investigation_study --tasks IR09,IR10 --attempt-label repeat-1 --config-file .env --preflight-receipt artifacts/agent_eval/real_v1/preflight-01.json --output-dir artifacts/agent_eval/real_v1/repeat-01",
+  "command_note": "Per-case exact CLI arguments below, with absolute output paths rendered project-relative. Wrapper reproduction command explicitly selects the same tasks; choose a fresh output directory and valid private receipt for a new attempt.",
+  "manual_review": "CODEX_PROVISIONAL",
+  "independent_chatgpt_github_audit": "PENDING",
+  "cases": [
+    {
+      "task_id": "IR09",
+      "git_sha": "518267bb2202568a5a894ce5317715877a2374ed",
+      "run_id": "82f70548-5855-4f36-bbf1-ad12cdcd501f",
+      "started_at": "2026-10-19T01:32:27.842533+00:00",
+      "finished_at": "2026-10-19T01:33:23.793114+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "ccb66ed4544c571d6f931f3b23787888fd9ce2c1ab496822b1134751336c6023",
+      "coordinator_prompt_hash": "99747ce095227669f80f809cfaff2529ec00650eb531baecfeedb65a7de1d046",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR09",
+        "--candidate-label",
+        "repeat-1",
+        "--llm-config-file",
+        ".env",
+        "--preflight-receipt",
+        "artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/real_v1/repeat-01/IR09.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "f8d8087f5b74066df510a27682a5752e25a1baee1a4764bba96f3cc5a59b3871",
+      "raw_manifest_sha256": "ddf28a71583bae35335fd8b0bd76ade3e414df77087227417492b538ef5a4cc2",
+      "raw_trace_sha256": "704f4ce7ce348db330853535a309fd0bde4ae7c4c409a66384dfce7a7eb725d2",
+      "raw_requests_sha256": "c7defbebb884df609af06bfeaa5b7328905b00b60c4e8425a02c1c8349a834b7",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0"
+    },
+    {
+      "task_id": "IR10",
+      "git_sha": "518267bb2202568a5a894ce5317715877a2374ed",
+      "run_id": "ccb4164f-b9d4-47b2-addb-ae976003eebf",
+      "started_at": "2026-10-19T01:33:29.496330+00:00",
+      "finished_at": "2026-10-19T01:33:42.782872+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "ccb66ed4544c571d6f931f3b23787888fd9ce2c1ab496822b1134751336c6023",
+      "coordinator_prompt_hash": "99747ce095227669f80f809cfaff2529ec00650eb531baecfeedb65a7de1d046",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR10",
+        "--candidate-label",
+        "repeat-1",
+        "--llm-config-file",
+        ".env",
+        "--preflight-receipt",
+        "artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/real_v1/repeat-01/IR10.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "898c2a9ce8865f08b811144c8eccdf9e225695768c151682d39c34d1a49c400e",
+      "raw_manifest_sha256": "dbe72b602a4d8faefaf1b76d938f5c5608624d7490c7a610512ba504626f042e",
+      "raw_trace_sha256": "89af45114f5733cedd9ea3b532dce13c4ace8f6ad417fb6e8d53caa6729fb4bd",
+      "raw_requests_sha256": "b2311af4b1ec88afeec8b2e9ae42a2e4fb715555bf957e23c62b00d53feaf3d8",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0"
+    }
+  ]
+}

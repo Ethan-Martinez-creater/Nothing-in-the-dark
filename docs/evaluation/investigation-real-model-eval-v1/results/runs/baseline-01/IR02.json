@@ -1,0 +1,204 @@
+{
+  "task_id": "IR02",
+  "run_id": "20c08073-c140-47df-96a5-1fe3a6479ef2",
+  "status": "cancelled",
+  "deterministic_pass": false,
+  "automatic_failures": [
+    {
+      "task_id": "IR02",
+      "evaluator": "E1_task_completion",
+      "metric": "agent.task_success",
+      "value": 0.0,
+      "failure_category": "grounding",
+      "details": {
+        "assertion_failures": [],
+        "missing_artifacts": [],
+        "answered": false,
+        "run_status": "cancelled"
+      }
+    }
+  ],
+  "runner_error": "TimeoutError: run 20c08073-c140-47df-96a5-1fe3a6479ef2 did not reach a terminal state within 120s",
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "acceptance": 0,
+    "scores": {
+      "goal": 0,
+      "evidence": 0,
+      "citations": 0,
+      "uncertainty": 0,
+      "tools": 1,
+      "failure": 1
+    },
+    "primary_failure": "unknown",
+    "secondary_failures": [
+      "tool execution",
+      "infrastructure"
+    ],
+    "notes": [
+      "No final answer; E1 answered=false; runner TimeoutError after120s, cancelled. Platform reads returned6/4 posts but no comparison was delivered.",
+      "11 parent +5 child tool calls; embedding_worker_unavailable observed. Seven completed model requests succeeded; the eighth failed APIConnectionError after44953ms. Trace does not establish a single causal layer for timeout.",
+      "No fabricated answer, but also no user-facing limitation statement. E9 steps/tool counts exceeded recorded thresholds.",
+      "Primary reviewer uses uncertainty0 for an empty final answer, consistently with IR09; absence of fabrication alone does not demonstrate calibrated explanation."
+    ]
+  },
+  "input_tokens": null,
+  "output_tokens": null,
+  "usage_lower_bound": {
+    "input_tokens": null,
+    "input_tokens_measured_lower_bound": 55029,
+    "output_tokens": null,
+    "output_tokens_measured_lower_bound": 4512
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 8,
+  "latency_ms": 120172,
+  "parent_tool_calls": 11,
+  "child_tool_calls": 5,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 1,
+      "by_tool": {
+        "search_social_evidence": 1
+      },
+      "by_error_code": {
+        "embedding_worker_unavailable": 1
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7886,
+      "output_tokens": 307,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2860.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 10313,
+      "output_tokens": 211,
+      "cached_input_tokens": 7808,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 2719.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 11419,
+      "output_tokens": 281,
+      "cached_input_tokens": 10240,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 8172.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 12151,
+      "output_tokens": 1879,
+      "cached_input_tokens": 11392,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 8500.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 5268,
+      "output_tokens": 263,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 5969.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7850,
+      "output_tokens": 1546,
+      "cached_input_tokens": 5248,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 13593.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 142,
+      "output_tokens": 25,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 1844.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": null,
+      "status": "failed",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cached_input_tokens": null,
+      "error_code": "APIConnectionError",
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "duration_ms": 44953.0
+    }
+  ],
+  "raw_report_sha256": "485dbbaaf7c05f8f58fe976d28dd5b306216e1cedb7c266081e62a63d61bb1f5",
+  "raw_trace_sha256": "1e5d0bb0547d3dafd24e312376e9185d4a1c55ef917c50e378a86bd5bbc26ada",
+  "raw_requests_sha256": "7a74a43fec5c0a78d747b87720a448b68e555cc89f1cc6877c5981eecaf7e64c",
+  "local_artifact_directory": "backend/artifacts/agent_eval/real_v1/baseline-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}
