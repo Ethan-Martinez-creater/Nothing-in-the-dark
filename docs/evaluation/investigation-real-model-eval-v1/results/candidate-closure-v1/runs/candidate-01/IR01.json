@@ -1,0 +1,238 @@
+{
+  "task_id": "IR01",
+  "run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "independent_audit": "PENDING",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 2
+    },
+    "rationale": "Returned10 posts/weibo6/bilibili4 from two consistent DB observations. Tool names cited, no stable source anchor. No state change.",
+    "dimension_evidence": {
+      "goal": "answer table6/4/10",
+      "evidence": "aggregate_social_data and get_case_data_overview observations",
+      "citations": "answer names tools; no stable observation anchor",
+      "uncertainty": "explicit current persisted data scope",
+      "tools": "two relevant DB reads",
+      "failure": "no failure or speculative fallback"
+    },
+    "hard_failure_observed": false,
+    "answer_origin": "MODEL_FINAL"
+  },
+  "input_tokens": 14151,
+  "output_tokens": 361,
+  "usage_lower_bound": {
+    "input_tokens": 14151,
+    "input_tokens_measured_lower_bound": 14151,
+    "output_tokens": 361,
+    "output_tokens_measured_lower_bound": 361
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 11530,
+  "parent_tool_calls": 2,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 4,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+      "turn_id": "511ab573-a9bb-4a07-993d-21188132ddf2",
+      "root_run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+      "requested_calls": 2,
+      "reserved_calls": 2,
+      "used_calls": 2,
+      "max_tool_calls": 4,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+      "turn_id": "511ab573-a9bb-4a07-993d-21188132ddf2",
+      "tool_call_id": "call_00_hhsswhcmvss14q47z6otiei7",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+      "turn_id": "511ab573-a9bb-4a07-993d-21188132ddf2",
+      "tool_call_id": "call_01_ofxfsdzl65bftfz65cqnsuco",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 6
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+      "turn_id": "511ab573-a9bb-4a07-993d-21188132ddf2",
+      "tool_call_id": "call_01_ofxfsdzl65bftfz65cqnsuco",
+      "tool": "aggregate_social_data",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 28,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"group_by\": \"platform\", \"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"metric\": \"post_count\", \"group_by\": \"platform\", \"total\": 10, \"buckets\": [{\"key\": \"bilibili\", \"count\": 4}, {\"key\": \"weibo\", \"count\": 6}], \"error\": null}}",
+      "rag": null,
+      "idempotency_key": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b:call_01_ofxfsdzl65bftfz65cqnsuco",
+      "event_id": 7
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b",
+      "turn_id": "511ab573-a9bb-4a07-993d-21188132ddf2",
+      "tool_call_id": "call_00_hhsswhcmvss14q47z6otiei7",
+      "tool": "get_case_data_overview",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 92,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"case\": {\"id\": \"case:grounding\", \"title\": \"青禾乳业酸奶添加剂争议\", \"topic\": \"青禾乳业酸奶添加剂争议\", \"status\": \"ready\", \"platforms\": [\"weibo\", \"bilibili\"], \"time_range\": {\"start\": null, \"end\": null}}, \"counts\": {\"posts\": 10, \"comments\": 3, \"collection_runs\": 0, \"claims\": 3, \"evidence\": 5, \"artifacts\": 1, \"findings\": 2, \"review_items\": 1, \"review_decisions\": 0, \"reports\": 1}, \"posts_by_platform\": [{\"platform\": \"bilibili\", \"count\": 4}, {\"platform\": \"weibo\", \"count\": 6}], \"l…",
+      "rag": null,
+      "idempotency_key": "4e4f39ff-6053-4af1-8b70-6a81ec5f7e3b:call_00_hhsswhcmvss14q47z6otiei7",
+      "event_id": 8
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v1",
+    "observed_layers": [],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": false
+    },
+    "tools": {
+      "failed_invocations_by_error": {},
+      "failed_invocations_by_tool": {},
+      "business_failures": []
+    },
+    "provider": {
+      "observed_request_count": 2,
+      "failed_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "216c3f83-3ffb-4b8f-9e45-3344c5ef8f21": "under_review",
+      "8c759a56-56d1-4034-9a56-718a0e32b6af": "candidate"
+    },
+    "review_status": {
+      "6dcdb238-c64f-423c-9369-bbb7f787ec34": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "216c3f83-3ffb-4b8f-9e45-3344c5ef8f21": "under_review",
+      "8c759a56-56d1-4034-9a56-718a0e32b6af": "candidate"
+    },
+    "review_status": {
+      "6dcdb238-c64f-423c-9369-bbb7f787ec34": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "2fc9867a3962c5362e5708fdc15cacd1e2f81cb898804004dbf9b13a8d98473a",
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 6868,
+      "output_tokens": 87,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 7187.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7283,
+      "output_tokens": 274,
+      "cached_input_tokens": 6784,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3562.0
+    }
+  ],
+  "raw_report_sha256": "bf4f673e82d6eed08454bb128d7283e0dbd218b6f1947b2a900616d2d9c9ff0e",
+  "raw_trace_sha256": "45b1bb81c80c6194d4e45233a35988ec0856d4713f94445943db38f8d1bfdc20",
+  "raw_requests_sha256": "e7ce89d8e5a0d7e379cffb2ff096a4f8ebdd436f19cc2c1549d52f5adc61b029",
+  "local_artifact_directory": "backend/artifacts/agent_eval/candidate_closure_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

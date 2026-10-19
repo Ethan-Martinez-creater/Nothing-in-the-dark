@@ -94,7 +94,11 @@ class AgentLoopGraph:
             self._route,
             {"tool_step": "tool_step", "finish": "finish"},
         )
-        graph.add_edge("tool_step", "steering_step")
+        graph.add_conditional_edges(
+            "tool_step",
+            self._after_tools,
+            {"model": "steering_step", "finish": "finish"},
+        )
         graph.add_edge("finish", END)
         return graph
 
@@ -110,10 +114,26 @@ class AgentLoopGraph:
         return {"messages": [m.model_dump() for m in messages]}
 
     def _route(self, state: AgentLoopState) -> str:
+        if state.get("status") == "bounded_stop":
+            return "finish"
         return "tool_step" if state.get("pending_tool_calls") else "finish"
+
+    @staticmethod
+    def _after_tools(state: AgentLoopState) -> str:
+        return "finish" if state.get("status") == "bounded_stop" else "model"
 
     async def _model_step(self, state: AgentLoopState) -> dict[str, Any]:
         messages = [LLMMessage.model_validate(m) for m in state["messages"]]
+        exhausted = await self._runtime.execution_budget_exhausted(self._context)
+        if exhausted is not None:
+            content = self._runtime.execution_stop_content(self._context)
+            message = LLMMessage(role="assistant", content=content)
+            return {
+                "messages": [m.model_dump() for m in [*messages, message]],
+                "status": "bounded_stop",
+                "content": content,
+                "pending_tool_calls": [],
+            }
         response = await self._runtime.step_model(
             messages=messages,
             definition=self._definition,
@@ -140,6 +160,7 @@ class AgentLoopGraph:
         calls = [
             ToolCall.model_validate(c) for c in state.get("pending_tool_calls", [])
         ]
+        invoked_before = int(self._context.metadata.get("_execution_invoked_calls", 0))
         results = await self._runtime.step_tools(
             calls,
             definition=self._definition,
@@ -148,9 +169,23 @@ class AgentLoopGraph:
         )
         messages = [LLMMessage.model_validate(m) for m in state["messages"]]
         messages.extend(results)
+        invoked_count = (
+            int(self._context.metadata.get("_execution_invoked_calls", 0)) - invoked_before
+            if self._context.metadata.get("execution_policy") is not None else len(calls)
+        )
+        if self._context.metadata.get("_execution_stop_reason"):
+            content = self._runtime.execution_stop_content(self._context)
+            messages.append(LLMMessage(role="assistant", content=content))
+            return {
+                "messages": [m.model_dump() for m in messages],
+                "status": "bounded_stop",
+                "content": content,
+                "tool_call_count": state.get("tool_call_count", 0) + invoked_count,
+                "pending_tool_calls": [],
+            }
         return {
             "messages": [m.model_dump() for m in messages],
-            "tool_call_count": state.get("tool_call_count", 0) + len(calls),
+            "tool_call_count": state.get("tool_call_count", 0) + invoked_count,
             "pending_tool_calls": [],
         }
 

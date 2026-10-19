@@ -1,0 +1,431 @@
+{
+  "task_id": "IR09",
+  "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "independent_audit": "PENDING",
+    "acceptance": 0,
+    "scores": {
+      "goal": 0,
+      "evidence": 0,
+      "citations": 0,
+      "uncertainty": 1,
+      "tools": 1,
+      "failure": 2
+    },
+    "rationale": "First query_social_posts really failed once; later reads succeeded within six calls. Two surplus requests blocked. No recovered-trend synthesis or source citations; only runtime notice.",
+    "dimension_evidence": {
+      "goal": "no recovered trend summary",
+      "evidence": "recovered data never synthesized",
+      "citations": "no source references",
+      "uncertainty": "generic incomplete-result notice",
+      "tools": "first-read failure then successful reads, six total",
+      "failure": "one actual transient fault then successful query, bounded stop"
+    },
+    "hard_failure_observed": false,
+    "answer_origin": "RUNTIME_BOUNDED_STOP"
+  },
+  "input_tokens": 14619,
+  "output_tokens": 772,
+  "usage_lower_bound": {
+    "input_tokens": 14619,
+    "input_tokens_measured_lower_bound": 14619,
+    "output_tokens": 772,
+    "output_tokens_measured_lower_bound": 772
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 8359,
+  "parent_tool_calls": 6,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 1,
+      "by_tool": {
+        "query_social_posts": 1
+      },
+      "by_error_code": {
+        "eval_injected_transient_read": 1
+      }
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 6,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "root_run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "requested_calls": 4,
+      "reserved_calls": 4,
+      "used_calls": 4,
+      "max_tool_calls": 6,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_01_tf4cgb083mnv5gidors67xbj",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_00_0o7dxmzvtzihlf1ob7o67kel",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 6
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_01_tf4cgb083mnv5gidors67xbj",
+      "tool": "query_social_posts",
+      "status": "failed",
+      "error_code": "eval_injected_transient_read",
+      "duration_ms": 0,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0.0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"limit\": 100, \"sort_order\": \"newest\"}",
+      "output_summary": "",
+      "rag": null,
+      "idempotency_key": "f2325760-1c7f-4c0b-9450-0b39ca5dc969:call_01_tf4cgb083mnv5gidors67xbj",
+      "event_id": 7
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_02_07gfrz2yrhxy5mf969ujxs11",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 8
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_03_jx89w8605xax1zh46p4kc63l",
+      "tool": "aggregate_social_data",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 9
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_02_07gfrz2yrhxy5mf969ujxs11",
+      "tool": "aggregate_social_data",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 96,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"group_by\": \"day\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"metric\": \"post_count\", \"group_by\": \"day\", \"total\": 10, \"buckets\": [{\"key\": \"2026-03-05\", \"count\": 2}, {\"key\": \"2026-03-06\", \"count\": 1}, {\"key\": \"2026-03-07\", \"count\": 1}, {\"key\": \"2026-03-08\", \"count\": 2}, {\"key\": \"2026-03-09\", \"count\": 1}, {\"key\": \"2026-03-10\", \"count\": 1}, {\"key\": \"2026-03-12\", \"count\": 1}, {\"key\": \"2026-03-14\", \"count\": 1}], \"error\": null}}",
+      "rag": null,
+      "idempotency_key": "f2325760-1c7f-4c0b-9450-0b39ca5dc969:call_02_07gfrz2yrhxy5mf969ujxs11",
+      "event_id": 10
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_03_jx89w8605xax1zh46p4kc63l",
+      "tool": "aggregate_social_data",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 17,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"group_by\": \"platform\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"metric\": \"post_count\", \"group_by\": \"platform\", \"total\": 10, \"buckets\": [{\"key\": \"bilibili\", \"count\": 4}, {\"key\": \"weibo\", \"count\": 6}], \"error\": null}}",
+      "rag": null,
+      "idempotency_key": "f2325760-1c7f-4c0b-9450-0b39ca5dc969:call_03_jx89w8605xax1zh46p4kc63l",
+      "event_id": 11
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_00_0o7dxmzvtzihlf1ob7o67kel",
+      "tool": "get_case_data_overview",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 198,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"case\": {\"id\": \"case:grounding\", \"title\": \"青禾乳业酸奶添加剂争议\", \"topic\": \"青禾乳业酸奶添加剂争议\", \"status\": \"ready\", \"platforms\": [\"weibo\", \"bilibili\"], \"time_range\": {\"start\": null, \"end\": null}}, \"counts\": {\"posts\": 10, \"comments\": 3, \"collection_runs\": 0, \"claims\": 3, \"evidence\": 5, \"artifacts\": 1, \"findings\": 2, \"review_items\": 1, \"review_decisions\": 0, \"reports\": 1}, \"posts_by_platform\": [{\"platform\": \"bilibili\", \"count\": 4}, {\"platform\": \"weibo\", \"count\": 6}], \"l…",
+      "rag": null,
+      "idempotency_key": "f2325760-1c7f-4c0b-9450-0b39ca5dc969:call_00_0o7dxmzvtzihlf1ob7o67kel",
+      "event_id": 12
+    },
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "root_run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "requested_calls": 4,
+      "reserved_calls": 2,
+      "used_calls": 6,
+      "max_tool_calls": 6,
+      "event_id": 15
+    },
+    {
+      "event_type": "tool_execution_blocked",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "agent": "coordinator",
+      "tool_call_id": "call_02_cv0jd5dadq6iz77dg0u397f5",
+      "tool": "query_social_posts",
+      "status": "blocked",
+      "reason": "tool_budget_exhausted",
+      "requested_by_model": true,
+      "handler_invoked": false,
+      "event_id": 16
+    },
+    {
+      "event_type": "tool_execution_blocked",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "agent": "coordinator",
+      "tool_call_id": "call_03_p372pdad5e3exjw9drjnzyz8",
+      "tool": "search_social_evidence",
+      "status": "blocked",
+      "reason": "tool_budget_exhausted",
+      "requested_by_model": true,
+      "handler_invoked": false,
+      "event_id": 17
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_00_25mcafu5m1mmu4wd83lm8rzl",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 18
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_01_178sxy9ds9elvc41t13f9wui",
+      "tool": "query_social_posts",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 19
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_00_25mcafu5m1mmu4wd83lm8rzl",
+      "tool": "query_social_posts",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 11,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"limit\": 100, \"sort_order\": \"oldest\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"matched_count\": 10, \"returned_count\": 10, \"offset\": 0, \"next_offset\": null, \"posts\": [{\"id\": \"post:gr_p1\", \"platform\": \"weibo\", \"native_id\": \"gr-weibo-1001\", \"content_type\": \"post\", \"title\": \"\", \"content\": \"【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。\", \"author_id\": \"food-watch-8821\", \"author_name\": \"食品观察站\", \"source_url\": \"\", \"published_at\": \"2026-03-05T09:12:00\", \"engagement\": {\"reposts\": 12400, \"comments\": 6800, \"likes\": 29000, \"total\":…",
+      "rag": null,
+      "idempotency_key": "f2325760-1c7f-4c0b-9450-0b39ca5dc969:call_00_25mcafu5m1mmu4wd83lm8rzl",
+      "event_id": 20
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "tool_call_id": "call_01_178sxy9ds9elvc41t13f9wui",
+      "tool": "query_social_posts",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 14,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\", \"platforms\": [\"weibo\"], \"limit\": 50, \"sort_order\": \"oldest\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"matched_count\": 6, \"returned_count\": 6, \"offset\": 0, \"next_offset\": null, \"posts\": [{\"id\": \"post:gr_p1\", \"platform\": \"weibo\", \"native_id\": \"gr-weibo-1001\", \"content_type\": \"post\", \"title\": \"\", \"content\": \"【独家】我们送检的青禾乳业风味酸奶样品检出菌落总数超标 12 倍，检测机构为第三方实验室。完整报告见长图。\", \"author_id\": \"food-watch-8821\", \"author_name\": \"食品观察站\", \"source_url\": \"\", \"published_at\": \"2026-03-05T09:12:00\", \"engagement\": {\"reposts\": 12400, \"comments\": 6800, \"likes\": 29000, \"total\": 4…",
+      "rag": null,
+      "idempotency_key": "f2325760-1c7f-4c0b-9450-0b39ca5dc969:call_01_178sxy9ds9elvc41t13f9wui",
+      "event_id": 21
+    },
+    {
+      "event_type": "agent_execution_stopped",
+      "run_id": "f2325760-1c7f-4c0b-9450-0b39ca5dc969",
+      "turn_id": "18055215-efdb-4a4a-9b27-de7a602c3e41",
+      "status": "completed",
+      "reason": "tool_budget_exhausted",
+      "used_calls": 6,
+      "max_tool_calls": 6,
+      "blocked_calls": 2,
+      "event_id": 22
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v1",
+    "observed_layers": [
+      "controlled_tool_fault",
+      "runtime_budget_stop"
+    ],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [
+        "tool_budget_exhausted"
+      ],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": true
+    },
+    "tools": {
+      "failed_invocations_by_error": {
+        "eval_injected_transient_read": 1
+      },
+      "failed_invocations_by_tool": {
+        "query_social_posts": 1
+      },
+      "business_failures": []
+    },
+    "provider": {
+      "observed_request_count": 2,
+      "failed_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "6458705b-24cd-4796-8d91-fd979ec57580": "under_review",
+      "33942d77-df05-4cff-ba27-1a44a606e769": "candidate"
+    },
+    "review_status": {
+      "82ff5ead-0ab5-4ee0-8b5c-7c90c0659139": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "6458705b-24cd-4796-8d91-fd979ec57580": "under_review",
+      "33942d77-df05-4cff-ba27-1a44a606e769": "candidate"
+    },
+    "review_status": {
+      "82ff5ead-0ab5-4ee0-8b5c-7c90c0659139": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "1e633c90df14320a3ea02696ae5d02e86de49b2377437042ff7cd99293d61482",
+  "fault_injection": {
+    "profiles": [
+      "fault:transient_read"
+    ],
+    "injected_failures": [
+      {
+        "tool": "query_social_posts",
+        "error_code": "eval_injected_transient_read"
+      }
+    ],
+    "injected_failure_count": 1
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 6877,
+      "output_tokens": 303,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 4172.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7742,
+      "output_tokens": 469,
+      "cached_input_tokens": 6784,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3141.0
+    }
+  ],
+  "raw_report_sha256": "12074b3e2b989951a9b9bfc0bd0f697bd022e94429f2c896994992a624820800",
+  "raw_trace_sha256": "66ae12f56b25e8da25cb62d7a22f25dcc74613aa575b8c659ff3e976b60be0e3",
+  "raw_requests_sha256": "ce0b1d8c5b094d1826bbd1cc5624cc4d7e8561821fb2d05761ccf972b0b5aca8",
+  "local_artifact_directory": "backend/artifacts/agent_eval/candidate_closure_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

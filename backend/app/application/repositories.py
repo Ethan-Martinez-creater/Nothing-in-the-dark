@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, text
 
 from app.core.errors import ApplicationError, ResourceNotFoundError
 from app.domain.enums import CaseStatus, EventType, TaskStatus
@@ -1404,6 +1404,91 @@ class ApplicationRepository:
             await session.commit()
             await session.refresh(record)
             return record
+
+    async def reserve_run_tree_tool_calls(
+        self,
+        root_run_id: str,
+        requested_count: int,
+    ) -> dict[str, int]:
+        """Atomically reserve run-tree tool-call slots from the root policy.
+
+        Failed handler calls still consume a reserved slot. The root run row is
+        the shared counter, so dispatched expert runs participate in the same
+        bounded execution without adding a counter table or model-controlled
+        identifiers.
+        """
+        if requested_count < 0:
+            raise ValueError("requested_count must be non-negative")
+        async with self._database.session_factory() as session:
+            async with session.begin():
+                # SQLite ignores FOR UPDATE; acquire its writer lock before the
+                # read so reservations are atomic across Repository instances/processes.
+                if self._database.engine.dialect.name == "sqlite":
+                    await session.execute(text("BEGIN IMMEDIATE"))
+                record = await session.scalar(
+                    select(AgentRunRecord)
+                    .where(AgentRunRecord.id == root_run_id)
+                    .with_for_update()
+                )
+                if record is None:
+                    raise ResourceNotFoundError("agent_run", root_run_id)
+                metadata = dict(record.metadata_json or {})
+                policy = metadata.get("execution_policy")
+                if not isinstance(policy, dict):
+                    raise ApplicationError(
+                        "Run-tree tool budget policy is missing",
+                        code="execution_policy_missing",
+                    )
+                try:
+                    limit = int(policy["max_tool_calls"])
+                    used = int(policy.get("tool_calls_used", 0))
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ApplicationError(
+                        "Run-tree tool budget policy is invalid",
+                        code="execution_policy_invalid",
+                    ) from exc
+                if limit <= 0 or used < 0:
+                    raise ApplicationError(
+                        "Run-tree tool budget policy is invalid",
+                        code="execution_policy_invalid",
+                    )
+                reserved = min(requested_count, max(0, limit - used))
+                if reserved:
+                    policy = dict(policy)
+                    policy["tool_calls_used"] = used + reserved
+                    metadata["execution_policy"] = policy
+                    record.metadata_json = metadata
+                    await session.flush()
+                return {
+                    "requested": requested_count,
+                    "reserved": reserved,
+                    "used": used + reserved,
+                    "limit": limit,
+                }
+
+    async def get_run_tree_tool_budget(self, root_run_id: str) -> dict[str, int]:
+        """Read the shared execution-policy counter for a run tree."""
+        record = await self.get_agent_run(root_run_id)
+        policy = (record.metadata_json or {}).get("execution_policy")
+        if not isinstance(policy, dict):
+            raise ApplicationError(
+                "Run-tree tool budget policy is missing",
+                code="execution_policy_missing",
+            )
+        try:
+            limit = int(policy["max_tool_calls"])
+            used = int(policy.get("tool_calls_used", 0))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ApplicationError(
+                "Run-tree tool budget policy is invalid",
+                code="execution_policy_invalid",
+            ) from exc
+        if limit <= 0 or used < 0:
+            raise ApplicationError(
+                "Run-tree tool budget policy is invalid",
+                code="execution_policy_invalid",
+            )
+        return {"requested": 0, "reserved": 0, "used": used, "limit": limit}
 
     async def add_model_call(
         self,

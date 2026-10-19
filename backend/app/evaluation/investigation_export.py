@@ -15,6 +15,9 @@ def _digest(path: Path) -> str:
 
 
 def export_run(report: Any, payload: dict[str, Any], output: Path) -> None:
+    from app.evaluation.agent_evaluators import EVALUATOR_VERSION
+    from app.evaluation.investigation_diagnostics import DIAGNOSTICS_VERSION
+
     suite_root = (
         Path(__file__).resolve().parents[2]
         / "tests/fixtures/agent_eval/investigation_real_eval_v1"
@@ -34,8 +37,17 @@ def export_run(report: Any, payload: dict[str, Any], output: Path) -> None:
         str(path.relative_to(suite_root)): _digest(path)
         for path in sorted(suite_root.rglob("*.json"))
     }
+    policies = {
+        task.task_id: task.trace_bundle.get("execution_policy") for task in report.task_results
+    }
     manifest = {
         "schema_version": "investigation-run-v1",
+        "evaluator_version": EVALUATOR_VERSION,
+        "diagnostics_version": DIAGNOSTICS_VERSION,
+        "execution_policies": policies,
+        "execution_policies_sha256": hashlib.sha256(
+            json.dumps(policies, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
         "suite": report.suite_version,
         "mode": report.mode,
         "real_model_status": payload["real_model_status"],

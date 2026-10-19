@@ -963,11 +963,19 @@ class AgentSuiteRunner:
             len(gateway_measurements) if isinstance(gateway_measurements, list) else None
         )
         started_ms = time.monotonic()
+        execution_policy = None
+        if self._suite.suite_version == INVESTIGATION_REAL_SUITE and "read_only" in task.tags:
+            execution_policy = {
+                "read_only": True,
+                "max_tool_calls": task.budgets.max_tool_calls,
+                "budget_scope": "run_tree",
+            }
         run = await service.start(
             case_id=case_id,
             content=task.user_prompt,
             # 评测环境不允许隐式批准采集；高风险动作必须走审批中断。
             approve_crawl=False,
+            **({"execution_policy": execution_policy} if execution_policy else {}),
         )
         error: str | None = None
         try:
@@ -1017,6 +1025,7 @@ class AgentSuiteRunner:
                 review_items=review_items,
                 known_ids=self._known_ids(seeded),
                 ref_map=seeded.ref_map,
+                case_known_ids=self._case_known_ids(seeded, task, fixture),
                 tool_specs=self._tool_specs(tools),
                 expected_case_id=case_id,
                 wall_clock_ms=elapsed_ms,
@@ -1033,6 +1042,11 @@ class AgentSuiteRunner:
         categories = failure_categories(outcomes)
         trace_bundle = trace.to_bundle()
         if is_real_eval_suite:
+            from app.evaluation.investigation_diagnostics import (
+                collect_policy_audit,
+                diagnose_execution,
+            )
+
             observations = (
                 [
                     item
@@ -1058,7 +1072,25 @@ class AgentSuiteRunner:
                 runtime_id: logical_key
                 for logical_key, runtime_id in seeded.ref_map.items()
             }
+            trace_bundle["permitted_source_ids"] = sorted(
+                self._case_known_ids(seeded, task, fixture).get(task.case_id, set())
+            )
             trace_bundle["process_metrics"] = process
+            trace_bundle["execution_policy"] = execution_policy
+            policy_audit = await collect_policy_audit(stack.repository, run.id)
+            trace_bundle["policy_audit"] = policy_audit
+            trace_bundle["case_state_before"] = before.to_dict()
+            trace_bundle["case_state_after"] = after.to_dict()
+            trace_bundle["diagnostics"] = diagnose_execution(
+                status=trace.status,
+                runner_error=error,
+                run_error_code=trace.error_code,
+                final_answer=trace.final_answer,
+                tool_calls=tuple(trace.tool_calls) + tuple(trace.child_tool_calls),
+                observations=observations,
+                model_measurements=measurements,
+                policy_audit=policy_audit,
+            )
             trace_bundle["model_measurements"] = list(measurements)
             trace_bundle["model_metrics"] = model_metrics
             fault_summary = getattr(tools, "fault_summary", None)
@@ -1155,6 +1187,30 @@ class AgentSuiteRunner:
     @staticmethod
     def _tool_specs(registry: Any) -> dict[str, Any]:
         return {name: registry.get(name) for name in registry.names()}
+
+    @staticmethod
+    def _case_known_ids(
+        seeded: SeededFixture, task: AgentGoldenTask, fixture: Any
+    ) -> dict[str, set[str]]:
+        """Scope citations to this case, or its explicit fixture-linked cases.
+
+        This uses corpus ownership/links, never expected answers. An unrelated
+        near-name case remains excluded. The old interview suite keeps its
+        existing scope behavior.
+        """
+        if task.suite_version != INVESTIGATION_REAL_SUITE:
+            return {}
+        scopes = seeded.case_ref_map
+        if task.case_id not in scopes:
+            raise ValueError("Investigation fixture has no source ownership map for task case")
+        permitted = set(scopes[task.case_id])
+        if "cross_investigation" in task.tags:
+            for link in fixture.get("cross_links", []):
+                left, right = link["left_case_key"], link["right_case_key"]
+                if task.case_id in {left, right}:
+                    permitted.update(scopes.get(left, set()))
+                    permitted.update(scopes.get(right, set()))
+        return {task.case_id: permitted}
 
     @staticmethod
     def _known_ids(seeded: SeededFixture) -> dict[str, set[str]]:

@@ -28,7 +28,11 @@ from app.core.errors import ApplicationError
 from app.graphs.agent_loop import AgentLoopGraph
 from app.harness.agents import build_coordinator_definition, build_definition_for
 from app.harness.hooks import HookBus
-from app.harness.runtime import AgentDefinition, RuntimeContext
+from app.harness.runtime import (
+    AgentDefinition,
+    RuntimeContext,
+    ToolCallBudgetSnapshot,
+)
 from app.harness.skills import SkillRegistry
 from app.harness.structured_output import repair_json_content
 from app.harness.tool_factory import _persist_propagation_edges
@@ -296,6 +300,35 @@ class GraphWorker:
 
         definition = self._definition_for(run)
         metadata = run.metadata_json or {}
+        execution_policy = metadata.get("execution_policy")
+        budget_reserver = None
+        budget_reader = None
+        if isinstance(execution_policy, dict):
+            execution_policy = dict(execution_policy)
+            root_run_id = execution_policy.get("root_run_id")
+            if not isinstance(root_run_id, str) or not root_run_id:
+                root_run_id = run.id
+                parent_run_id = run.parent_run_id
+                while parent_run_id:
+                    parent = await self._repository.get_agent_run(parent_run_id)
+                    root_run_id = parent.id
+                    parent_run_id = parent.parent_run_id
+            execution_policy["root_run_id"] = root_run_id
+            metadata = {**metadata, "execution_policy": execution_policy}
+
+            async def reserve_tool_calls(requested: int) -> ToolCallBudgetSnapshot:
+                receipt = await self._repository.reserve_run_tree_tool_calls(
+                    root_run_id,
+                    requested,
+                )
+                return ToolCallBudgetSnapshot(**receipt)
+
+            async def read_tool_budget() -> ToolCallBudgetSnapshot:
+                receipt = await self._repository.get_run_tree_tool_budget(root_run_id)
+                return ToolCallBudgetSnapshot(**receipt)
+
+            budget_reserver = reserve_tool_calls
+            budget_reader = read_tool_budget
         approved_tools = (
             {"collect_social_posts", "start_social_collection"}
             if metadata.get("approve_crawl")
@@ -309,6 +342,8 @@ class GraphWorker:
             turn_id=run.turn_id or "",
             approved_tools=approved_tools,
             metadata=dict(metadata),
+            tool_budget_reserver=budget_reserver,
+            tool_budget_reader=budget_reader,
         )
         if run.parent_run_id:
             # Typed message from the parent: the dispatch payload plus the
@@ -429,9 +464,9 @@ class GraphWorker:
             # 前端据此把 run 卡片与 finalContent 合并。
             await self._repository.update_agent_run(run.id, turn_id=answer_turn.id)
         else:
-            if self._summarizer is not None:
+            if not self._is_read_only(run) and self._summarizer is not None:
                 await self._summarizer.summarize(case_id=case.id, run_id=run.id)
-            if self._extractor is not None:
+            if not self._is_read_only(run) and self._extractor is not None:
                 await self._extractor.extract(case_id=case.id, run_id=run.id)
         await self._repository.update_agent_run(
             run_id,
@@ -517,6 +552,45 @@ class GraphWorker:
         content: str,
     ) -> None:
         """Persist an expert run's output as an artifact and mail the parent."""
+        if self._is_read_only(run):
+            kind = _EXPERT_ARTIFACT_KINDS.get(run.agent, run.agent)
+            content_summary = content[:500]
+            await self._repository.add_agent_message(
+                sender_run_id=run.id,
+                receiver_run_id=run.parent_run_id,
+                message_type="expert_completed",
+                payload={
+                    "artifact_id": None,
+                    "artifact_kind": kind,
+                    "status": "completed",
+                    "read_only": True,
+                    "content_summary": content_summary,
+                },
+            )
+            await self._repository.add_run_event(
+                run.id,
+                {
+                    "event_type": "expert_completed",
+                    "agent": run.agent,
+                    "status": "completed",
+                    "read_only": True,
+                    "artifact_created": False,
+                },
+            )
+            if run.parent_run_id:
+                await self._repository.add_run_event(
+                    run.parent_run_id,
+                    {
+                        "event_type": "expert_completed",
+                        "agent": run.agent,
+                        "status": "completed",
+                        "child_run_id": run.id,
+                        "read_only": True,
+                        "artifact_created": False,
+                        "content_summary": content_summary,
+                    },
+                )
+            return
         data = self._parse_json_content(content)
         kind = _EXPERT_ARTIFACT_KINDS.get(run.agent, run.agent)
         # 传播专家直接在子 run 里生成图并落 artifact（不经 coordinator 的
@@ -606,6 +680,13 @@ class GraphWorker:
             )
 
 
+
+    @staticmethod
+    def _is_read_only(run: Any) -> bool:
+        policy = (getattr(run, "metadata_json", None) or {}).get(
+            "execution_policy"
+        )
+        return isinstance(policy, dict) and policy.get("read_only") is True
 
     @staticmethod
     def _parse_json_content(content: str) -> dict[str, object]:

@@ -75,6 +75,29 @@ _CASE_SCOPED_TOOLS = frozenset(
     }
 )
 
+_READ_ONLY_BLOCKED_TOOL_NAMES = frozenset(
+    {
+        "write_case_memory",
+        "collect_social_posts",
+        "start_social_collection",
+        "reconstruct_propagation",
+        "verify_claims",
+        "submit_review_item",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallBudgetSnapshot:
+    requested: int
+    reserved: int
+    used: int
+    limit: int
+
+
+ToolBudgetReserver = Callable[[int], Awaitable[ToolCallBudgetSnapshot]]
+ToolBudgetReader = Callable[[], Awaitable[ToolCallBudgetSnapshot]]
+
 
 def _redact(value: object, *, key: str = "") -> object:
     """Replace sensitive values and truncate long payloads for audit logs."""
@@ -156,6 +179,10 @@ class RuntimeContext:
     # M21/M22: 当前恢复的审批 id（approved 后 resume 时注入），用于执行前
     # 原子消费一次性授权，防止同一审批重复放行副作用工具。
     approval_id: str | None = None
+    # Optional durable run-tree budget callbacks. They are supplied only for
+    # explicitly policy-bounded runs; legacy runs retain their existing rules.
+    tool_budget_reserver: ToolBudgetReserver | None = None
+    tool_budget_reader: ToolBudgetReader | None = None
 
 
 async def _discard_event(_: dict[str, Any]) -> None:
@@ -223,6 +250,20 @@ class AgentRuntime:
 
         try:
             for turn_index in range(definition.max_turns):
+                exhausted = await self.execution_budget_exhausted(context)
+                if exhausted is not None:
+                    content = self.execution_stop_content(context)
+                    messages.append(LLMMessage(role="assistant", content=content))
+                    return AgentRunResult(
+                        content=content,
+                        messages=messages,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tools,
+                        model=last_model,
+                        estimated_cost=total_cost,
+                        currency="CNY",
+                    )
                 model_call_id = str(uuid4())
                 response = await self.step_model(
                     messages=messages,
@@ -259,19 +300,38 @@ class AgentRuntime:
                         currency="CNY",
                     )
 
-                if total_tools + len(response.tool_calls) > definition.max_tool_calls:
+                if self._execution_policy(context) is None and (
+                    total_tools + len(response.tool_calls) > definition.max_tool_calls
+                ):
                     raise ApplicationError(
                         "Agent tool-call budget exhausted",
                         code="tool_budget_exhausted",
                     )
+                invoked_before = int(context.metadata.get("_execution_invoked_calls", 0))
                 results = await self.step_tools(
                     response.tool_calls,
                     definition=definition,
                     context=context,
                     cancel_event=cancel_event,
                 )
-                total_tools += len(results)
+                total_tools += (
+                    int(context.metadata.get("_execution_invoked_calls", 0)) - invoked_before
+                    if self._execution_policy(context) is not None else len(results)
+                )
                 messages.extend(results)
+                if context.metadata.get("_execution_stop_reason"):
+                    content = self.execution_stop_content(context)
+                    messages.append(LLMMessage(role="assistant", content=content))
+                    return AgentRunResult(
+                        content=content,
+                        messages=messages,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                        tool_calls=total_tools,
+                        model=last_model,
+                        estimated_cost=total_cost,
+                        currency="CNY",
+                    )
 
             raise ApplicationError(
                 "Agent reached its maximum turn budget",
@@ -299,7 +359,14 @@ class AgentRuntime:
         current_cost: float,
     ) -> LLMResponse:
         """A single model call with hooks, events and budget enforcement."""
-        llm_tools = self._tools.llm_tools(set(definition.allowed_tools))
+        allowed_tools = set(definition.allowed_tools)
+        policy = self._execution_policy(context)
+        if policy and policy["read_only"]:
+            allowed_tools = {
+                name for name in allowed_tools if name in self._tools.names()
+                and not self._is_read_only_write(name, self._tools.get(name))
+            }
+        llm_tools = self._tools.llm_tools(allowed_tools)
         started_at = time.perf_counter()
         await self._hooks.emit(
             HookEvent.BEFORE_MODEL_CALL,
@@ -389,32 +456,298 @@ class AgentRuntime:
         cancel_event: asyncio.Event | None = None,
     ) -> list[LLMMessage]:
         """Execute a batch of tool calls (sequential when required)."""
+        policy = self._execution_policy(context)
+        read_only = bool(policy and policy.get("read_only"))
+        runnable: list[tuple[int, ToolCall]] = []
+        results: dict[int, LLMMessage] = {}
+        readonly_denials: list[str] = []
+        invalid_requests: list[str] = []
+        seen_ids: set[str] = set()
+        for index, call in enumerate(calls):
+            if call.id in seen_ids or call.name not in self._tools.names():
+                results[index] = await self._blocked_tool_message(
+                    call, agent=definition.name, context=context,
+                    reason="invalid_tool_request", code="invalid_tool_request",
+                    message="Unknown tool or duplicate tool-call ID; no handler was invoked.",
+                )
+                invalid_requests.append(call.name)
+                continue
+            seen_ids.add(call.id)
+            spec = self._tools.get(call.name) if call.name in self._tools.names() else None
+            if read_only and self._is_read_only_write(call.name, spec):
+                results[index] = await self._blocked_tool_message(
+                    call,
+                    agent=definition.name,
+                    context=context,
+                    reason="read_only_policy",
+                    code="read_only_policy",
+                    message=(
+                        f"Tool '{call.name}' was blocked because this run is read-only; "
+                        "no handler was invoked."
+                    ),
+                )
+                readonly_denials.append(call.name)
+                continue
+            runnable.append((index, call))
+
+        reservation = await self._reserve_tool_budget(len(runnable), context)
+        accepted_count = len(runnable)
+        if reservation is not None:
+            accepted_count = reservation.reserved
+            await self._event_sink(
+                {
+                    "event_type": "tool_budget_reserved",
+                    "agent": definition.name,
+                    "run_id": context.run_id,
+                    "turn_id": context.turn_id,
+                    "root_run_id": str(policy.get("root_run_id") or context.run_id),
+                    "requested_calls": reservation.requested,
+                    "reserved_calls": reservation.reserved,
+                    "used_calls": reservation.used,
+                    "max_tool_calls": reservation.limit,
+                }
+            )
+
+        runnable_now = runnable[:accepted_count]
+        for index, call in runnable[accepted_count:]:
+            results[index] = await self._blocked_tool_message(
+                call,
+                agent=definition.name,
+                context=context,
+                reason="tool_budget_exhausted",
+                code="tool_budget_exhausted",
+                message=(
+                    "The run-tree tool-call budget is exhausted; this requested "
+                    "tool was not invoked."
+                ),
+            )
+
         sequential = any(
-            self._tools.get(call.name).execution_mode == "sequential"
-            for call in calls
+            call.name in self._tools.names()
+            and self._tools.get(call.name).execution_mode == "sequential"
+            for _, call in runnable_now
         )
         if sequential:
-            return [
+            executed = [
                 await self._execute_tool(
                     call,
                     definition=definition,
                     context=context,
                     cancel_event=cancel_event,
                 )
-                for call in calls
+                for _, call in runnable_now
             ]
-        return list(
-            await asyncio.gather(
-                *(
-                    self._execute_tool(
-                        call,
-                        definition=definition,
-                        context=context,
-                        cancel_event=cancel_event,
+        else:
+            executed = list(
+                await asyncio.gather(
+                    *(
+                        self._execute_tool(
+                            call,
+                            definition=definition,
+                            context=context,
+                            cancel_event=cancel_event,
+                        )
+                        for _, call in runnable_now
                     )
-                    for call in calls
                 )
             )
+        for (index, _), message in zip(runnable_now, executed, strict=True):
+            results[index] = message
+
+        if readonly_denials:
+            await self._record_execution_stop(
+                context,
+                reason="read_only_policy",
+                details={"blocked_tools": readonly_denials},
+            )
+        elif invalid_requests:
+            await self._record_execution_stop(
+                context, reason="invalid_tool_request", details={"blocked_tools": invalid_requests},
+            )
+        elif reservation is not None and reservation.reserved < reservation.requested:
+            await self._record_execution_stop(
+                context,
+                reason="tool_budget_exhausted",
+                details={
+                    "used_calls": reservation.used,
+                    "max_tool_calls": reservation.limit,
+                    "blocked_calls": reservation.requested - reservation.reserved,
+                },
+            )
+        return [results[index] for index in range(len(calls))]
+
+    @staticmethod
+    def _execution_policy(context: RuntimeContext) -> dict[str, Any] | None:
+        policy = context.metadata.get("execution_policy")
+        if policy is None:
+            return None
+        if not isinstance(policy, dict) or policy.get("budget_scope") != "run_tree":
+            raise ApplicationError(
+                "Execution policy is invalid",
+                code="execution_policy_invalid",
+            )
+        try:
+            maximum = int(policy["max_tool_calls"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ApplicationError(
+                "Execution policy tool-call limit is invalid",
+                code="execution_policy_invalid",
+            ) from exc
+        if maximum <= 0 or not isinstance(policy.get("read_only"), bool):
+            raise ApplicationError(
+                "Execution policy is invalid",
+                code="execution_policy_invalid",
+            )
+        return policy
+
+    @staticmethod
+    def _is_read_only_write(tool_name: str, spec: Any) -> bool:
+        if tool_name in _READ_ONLY_BLOCKED_TOOL_NAMES:
+            return True
+        if tool_name == "dispatch_expert":
+            # Dispatch is an execution-control record. The child inherits the
+            # policy, and its case-data finalizers are separately suppressed.
+            return False
+        return bool(spec is not None and spec.side_effect != "none")
+
+    async def _reserve_tool_budget(
+        self,
+        requested: int,
+        context: RuntimeContext,
+    ) -> ToolCallBudgetSnapshot | None:
+        policy = self._execution_policy(context)
+        if policy is None:
+            return None
+        if context.tool_budget_reserver is not None:
+            snapshot = await context.tool_budget_reserver(requested)
+        else:
+            limit = int(policy["max_tool_calls"])
+            used = int(context.metadata.get("_execution_tool_calls_used", 0))
+            reserved = min(requested, max(0, limit - used))
+            used += reserved
+            context.metadata["_execution_tool_calls_used"] = used
+            snapshot = ToolCallBudgetSnapshot(
+                requested=requested,
+                reserved=reserved,
+                used=used,
+                limit=limit,
+            )
+        if not isinstance(snapshot, ToolCallBudgetSnapshot):
+            raise ApplicationError(
+                "Execution budget callback returned an invalid receipt",
+                code="execution_policy_invalid",
+            )
+        return snapshot
+
+    async def execution_budget_exhausted(
+        self,
+        context: RuntimeContext,
+    ) -> ToolCallBudgetSnapshot | None:
+        """Return the snapshot when a bounded run must stop before another model call."""
+        policy = self._execution_policy(context)
+        if policy is None:
+            return None
+        if context.tool_budget_reader is not None:
+            snapshot = await context.tool_budget_reader()
+        else:
+            limit = int(policy["max_tool_calls"])
+            used = int(context.metadata.get("_execution_tool_calls_used", 0))
+            snapshot = ToolCallBudgetSnapshot(
+                requested=0,
+                reserved=0,
+                used=used,
+                limit=limit,
+            )
+        if snapshot.used < snapshot.limit:
+            return None
+        await self._record_execution_stop(
+            context,
+            reason="tool_budget_exhausted",
+            details={"used_calls": snapshot.used, "max_tool_calls": snapshot.limit},
+        )
+        return snapshot
+
+    async def _blocked_tool_message(
+        self,
+        call: ToolCall,
+        *,
+        agent: str,
+        context: RuntimeContext,
+        reason: str,
+        code: str,
+        message: str,
+    ) -> LLMMessage:
+        result = {"ok": False, "error": {"code": code, "message": message}}
+        await self._hooks.emit(
+            HookEvent.BEFORE_TOOL_CALL,
+            {"agent": agent, "tool_call": call, "context": context},
+        )
+        await self._hooks.emit(
+            HookEvent.AFTER_TOOL_CALL,
+            {
+                "agent": agent,
+                "tool_call": call,
+                "result": result,
+                "context": context,
+            },
+        )
+        await self._event_sink(
+            {
+                "event_type": "tool_execution_blocked",
+                "run_id": context.run_id,
+                "turn_id": context.turn_id,
+                "agent": agent,
+                "tool_call_id": call.id,
+                "tool": call.name,
+                "status": "blocked",
+                "reason": reason,
+                "requested_by_model": True,
+                "handler_invoked": False,
+            }
+        )
+        return self._tool_message(call, result)
+
+    async def _record_execution_stop(
+        self,
+        context: RuntimeContext,
+        *,
+        reason: str,
+        details: dict[str, Any],
+    ) -> None:
+        context.metadata["_execution_stop_reason"] = reason
+        context.metadata["_execution_stop_details"] = details
+        if context.metadata.get("_execution_stop_recorded"):
+            return
+        context.metadata["_execution_stop_recorded"] = True
+        await self._event_sink(
+            {
+                "event_type": "agent_execution_stopped",
+                "run_id": context.run_id,
+                "turn_id": context.turn_id,
+                "status": "completed",
+                "reason": reason,
+                **details,
+            }
+        )
+
+    def execution_stop_content(self, context: RuntimeContext) -> str:
+        reason = context.metadata.get("_execution_stop_reason")
+        details = context.metadata.get("_execution_stop_details") or {}
+        if reason == "invalid_tool_request":
+            return "工具请求包含未知工具或重复标识，已安全停止；未执行无效请求，结果可能不完整。"
+        if reason == "read_only_policy":
+            names = ", ".join(details.get("blocked_tools") or [])
+            suffix = f" ({names})" if names else ""
+            return (
+                "只读执行策略阻止了写入工具"
+                f"{suffix}；本次运行已停止，未执行该写入。此前结果可能不完整。"
+            )
+        used = details.get("used_calls", 0)
+        maximum = details.get("max_tool_calls", 0)
+        return (
+            f"本次运行已达到工具调用上限（已执行 {used} 次，上限 {maximum} 次）；"
+            "无法继续读取或核验，所有后续工具请求均未执行，当前结果可能不完整。"
+            "读取失败不代表记录数为零；不提供未经核验的精确统计。"
         )
 
     async def _execute_tool(
@@ -455,7 +788,16 @@ class AgentRuntime:
             # controlled: the call id is stable across checkpoint replays.
             arguments["run_id"] = context.run_id
             arguments["dispatch_key"] = f"{context.run_id}:{call.id}"
-
+            arguments.pop("execution_policy", None)
+            policy = self._execution_policy(context)
+            if policy is not None:
+                root_run_id = policy.get("root_run_id") or context.run_id
+                arguments["execution_policy"] = {
+                    "read_only": bool(policy["read_only"]),
+                    "max_tool_calls": int(policy["max_tool_calls"]),
+                    "budget_scope": "run_tree",
+                    "root_run_id": str(root_run_id),
+                }
         is_memory_write = call.name == "write_case_memory"
         if is_memory_write:
             await self._hooks.emit(
@@ -711,6 +1053,9 @@ class AgentRuntime:
 
         progress_token = set_progress_sink(_tool_progress)
         try:
+            context.metadata["_execution_invoked_calls"] = (
+                int(context.metadata.get("_execution_invoked_calls", 0)) + 1
+            )
             invocation = await self._tools.invoke_with_meta(
                 call.name,
                 arguments,

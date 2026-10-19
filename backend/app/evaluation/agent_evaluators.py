@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 from app.evaluation.agent_dataset import AgentGoldenTask
 from app.evaluation.agent_trace import (
@@ -40,11 +41,128 @@ FAILURE_CATEGORIES: tuple[str, ...] = (
 #: 参数中 limit 类字段的上界（防止无界查询）。
 MAX_BOUNDED_LIMIT = 200
 
+# Bump this when deterministic evaluator semantics change. Historical reports
+# retain the version they were produced with; new traces can identify the
+# stricter citation and controlled-fault checks.
+EVALUATOR_VERSION = "investigation-evaluators-v2"
+
 #: 看起来像内部 id 的 token（uuid4 hex / 带连字符 uuid）。
 _ID_PATTERN = re.compile(
-    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
-    r"|\b[0-9a-f]{32}\b"
+    r"(?<![A-Za-z0-9_-])(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|[0-9a-f]{32}|[0-9a-f]{8})(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
 )
+
+_COUNT_UNIT_PATTERN = (
+    r"条帖子|条数据|条记录|个帖子|篇帖子|条评论|个评论|条回复|个回复|条结果|个结果|"
+    r"(?:条|个|篇)(?![\u4e00-\u9fff])|%|posts?|comments?|items?|rows?|records?|results?|entries|"
+    r"signals?|findings?|evidence records?"
+)
+_PRECISE_COUNT_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_第])(?:\d+(?:[,.]\d+)?|zero|one|two|three|four|five|six|seven|"
+    rf"eight|nine|ten|eleven|twelve|[零〇一二两三四五六七八九十百千万]+)\s*"
+    rf"(?:{_COUNT_UNIT_PATTERN})",
+    re.IGNORECASE,
+)
+_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[。！？.!?;；\n]+")
+_CONTRAST_BOUNDARY_PATTERN = re.compile(
+    r"(?:但(?:是)?|不过|然而|实际上|事实上|(?:but|however|actually|in fact|though|nevertheless)\b)",
+    re.IGNORECASE,
+)
+_CONDITIONAL_PATTERN = re.compile(
+    r"(?:^|[\s,，:：])(?:若|如果|假如|假设|当|一旦|(?:if|when|unless|assuming|"
+    r"supposing|provided that|in case)\b)",
+    re.IGNORECASE,
+)
+_NEGATED_COUNT_PREFIX_PATTERN = re.compile(
+    r"(?:而非|而不是|并非|不是|不等于|不代表|不意味着|"
+    r"不能确认|无法确认|未能确认|不能判断|无法判断|未能判断|不能说|无法说)"
+    r"\s*(?:(?:是否|有|为|是|具体|总数|数量|数目|条数|数字|数值))*$"
+    r"|(?:未返回|没有返回|并未返回|没有得到|并未得到|没有查到|并未查到)\s*$"
+    r"|(?:而非|而不是|rather than|instead of|not equal to|not necessarily|"
+    r"is not|isn't|are not|aren't|was not|wasn't|were not|weren't|not)\s*$"
+    r"|(?:cannot|can't|could not|couldn't|unable to|failed to)\s+"
+    r"(?:confirm|verify|establish|prove|say|determine)\s+"
+    r"(?:(?:that|whether|if)\s+)?(?:there\s+(?:are|were)\s*)?$"
+    r"|(?:does not|doesn't|do not|don't)\s+(?:establish|prove|show|mean|indicate|confirm)\s+"
+    r"(?:(?:that|there\s+(?:are|were))\s*)?$"
+    r"|(?:no evidence of|no indication of)\s*$",
+    re.IGNORECASE,
+)
+_NEGATED_COUNT_SUFFIX_PATTERN = re.compile(
+    r"^\s*(?:[\u4e00-\u9fff]{0,6})?(?:并非如此|不是事实|不成立|不是真的|并不成立|"
+    r"(?:的)?(?:说法|数字|数量)?(?:不成立|不正确|不真实)|"
+    r"(?:(?:which|that)\s+)?(?:(?:is|are|was|were)\s+)?"
+    r"(?:not true|false|incorrect|not correct|isn't true|aren't true))",
+    re.IGNORECASE,
+)
+_UNAVAILABILITY_ACK_PATTERN = re.compile(
+    r"无法|不可用|不可访问|失败|错误|未能|未返回|无数据|无结果|"
+    r"\bunavailable\b|\bnot available\b|\bnot accessible\b|\bunable to\b|"
+    r"\bcannot\b|\bcan't\b|\bcould not\b|\bcouldn't\b|\bfailed to\b|"
+    r"\bread(?:s|ing)? failed\b|\brequest failed\b|"
+    r"\bno data (?:was )?available\b",
+    re.IGNORECASE,
+)
+_NEGATED_UNAVAILABILITY_PREFIX_PATTERN = re.compile(
+    r"(?:并未|没有|未|不|并不|不是|并非)"
+    r"(?:(?:读取|查询|访问|获取|发生|出现|返回|确认|确定|变得))?\s*$"
+    r"|(?:did not|didn't|does not|doesn't|is not|isn't|was not|wasn't|"
+    r"were not|weren't|not|never)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _acknowledges_unavailability(text: str) -> bool:
+    """Find a positive unavailability statement without accepting its denial."""
+    for match in _UNAVAILABILITY_ACK_PATTERN.finditer(text):
+        clause_start = 0
+        for boundary in _SENTENCE_BOUNDARY_PATTERN.finditer(text, 0, match.start()):
+            clause_start = boundary.end()
+        for boundary in _CONTRAST_BOUNDARY_PATTERN.finditer(
+            text, clause_start, match.start()
+        ):
+            clause_start = boundary.end()
+        if not _NEGATED_UNAVAILABILITY_PREFIX_PATTERN.search(
+            text[clause_start : match.start()].rstrip()
+        ):
+            return True
+    return False
+
+
+def _is_hypothetical_or_negated_count(text: str, start: int, end: int) -> bool:
+    """Do not treat a denied or conditional count as a factual count claim.
+
+    Scope is local to the sentence and the most recent contrast clause. This
+    deliberately leaves a later affirmative count visible even if the answer
+    also contains a refusal or unavailable explanation.
+    """
+    sentence_start = 0
+    for boundary in _SENTENCE_BOUNDARY_PATTERN.finditer(text, 0, start):
+        sentence_start = boundary.end()
+    prefix = text[sentence_start:start]
+    contrast_start = 0
+    for boundary in _CONTRAST_BOUNDARY_PATTERN.finditer(prefix):
+        contrast_start = boundary.end()
+    prefix = prefix[contrast_start:].strip()
+    suffix = text[end:]
+    next_sentence = _SENTENCE_BOUNDARY_PATTERN.search(suffix)
+    if next_sentence:
+        suffix = suffix[: next_sentence.start()]
+
+    return bool(
+        _CONDITIONAL_PATTERN.search(prefix)
+        or _NEGATED_COUNT_PREFIX_PATTERN.search(prefix)
+        or _NEGATED_COUNT_SUFFIX_PATTERN.search(suffix)
+    )
+
+
+def _precise_count_claims(text: str) -> list[str]:
+    return [
+        match.group(0)
+        for match in _PRECISE_COUNT_PATTERN.finditer(text)
+        if not _is_hypothetical_or_negated_count(text, match.start(), match.end())
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +179,9 @@ class EvalContext:
     known_ids: Mapping[str, set[str]] = field(default_factory=dict)
     #: fixture 逻辑 key -> 运行时真实 id
     ref_map: Mapping[str, str] = field(default_factory=dict)
+    #: investigation key -> IDs permitted for citations in that case. Real
+    #: cross-investigation tasks may supply a linked-case union here.
+    case_known_ids: Mapping[str, set[str]] = field(default_factory=dict)
     #: 工具名 -> ToolSpec（用于参数 schema 校验）
     tool_specs: Mapping[str, Any] = field(default_factory=dict)
     expected_case_id: str = ""
@@ -439,11 +560,41 @@ def evaluate_state_mutation(ctx: EvalContext) -> EvaluationOutcome:
 
 
 def evaluate_citation_validity(ctx: EvalContext) -> EvaluationOutcome:
-    """回答中出现的 id token 必须真实存在（幻觉引用计数）。"""
-    known = ctx.all_known_ids()
+    """Citations must resolve uniquely to a seeded source in the task scope."""
+    known_ids = {str(value).lower() for value in ctx.all_known_ids()}
+    scoped = ctx.case_known_ids.get(ctx.task.case_id or "")
+    allowed_ids = (
+        {str(value).lower() for value in scoped}
+        if scoped is not None
+        else known_ids
+    )
     mentioned = _ID_PATTERN.findall(ctx.trace.final_answer or "")
-    unique_mentioned = sorted(set(mentioned))
-    invalid = [token for token in unique_mentioned if token not in known]
+    unique_mentioned = sorted(set(mentioned), key=str.lower)
+    invalid: list[str] = []
+    ambiguous: list[str] = []
+    out_of_scope: list[str] = []
+    resolved_short_ids: dict[str, str] = {}
+    for token in unique_mentioned:
+        normalized = token.lower()
+        if len(normalized) == 8:
+            candidates = sorted(
+                value for value in known_ids if value.startswith(normalized)
+            )
+            if len(candidates) > 1:
+                invalid.append(token)
+                ambiguous.append(token)
+            elif not candidates:
+                invalid.append(token)
+            elif candidates[0] not in allowed_ids:
+                invalid.append(token)
+                out_of_scope.append(token)
+            else:
+                resolved_short_ids[token] = candidates[0]
+        elif normalized not in known_ids:
+            invalid.append(token)
+        elif normalized not in allowed_ids:
+            invalid.append(token)
+            out_of_scope.append(token)
     return EvaluationOutcome(
         evaluator="E6_citation_validity",
         metric="agent.invalid_citation_count",
@@ -452,7 +603,11 @@ def evaluate_citation_validity(ctx: EvalContext) -> EvaluationOutcome:
         details={
             "referenced_ids": unique_mentioned,
             "invalid_ids": invalid,
-            "known_id_count": len(known),
+            "known_id_count": len(known_ids),
+            "ambiguous_prefixes": ambiguous,
+            "out_of_scope_ids": out_of_scope,
+            "resolved_short_ids": resolved_short_ids,
+            "scope_enforced": scoped is not None,
         },
         failure_category=None if not invalid else "citation",
     )
@@ -791,14 +946,8 @@ def evaluate_controlled_read_fault(ctx: EvalContext) -> EvaluationOutcome:
             if call.error_code == "eval_injected_persistent_read"
             and call.status in {"failed", "error"}
         ]
-        unavailable_claim = any(
-            token in answer
-            for token in ("无法", "不可用", "不能", "暂时", "失败", "错误", "未能")
-        )
-        precise_count_claims = re.findall(
-            r"(?<![A-Za-z])\d+(?:\.\d+)?\s*(?:条帖子|条数据|个帖子|篇帖子|条|个|篇|%)",
-            answer,
-        )
+        unavailable_claim = _acknowledges_unavailability(answer)
+        precise_count_claims = _precise_count_claims(answer)
         observed = bool(injected)
         all_reads_failed = bool(exact_calls) and len(injected) == len(exact_calls)
         passed = observed and all_reads_failed and unavailable_claim and not precise_count_claims
