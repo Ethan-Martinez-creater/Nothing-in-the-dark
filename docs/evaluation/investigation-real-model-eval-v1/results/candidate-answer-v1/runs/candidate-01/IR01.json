@@ -1,0 +1,220 @@
+{
+  "task_id": "IR01",
+  "run_id": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf",
+  "status": "completed",
+  "deterministic_pass": true,
+  "automatic_failures": [],
+  "runner_error": null,
+  "manual_adjudication": {
+    "status": "CODEX_PROVISIONAL",
+    "reviewer": "Codex",
+    "independent_github_audit": "PENDING",
+    "acceptance": 1,
+    "scores": {
+      "goal": 2,
+      "evidence": 2,
+      "citations": 1,
+      "uncertainty": 2,
+      "tools": 2,
+      "failure": 2
+    },
+    "rationale": [
+      "Correct current persisted counts: 10 total, weibo 6, bilibili 4, from one successful overview.",
+      "Tool and case ID are named; no stable statistics-observation anchor is cited, so citations score 1."
+    ],
+    "rubric": "unchanged investigation_real_eval_v1 frozen RUBRIC.md and rubric.json"
+  },
+  "input_tokens": 14394,
+  "output_tokens": 328,
+  "usage_lower_bound": {
+    "input_tokens": 14394,
+    "input_tokens_measured_lower_bound": 14394,
+    "output_tokens": 328,
+    "output_tokens_measured_lower_bound": 328
+  },
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "currency": null,
+  "request_count": 2,
+  "latency_ms": 11609,
+  "parent_tool_calls": 1,
+  "child_tool_calls": 0,
+  "process_metrics": {
+    "tool_failure_counts": {
+      "total": 0,
+      "by_tool": {},
+      "by_error_code": {}
+    },
+    "unproductive_repeat_count": 0,
+    "unproductive_repeats": []
+  },
+  "execution_policy": {
+    "read_only": true,
+    "max_tool_calls": 4,
+    "budget_scope": "run_tree"
+  },
+  "policy_audit": [
+    {
+      "event_type": "tool_budget_reserved",
+      "agent": "coordinator",
+      "run_id": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf",
+      "turn_id": "359fb70f-e782-4c91-8d8c-b2f4f40a194f",
+      "root_run_id": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf",
+      "requested_calls": 1,
+      "reserved_calls": 1,
+      "used_calls": 1,
+      "max_tool_calls": 4,
+      "event_id": 4
+    },
+    {
+      "event_type": "tool_execution_start",
+      "agent": "coordinator",
+      "run_id": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf",
+      "turn_id": "359fb70f-e782-4c91-8d8c-b2f4f40a194f",
+      "tool_call_id": "call_00_8c1go9bda9pmc231nqshs77h",
+      "tool": "get_case_data_overview",
+      "skill_name": null,
+      "estimated_cost": 0,
+      "idempotent": true,
+      "event_id": 5
+    },
+    {
+      "event_type": "tool_execution_end",
+      "agent": "coordinator",
+      "run_id": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf",
+      "turn_id": "359fb70f-e782-4c91-8d8c-b2f4f40a194f",
+      "tool_call_id": "call_00_8c1go9bda9pmc231nqshs77h",
+      "tool": "get_case_data_overview",
+      "status": "completed",
+      "error_code": null,
+      "duration_ms": 38,
+      "retry_count": 0,
+      "cached": false,
+      "estimated_cost": 0,
+      "input_summary": "{\"case_id\": \"case:grounding\"}",
+      "output_summary": "{\"data\": {\"ok\": true, \"case\": {\"id\": \"case:grounding\", \"title\": \"青禾乳业酸奶添加剂争议\", \"topic\": \"青禾乳业酸奶添加剂争议\", \"status\": \"ready\", \"platforms\": [\"weibo\", \"bilibili\"], \"time_range\": {\"start\": null, \"end\": null}}, \"counts\": {\"posts\": 10, \"comments\": 3, \"collection_runs\": 0, \"claims\": 3, \"evidence\": 5, \"artifacts\": 1, \"findings\": 2, \"review_items\": 1, \"review_decisions\": 0, \"reports\": 1}, \"posts_by_platform\": [{\"platform\": \"bilibili\", \"count\": 4}, {\"platform\": \"weibo\", \"count\": 6}], \"l…",
+      "rag": null,
+      "idempotency_key": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf:call_00_8c1go9bda9pmc231nqshs77h",
+      "event_id": 6
+    }
+  ],
+  "diagnostics": {
+    "version": "investigation-diagnostics-v2",
+    "observed_layers": [],
+    "agent": {
+      "status": "completed",
+      "coordinator_completed": true,
+      "deadline_exceeded": false,
+      "run_error_code": null,
+      "runtime_stop_reasons": [],
+      "has_recorded_answer_content": true,
+      "answer_may_be_partial": false
+    },
+    "tools": {
+      "failed_invocations_by_error": {},
+      "failed_invocations_by_tool": {},
+      "business_failures": []
+    },
+    "provider": {
+      "observed_request_count": 2,
+      "failed_measurements": [],
+      "cancelled_measurements": [],
+      "cancelled_inflight_usage": "NOT_MEASURABLE"
+    },
+    "causal_attribution": "NOT_ESTABLISHED",
+    "interpretation": "Observed layers are separate facts, not proof that any single layer caused the task failure. A retained expert answer does not prove coordinator completion."
+  },
+  "answer_delivery": {
+    "version": "answer-delivery-v1",
+    "answer_origin": "MODEL_FINAL",
+    "delivery_status": "MODEL_ANSWER_REQUIRES_REVIEW",
+    "structural_pass": true,
+    "semantic_acceptance": "MANUAL_REVIEW_REQUIRED"
+  },
+  "retrieval_degradation": [],
+  "finalization_policy": {
+    "version": "bounded-synthesis-v1",
+    "read_only_only": true,
+    "requires_successful_tool_observation": true,
+    "max_attempts_per_run": 1,
+    "timeout_seconds": 15,
+    "tools_enabled": false,
+    "all_failed_reads": "runtime_refusal"
+  },
+  "case_state_before": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "7fd7e3ac-0d79-4bf2-b946-5bcd40400015": "under_review",
+      "6e1db3c7-fdca-41a4-8359-5d79c84d6cd2": "candidate"
+    },
+    "review_status": {
+      "f14f9112-e722-456f-a6b2-03ee300fcd24": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "case_state_after": {
+    "case_id": "case:grounding",
+    "finding_status": {
+      "7fd7e3ac-0d79-4bf2-b946-5bcd40400015": "under_review",
+      "6e1db3c7-fdca-41a4-8359-5d79c84d6cd2": "candidate"
+    },
+    "review_status": {
+      "f14f9112-e722-456f-a6b2-03ee300fcd24": "unreviewed"
+    },
+    "counts": {
+      "claims": 3,
+      "evidence": 5,
+      "artifacts": 1,
+      "posts": 10
+    }
+  },
+  "evaluator_version": "investigation-evaluators-v2",
+  "execution_policies_sha256": "2fc9867a3962c5362e5708fdc15cacd1e2f81cb898804004dbf9b13a8d98473a",
+  "fault_injection": {
+    "profiles": [],
+    "injected_failures": [],
+    "injected_failure_count": 0
+  },
+  "model_measurements": [
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7031,
+      "output_tokens": 82,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 7703.0
+    },
+    {
+      "route": "fast",
+      "requested_model": "deepseek-flash",
+      "actual_model": "deepseek-flash",
+      "status": "succeeded",
+      "input_tokens": 7363,
+      "output_tokens": 246,
+      "cached_input_tokens": 0,
+      "error_code": null,
+      "cost": null,
+      "currency": null,
+      "pricing_status": "NOT_MEASURABLE",
+      "usage_status": "MEASURED",
+      "duration_ms": 3187.0
+    }
+  ],
+  "raw_report_sha256": "b6808da251458b4b97dfab992e1b2f6bc2561a214a61afa6c6aa168b9995cb1c",
+  "raw_trace_sha256": "935a26f8d43e9abe768bd8c15fbbbbfc771b4238069bcba85b016cc1acc7f7db",
+  "raw_requests_sha256": "3579a1cf38aa569eefc937d0ea3e1f95c4babe2d7c3611734a1ba3c61e1d195a",
+  "local_artifact_directory": "backend/artifacts/agent_eval/answer_quality_v1/candidate-01",
+  "raw_artifact_availability": "LOCAL_ONLY_IGNORED"
+}

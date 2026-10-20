@@ -1099,6 +1099,13 @@ class AgentSuiteRunner:
                 if callable(fault_summary)
                 else {"profiles": [], "injected_failure_count": 0}
             )
+            from app.evaluation.answer_delivery import assess_answer_delivery
+
+            trace_bundle["answer_delivery"] = assess_answer_delivery(
+                final_answer=trace.final_answer, status=trace.status, task_tags=task.tags,
+                policy_audit=[item for item in policy_audit if item.get("run_id") == trace.run_id],
+                injected_failure_count=trace_bundle["fault_injection"]["injected_failure_count"],
+            )
             if isinstance(trace_bundle.get("metrics"), dict) and model_metrics is not None:
                 trace_bundle["metrics"].update(
                     {

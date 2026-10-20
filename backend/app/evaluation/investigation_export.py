@@ -16,6 +16,7 @@ def _digest(path: Path) -> str:
 
 def export_run(report: Any, payload: dict[str, Any], output: Path) -> None:
     from app.evaluation.agent_evaluators import EVALUATOR_VERSION
+    from app.evaluation.answer_delivery import ANSWER_DELIVERY_VERSION
     from app.evaluation.investigation_diagnostics import DIAGNOSTICS_VERSION
 
     suite_root = (
@@ -44,6 +45,12 @@ def export_run(report: Any, payload: dict[str, Any], output: Path) -> None:
         "schema_version": "investigation-run-v1",
         "evaluator_version": EVALUATOR_VERSION,
         "diagnostics_version": DIAGNOSTICS_VERSION,
+        "answer_delivery_version": ANSWER_DELIVERY_VERSION,
+        "finalization_policy": {
+            "version": "bounded-synthesis-v1", "read_only_only": True,
+            "requires_successful_tool_observation": True, "max_attempts_per_run": 1,
+            "timeout_seconds": 15, "tools_enabled": False, "all_failed_reads": "runtime_refusal",
+        },
         "execution_policies": policies,
         "execution_policies_sha256": hashlib.sha256(
             json.dumps(policies, sort_keys=True, separators=(",", ":")).encode("utf-8")

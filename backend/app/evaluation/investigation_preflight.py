@@ -139,6 +139,10 @@ class ObservedProductionGateway:
                 entry["status"] = "succeeded"
                 self._consecutive_errors = 0
                 return response
+            except asyncio.CancelledError:
+                entry["status"] = "cancelled"
+                entry["error_code"] = "CancelledError"
+                raise
             except Exception as exc:
                 self._consecutive_errors += 1
                 status = getattr(exc, "status_code", None)

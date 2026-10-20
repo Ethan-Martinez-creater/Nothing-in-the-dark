@@ -1,0 +1,32 @@
+{
+  "schema": "candidate-answer-integrity-v1",
+  "comparison_base": "3574d7273151997780bab71e9efb27252e2825fb",
+  "execution_commit": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+  "frozen_tracked_files_unchanged": 81,
+  "comparison": "Git blob contents compared to working files after CRLF-to-LF normalization",
+  "all_six_case_state_snapshots_equal": true,
+  "all_six_raw_report_digests_match_original_attempt_index": true,
+  "published_raw_report_trace_request_digests_verified": 18,
+  "configured_private_api_key_absent_from_public_candidate_files": true,
+  "absolute_windows_paths_absent_from_public_candidate_files": true,
+  "case_count": 6,
+  "automatic_passes": 4,
+  "codex_provisional_acceptances": 4,
+  "sdk_create_measurements": 19,
+  "sdk_request_statuses": {
+    "succeeded": 19
+  },
+  "input_tokens": 127621,
+  "output_tokens": 16571,
+  "all_request_usage_measured": true,
+  "cost": null,
+  "cost_status": "NOT_MEASURABLE",
+  "actual_tool_invocations_including_failures": 21,
+  "finalization_outcomes": [
+    {
+      "task": "IR06",
+      "outcome": "succeeded"
+    }
+  ],
+  "review_status": "CODEX_PROVISIONAL_INDEPENDENT_AUDIT_PENDING"
+}

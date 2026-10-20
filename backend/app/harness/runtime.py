@@ -23,6 +23,7 @@ from app.infrastructure.llm import LLMGateway, LLMMessage, LLMResponse, ModelRou
 
 RuntimeEventSink = Callable[[dict[str, Any]], Awaitable[None]]
 ApprovalHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+ANSWER_FINALIZATION_TIMEOUT_SECONDS = 15.0
 
 _SENSITIVE_KEYS = frozenset(
     {
@@ -248,22 +249,28 @@ class AgentRuntime:
         total_cost = 0.0
         last_model = ""
 
+        async def bounded_result() -> AgentRunResult:
+            response = await self.finalize_budget_answer(
+                messages=messages, definition=definition, context=context,
+                turn_index=len([m for m in messages if m.role == "assistant"]),
+                current_cost=total_cost, cancel_event=cancel_event,
+            )
+            content = response.message.content if response else self.execution_stop_content(context)
+            messages.append(LLMMessage(role="assistant", content=content or ""))
+            return AgentRunResult(
+                content=content or "", messages=messages,
+                input_tokens=total_input + (response.usage.input_tokens if response else 0),
+                output_tokens=total_output + (response.usage.output_tokens if response else 0),
+                tool_calls=total_tools, model=response.model if response else last_model,
+                estimated_cost=total_cost + (response.estimated_cost if response else 0),
+                currency=response.currency if response else "CNY",
+            )
+
         try:
             for turn_index in range(definition.max_turns):
                 exhausted = await self.execution_budget_exhausted(context)
                 if exhausted is not None:
-                    content = self.execution_stop_content(context)
-                    messages.append(LLMMessage(role="assistant", content=content))
-                    return AgentRunResult(
-                        content=content,
-                        messages=messages,
-                        input_tokens=total_input,
-                        output_tokens=total_output,
-                        tool_calls=total_tools,
-                        model=last_model,
-                        estimated_cost=total_cost,
-                        currency="CNY",
-                    )
+                    return await bounded_result()
                 model_call_id = str(uuid4())
                 response = await self.step_model(
                     messages=messages,
@@ -320,18 +327,7 @@ class AgentRuntime:
                 )
                 messages.extend(results)
                 if context.metadata.get("_execution_stop_reason"):
-                    content = self.execution_stop_content(context)
-                    messages.append(LLMMessage(role="assistant", content=content))
-                    return AgentRunResult(
-                        content=content,
-                        messages=messages,
-                        input_tokens=total_input,
-                        output_tokens=total_output,
-                        tool_calls=total_tools,
-                        model=last_model,
-                        estimated_cost=total_cost,
-                        currency="CNY",
-                    )
+                    return await bounded_result()
 
             raise ApplicationError(
                 "Agent reached its maximum turn budget",
@@ -357,6 +353,7 @@ class AgentRuntime:
         turn_index: int,
         model_call_id: str,
         current_cost: float,
+        final_answer_only: bool = False,
     ) -> LLMResponse:
         """A single model call with hooks, events and budget enforcement."""
         allowed_tools = set(definition.allowed_tools)
@@ -366,7 +363,18 @@ class AgentRuntime:
                 name for name in allowed_tools if name in self._tools.names()
                 and not self._is_read_only_write(name, self._tools.get(name))
             }
-        llm_tools = self._tools.llm_tools(allowed_tools)
+        llm_tools = [] if final_answer_only else self._tools.llm_tools(allowed_tools)
+        if policy is not None:
+            snapshot = await self.read_execution_budget(context)
+            messages = list(messages)
+            messages.insert(1, LLMMessage(role="system", content=(
+                f"本次调查共享工具上限{snapshot.limit}次，已占用{snapshot.used}次，"
+                f"剩余{max(0, snapshot.limit - snapshot.used)}次；失败调用和专家委派也计入。"
+                "优先读取回答所必需的材料，已有材料足够时直接回答，不要重复无进展查询。"
+                "只读专家通过工具结果的content返回分析正文，不要求产生Artifact。"
+                "关键结论绑定可定位来源并说明实际支持内容；作者自述不是独立核验，"
+                "不一致不等于合格，未见材料不等于材料不存在。"
+            )))
         started_at = time.perf_counter()
         await self._hooks.emit(
             HookEvent.BEFORE_MODEL_CALL,
@@ -392,6 +400,10 @@ class AgentRuntime:
             max_cost=max_cost,
             already_approved="budget_exceeded" in context.approved_tools,
         ):
+            if final_answer_only:
+                raise ApplicationError(
+                    "No cost allowance for final synthesis", code="cost_budget_exhausted",
+                )
             await self._request_approval(
                 action="budget_exceeded",
                 reason=(
@@ -647,6 +659,20 @@ class AgentRuntime:
         policy = self._execution_policy(context)
         if policy is None:
             return None
+        snapshot = await self.read_execution_budget(context)
+        if snapshot.used < snapshot.limit:
+            return None
+        await self._record_execution_stop(
+            context,
+            reason="tool_budget_exhausted",
+            details={"used_calls": snapshot.used, "max_tool_calls": snapshot.limit},
+        )
+        return snapshot
+
+    async def read_execution_budget(self, context: RuntimeContext) -> ToolCallBudgetSnapshot:
+        policy = self._execution_policy(context)
+        if policy is None:
+            raise ApplicationError("Execution policy missing", code="execution_policy_missing")
         if context.tool_budget_reader is not None:
             snapshot = await context.tool_budget_reader()
         else:
@@ -658,14 +684,107 @@ class AgentRuntime:
                 used=used,
                 limit=limit,
             )
-        if snapshot.used < snapshot.limit:
-            return None
-        await self._record_execution_stop(
-            context,
-            reason="tool_budget_exhausted",
-            details={"used_calls": snapshot.used, "max_tool_calls": snapshot.limit},
-        )
         return snapshot
+
+    async def finalize_budget_answer(
+        self, *, messages: list[LLMMessage], definition: AgentDefinition,
+        context: RuntimeContext, turn_index: int, current_cost: float,
+        cancel_event: asyncio.Event | None = None,
+    ) -> LLMResponse | None:
+        """One bounded tool-free synthesis after exhaustion; never reopen the loop."""
+        policy = self._execution_policy(context)
+        if (not policy or not policy["read_only"]
+            or context.metadata.get("_execution_stop_reason") != "tool_budget_exhausted"
+            or context.metadata.get("_answer_finalization_attempted")):
+            return None
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError
+        successful_read = False
+        for message in messages:
+            if message.role != "tool":
+                continue
+            try:
+                result = json.loads(message.content or "")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                continue
+            data = result.get("data")
+            if isinstance(data, dict) and (
+                data.get("ok") is False or data.get("available") is False
+            ):
+                continue
+            successful_read = True
+            break
+        if not successful_read:
+            return None
+        context.metadata["_answer_finalization_attempted"] = True
+        event = {"run_id": context.run_id, "agent": definition.name,
+                 "tools_enabled": False, "timeout_seconds": ANSWER_FINALIZATION_TIMEOUT_SECONDS}
+        await self._event_sink({"event_type": "answer_finalization_start", **event})
+        instruction = LLMMessage(role="system", content=(
+            "工具调用额度已耗尽。本次是唯一一次收尾回答，所有工具均已禁用，"
+            "不得调用工具、委派专家或请求写入。根据本轮已经返回的材料直接回答原始用户目标，"
+            "保持原本要求的输出格式。逐项给出结论及真实来源ID/支持内容，呈现冲突和未知；"
+            "仅完成部分时明确哪些问题尚不能回答。不要只复述预算提示，也不要虚构缺失材料。"
+            "无成功统计观察时不得给出精确统计。"
+        ))
+        try:
+            request = asyncio.create_task(self.step_model(
+                messages=[*messages, instruction], definition=definition, context=context,
+                turn_index=turn_index, model_call_id=str(uuid4()), current_cost=current_cost,
+                final_answer_only=True,
+            ))
+            cancellation = asyncio.create_task(cancel_event.wait()) if cancel_event else None
+            pending = [request, *([cancellation] if cancellation else [])]
+            try:
+                done, _ = await asyncio.wait(
+                    pending, timeout=ANSWER_FINALIZATION_TIMEOUT_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancellation is not None and cancellation in done:
+                    raise asyncio.CancelledError
+                if request not in done:
+                    raise TimeoutError
+                response = request.result()
+            finally:
+                for task in pending:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+        except TimeoutError:
+            outcome, code = "timed_out", "answer_finalization_timeout"
+        except asyncio.CancelledError:
+            await self._event_sink({"event_type": "answer_finalization_end", **event,
+                                    "outcome": "cancelled"})
+            raise
+        except Exception as exc:
+            outcome, code = "failed", getattr(exc, "code", type(exc).__name__)
+        else:
+            outcome = "succeeded"
+            if response.tool_calls:
+                outcome = "rejected_tool_calls"
+                for call in response.tool_calls:
+                    await self._blocked_tool_message(
+                        call, agent=definition.name, context=context,
+                        reason="answer_finalization_tools_disabled", code="tool_budget_exhausted",
+                        message="Final synthesis is tool-free; this request was not invoked.",
+                    )
+            elif not (response.message.content or "").strip():
+                outcome = "empty"
+            await self._event_sink({"event_type": "answer_finalization_end", **event,
+                                    "outcome": outcome})
+            if outcome != "succeeded":
+                response = response.model_copy(update={
+                    "message": LLMMessage(
+                        role="assistant", content=self.execution_stop_content(context),
+                    ),
+                    "tool_calls": [],
+                })
+            return response
+        await self._event_sink({"event_type": "answer_finalization_end", **event,
+                                "outcome": outcome, "error_code": code})
+        return None
 
     async def _blocked_tool_message(
         self,
@@ -748,6 +867,7 @@ class AgentRuntime:
             f"本次运行已达到工具调用上限（已执行 {used} 次，上限 {maximum} 次）；"
             "无法继续读取或核验，所有后续工具请求均未执行，当前结果可能不完整。"
             "读取失败不代表记录数为零；不提供未经核验的精确统计。"
+            "待读取服务恢复后，可重新查询核验。"
         )
 
     async def _execute_tool(

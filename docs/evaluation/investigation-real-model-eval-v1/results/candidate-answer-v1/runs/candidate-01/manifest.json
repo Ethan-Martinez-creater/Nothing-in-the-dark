@@ -1,0 +1,539 @@
+{
+  "schema": "curated-investigation-study-v1",
+  "attempt": "candidate-01",
+  "mode": "real_model",
+  "status": "completed",
+  "started_at": "2026-10-19T13:30:01.620008+00:00",
+  "finished_at": "2026-10-19T13:34:11.445974+00:00",
+  "frozen_suite_content_sha256": "c63ed42883d16e73ec0594b9c023fd65a34c90fa10a48f952d887bf2f21d590d",
+  "raw_attempt_sha256": "acf71b6555313475fd21a97facd840f04f8babe9ce08a1b76cb05569ca2cc7d1",
+  "hard_stop_reason": null,
+  "reproduction_command": "python -B -m app.scripts.run_investigation_study --tasks IR01,IR02,IR06,IR08,IR09,IR10 --attempt-label candidate-answer-v1 --config-file ../../real-eval-main/backend/.env --preflight-receipt ../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json --output-dir artifacts/agent_eval/answer_quality_v1/candidate-01",
+  "command_note": "Per-case exact CLI arguments below, with absolute output paths rendered project-relative. Wrapper reproduction command explicitly selects the same tasks; choose a fresh output directory and valid private receipt for a new attempt.",
+  "manual_review": "CODEX_PROVISIONAL",
+  "independent_chatgpt_github_audit": "PENDING",
+  "cases": [
+    {
+      "task_id": "IR01",
+      "git_sha": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+      "run_id": "a396d471-b92e-4dc5-b31f-88afd6fc0bcf",
+      "started_at": "2026-10-19T13:30:57.744325+00:00",
+      "finished_at": "2026-10-19T13:31:25.148716+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "5f80701148dc21aa1615348e4071637d849c34f3be35e7fe5584a3c0d8011ea6",
+      "coordinator_prompt_hash": "efee06af7d2feccc856aef6869d968460934e59aae87183bece63386a60869bc",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR01",
+        "--candidate-label",
+        "candidate-answer-v1",
+        "--llm-config-file",
+        "../../real-eval-main/backend/.env",
+        "--preflight-receipt",
+        "../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/answer_quality_v1/candidate-01/IR01.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "b6808da251458b4b97dfab992e1b2f6bc2561a214a61afa6c6aa168b9995cb1c",
+      "raw_manifest_sha256": "5f1f7058d84a285df0c6153bd896f8326b4c95ab6655d23cef6a17bdee41dbf8",
+      "raw_trace_sha256": "935a26f8d43e9abe768bd8c15fbbbbfc771b4238069bcba85b016cc1acc7f7db",
+      "raw_requests_sha256": "3579a1cf38aa569eefc937d0ea3e1f95c4babe2d7c3611734a1ba3c61e1d195a",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "evaluator_version": "investigation-evaluators-v2",
+      "diagnostics_version": "investigation-diagnostics-v2",
+      "answer_delivery_version": "answer-delivery-v1",
+      "finalization_policy": {
+        "version": "bounded-synthesis-v1",
+        "read_only_only": true,
+        "requires_successful_tool_observation": true,
+        "max_attempts_per_run": 1,
+        "timeout_seconds": 15,
+        "tools_enabled": false,
+        "all_failed_reads": "runtime_refusal"
+      },
+      "execution_policies": {
+        "IR01": {
+          "read_only": true,
+          "max_tool_calls": 4,
+          "budget_scope": "run_tree"
+        }
+      },
+      "execution_policies_sha256": "2fc9867a3962c5362e5708fdc15cacd1e2f81cb898804004dbf9b13a8d98473a"
+    },
+    {
+      "task_id": "IR02",
+      "git_sha": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+      "run_id": "217e3041-7fc6-4f3f-8d13-41dacd0e7d6b",
+      "started_at": "2026-10-19T13:31:31.075880+00:00",
+      "finished_at": "2026-10-19T13:31:52.779339+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "5f80701148dc21aa1615348e4071637d849c34f3be35e7fe5584a3c0d8011ea6",
+      "coordinator_prompt_hash": "efee06af7d2feccc856aef6869d968460934e59aae87183bece63386a60869bc",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR02",
+        "--candidate-label",
+        "candidate-answer-v1",
+        "--llm-config-file",
+        "../../real-eval-main/backend/.env",
+        "--preflight-receipt",
+        "../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/answer_quality_v1/candidate-01/IR02.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "601cc5ccc8ee5341ee9234656be7e9a6367fd30a8243f9df8484378bbc668c36",
+      "raw_manifest_sha256": "da4d14131aba3ea301ff9d8cfd12d8a3a2e7b27d61d1c688dc4a77473b061555",
+      "raw_trace_sha256": "586d9ca5c3aa069a49b6ba1a1284e38d643e7fe82fb04b6b55db4466b1cf1161",
+      "raw_requests_sha256": "7bd1e0352a3eb23ab22e11b4028b5374703897ebcf463166bf0c975b52400f28",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "evaluator_version": "investigation-evaluators-v2",
+      "diagnostics_version": "investigation-diagnostics-v2",
+      "answer_delivery_version": "answer-delivery-v1",
+      "finalization_policy": {
+        "version": "bounded-synthesis-v1",
+        "read_only_only": true,
+        "requires_successful_tool_observation": true,
+        "max_attempts_per_run": 1,
+        "timeout_seconds": 15,
+        "tools_enabled": false,
+        "all_failed_reads": "runtime_refusal"
+      },
+      "execution_policies": {
+        "IR02": {
+          "read_only": true,
+          "max_tool_calls": 6,
+          "budget_scope": "run_tree"
+        }
+      },
+      "execution_policies_sha256": "d525d4364191bbda605eb7d34b6b843decd562b747ce06e534aecf2c2427daca"
+    },
+    {
+      "task_id": "IR06",
+      "git_sha": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+      "run_id": "ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30",
+      "started_at": "2026-10-19T13:31:58.979981+00:00",
+      "finished_at": "2026-10-19T13:32:41.892551+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "5f80701148dc21aa1615348e4071637d849c34f3be35e7fe5584a3c0d8011ea6",
+      "coordinator_prompt_hash": "efee06af7d2feccc856aef6869d968460934e59aae87183bece63386a60869bc",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR06",
+        "--candidate-label",
+        "candidate-answer-v1",
+        "--llm-config-file",
+        "../../real-eval-main/backend/.env",
+        "--preflight-receipt",
+        "../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/answer_quality_v1/candidate-01/IR06.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "478494026f6d732e2ffe184949b2f75b777a741ad577d85f41c88647ac9e8846",
+      "raw_manifest_sha256": "164e4a2a797b04e98d8674a5e96e0c77a321397b545b6449cba0273097749b40",
+      "raw_trace_sha256": "2a18fc2f08b02e671c2117fc2c5929105bfd1ed151dbbc59822365330c6478bb",
+      "raw_requests_sha256": "7a6f2a627696ae77046d895411b458bec2dba63378936ea2cfc13c6b0c6ebc39",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "evaluator_version": "investigation-evaluators-v2",
+      "diagnostics_version": "investigation-diagnostics-v2",
+      "answer_delivery_version": "answer-delivery-v1",
+      "finalization_policy": {
+        "version": "bounded-synthesis-v1",
+        "read_only_only": true,
+        "requires_successful_tool_observation": true,
+        "max_attempts_per_run": 1,
+        "timeout_seconds": 15,
+        "tools_enabled": false,
+        "all_failed_reads": "runtime_refusal"
+      },
+      "execution_policies": {
+        "IR06": {
+          "read_only": true,
+          "max_tool_calls": 5,
+          "budget_scope": "run_tree"
+        }
+      },
+      "execution_policies_sha256": "27314fcdd49ab5c466e61fba21ee100c46f764ae731f7bdca9dc4c1db6c904d2"
+    },
+    {
+      "task_id": "IR08",
+      "git_sha": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+      "run_id": "8c2703b3-1af1-4fd7-9a79-10315e33fdf2",
+      "started_at": "2026-10-19T13:32:47.654403+00:00",
+      "finished_at": "2026-10-19T13:33:19.735084+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "5f80701148dc21aa1615348e4071637d849c34f3be35e7fe5584a3c0d8011ea6",
+      "coordinator_prompt_hash": "efee06af7d2feccc856aef6869d968460934e59aae87183bece63386a60869bc",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR08",
+        "--candidate-label",
+        "candidate-answer-v1",
+        "--llm-config-file",
+        "../../real-eval-main/backend/.env",
+        "--preflight-receipt",
+        "../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/answer_quality_v1/candidate-01/IR08.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "088c4b2982266553ea903fe38f47562060e84e437427f98bca9c4260b0e23638",
+      "raw_manifest_sha256": "187b6a00612bf32681eba5ff999a6be5d79973c10f1a0ca386c0b68e6497d81c",
+      "raw_trace_sha256": "b9c3ce2c1604e329dc928ec0eddea4d43a05c1a49ef2af713e9eda8c03bc5618",
+      "raw_requests_sha256": "264478d63b39c4aef614e8056f54ff97cb91c43d11d7eae168de4d2eb9779da8",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "evaluator_version": "investigation-evaluators-v2",
+      "diagnostics_version": "investigation-diagnostics-v2",
+      "answer_delivery_version": "answer-delivery-v1",
+      "finalization_policy": {
+        "version": "bounded-synthesis-v1",
+        "read_only_only": true,
+        "requires_successful_tool_observation": true,
+        "max_attempts_per_run": 1,
+        "timeout_seconds": 15,
+        "tools_enabled": false,
+        "all_failed_reads": "runtime_refusal"
+      },
+      "execution_policies": {
+        "IR08": {
+          "read_only": true,
+          "max_tool_calls": 6,
+          "budget_scope": "run_tree"
+        }
+      },
+      "execution_policies_sha256": "1637c4a9a42f08b2432d6a3af51daef585b4d62a6c93dfd5a94448f86bbdfcce"
+    },
+    {
+      "task_id": "IR09",
+      "git_sha": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+      "run_id": "9b8874ed-3f0d-4f79-90b9-cfcf6582f509",
+      "started_at": "2026-10-19T13:33:25.467644+00:00",
+      "finished_at": "2026-10-19T13:33:48.450285+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "5f80701148dc21aa1615348e4071637d849c34f3be35e7fe5584a3c0d8011ea6",
+      "coordinator_prompt_hash": "efee06af7d2feccc856aef6869d968460934e59aae87183bece63386a60869bc",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR09",
+        "--candidate-label",
+        "candidate-answer-v1",
+        "--llm-config-file",
+        "../../real-eval-main/backend/.env",
+        "--preflight-receipt",
+        "../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/answer_quality_v1/candidate-01/IR09.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "410175ac7eadbccdd7273de161cc66b33f975cf6fc3ec6cc3d99102e9369519e",
+      "raw_manifest_sha256": "02e13b1550f790f67da603ccac4d72e536d41e5b34caefa47c862e33fd598d8e",
+      "raw_trace_sha256": "a50446b898dcc9099bd2b30b1b3156ff91862ceacb4fe0df349572faa6a50e78",
+      "raw_requests_sha256": "f3ccb148f33d1e6049a86fc9320b2dad1023f9fabc759aa1b372fe68ba97c38d",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "evaluator_version": "investigation-evaluators-v2",
+      "diagnostics_version": "investigation-diagnostics-v2",
+      "answer_delivery_version": "answer-delivery-v1",
+      "finalization_policy": {
+        "version": "bounded-synthesis-v1",
+        "read_only_only": true,
+        "requires_successful_tool_observation": true,
+        "max_attempts_per_run": 1,
+        "timeout_seconds": 15,
+        "tools_enabled": false,
+        "all_failed_reads": "runtime_refusal"
+      },
+      "execution_policies": {
+        "IR09": {
+          "read_only": true,
+          "max_tool_calls": 6,
+          "budget_scope": "run_tree"
+        }
+      },
+      "execution_policies_sha256": "1e633c90df14320a3ea02696ae5d02e86de49b2377437042ff7cd99293d61482"
+    },
+    {
+      "task_id": "IR10",
+      "git_sha": "3d0d1e76410e7dd3a5a070ae0f767ccaeb57dcd9",
+      "run_id": "3487ed02-1c18-4d20-9f5f-684307383520",
+      "started_at": "2026-10-19T13:33:54.002818+00:00",
+      "finished_at": "2026-10-19T13:34:10.255560+00:00",
+      "model_config": {
+        "provider_label": "openai_compatible",
+        "transport": "OpenAICompatibleGateway/chat.completions",
+        "base_url_origin": "https://tokenrhythm.studio",
+        "base_url_path_sha256": "2d234c97703ce824eaa4d98fbd2701668ef5e63e46f1574f2ea72e7927b1f57e",
+        "effective_routes": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "declared_models": {
+          "fast": "deepseek-flash",
+          "reasoning": "deepseek-flash",
+          "report": "deepseek-flash"
+        },
+        "routing_policy": "production_all_routes_use_fast_model",
+        "pricing_status": "NOT_MEASURABLE: historical table not verified for fresh provider"
+      },
+      "tool_schema_hash": "5f80701148dc21aa1615348e4071637d849c34f3be35e7fe5584a3c0d8011ea6",
+      "coordinator_prompt_hash": "efee06af7d2feccc856aef6869d968460934e59aae87183bece63386a60869bc",
+      "frozen_files_sha256": {
+        "fixtures.json": "9374c8c12f6d17222709c2c73602a16357d945be808ebef230ad23b45948a7d0",
+        "manifest.json": "889c504bfc220bba1020eb6dd694c95303f0cd65c87245c486cdde7186d5fd0b",
+        "rubric.json": "d854da0f9a9a440cecf05b7ad5b1d14fae70c92d5664f187c6eb3f182b2c6ef3",
+        "tasks\\IR01.json": "d99e84f74b709c8144ca5c6195d9b9e52e23c148531be7123a1b42aa70bbba2d",
+        "tasks\\IR02.json": "28829a2a8469edcd707d196576424c52c4b621a53626b823f275f81866ec2475",
+        "tasks\\IR03.json": "e5376f9c8b6a999cb54498aff615d62655622261f17001ffe7f4236cb4a33084",
+        "tasks\\IR04.json": "b3ee9b3a926ef6fad889fe0bcdabc0b75b960ceb0719e2533fa8e45c70c067ae",
+        "tasks\\IR05.json": "2b2fafd8f1e52a99f8140a3f1f53c30fb8db188f71f2bd196146ce30745dcff4",
+        "tasks\\IR06.json": "6890e70bc0cefb4b0aae5e16776f48079b6b4228dc4273149f39c5009faa6fae",
+        "tasks\\IR07.json": "e1d5822a75c72a3fedf8e952ef233debeb0287a1df35d7e42e0e0fc4baf1578a",
+        "tasks\\IR08.json": "bd45b4579e29f1736871cde461887f863254fdadcdb773f46795882d5365a365",
+        "tasks\\IR09.json": "98e7f0a0805b095e309c22846c94cae026e5e3df63f0255ac9d95389f260a788",
+        "tasks\\IR10.json": "c858df29fa8a17f210148a4b3b3745fa2f519cab795b9f2500b6b01ac48c131c"
+      },
+      "cli_module": "app.scripts.run_agent_eval",
+      "cli_argv": [
+        "--suite-version",
+        "investigation_real_eval_v1",
+        "--mode",
+        "real_model",
+        "--tasks",
+        "IR10",
+        "--candidate-label",
+        "candidate-answer-v1",
+        "--llm-config-file",
+        "../../real-eval-main/backend/.env",
+        "--preflight-receipt",
+        "../../real-eval-main/backend/artifacts/agent_eval/real_v1/preflight-01.json",
+        "--output",
+        "artifacts/agent_eval/answer_quality_v1/candidate-01/IR10.json",
+        "--fail-on-hard-gate"
+      ],
+      "cli_path_policy": "Absolute local output paths rendered relative to backend; all other CLI arguments unchanged",
+      "raw_report_sha256": "ba60cbcefe13aaac8bfeb6a3bddc359f53eb12819878052aa07bc563c3ac6b31",
+      "raw_manifest_sha256": "22bc79f962d7af9cc9dc323e292543b71f1e1f7270d1c1ec0f4e20ed320c16d8",
+      "raw_trace_sha256": "f62ca455171f6bb56fb68dfeb9d729a11916b8b50d80945731aedf855bc6474c",
+      "raw_requests_sha256": "a2a2150aef16b18194e183dd9070f21f39c0bcdfce34b70742c5bd8b6b265151",
+      "python": "3.11.15",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "evaluator_version": "investigation-evaluators-v2",
+      "diagnostics_version": "investigation-diagnostics-v2",
+      "answer_delivery_version": "answer-delivery-v1",
+      "finalization_policy": {
+        "version": "bounded-synthesis-v1",
+        "read_only_only": true,
+        "requires_successful_tool_observation": true,
+        "max_attempts_per_run": 1,
+        "timeout_seconds": 15,
+        "tools_enabled": false,
+        "all_failed_reads": "runtime_refusal"
+      },
+      "execution_policies": {
+        "IR10": {
+          "read_only": true,
+          "max_tool_calls": 3,
+          "budget_scope": "run_tree"
+        }
+      },
+      "execution_policies_sha256": "eccd069fe22b7567a716b37bdaf78fc53cd2d6f5fc643981b295a2f9d043083a"
+    }
+  ]
+}

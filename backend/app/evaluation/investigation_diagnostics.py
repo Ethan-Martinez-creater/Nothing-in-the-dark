@@ -6,10 +6,11 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-DIAGNOSTICS_VERSION = "investigation-diagnostics-v1"
+DIAGNOSTICS_VERSION = "investigation-diagnostics-v2"
 POLICY_EVENTS = frozenset({
     "tool_budget_reserved", "tool_execution_blocked", "agent_execution_stopped",
     "tool_execution_start", "tool_execution_end",
+    "answer_finalization_start", "answer_finalization_end",
 })
 
 
@@ -83,7 +84,12 @@ def diagnose_execution(
             and item.get("output_tokens") is not None,
         }
         for index, item in enumerate(model_measurements, 1)
-        if item.get("status") != "succeeded"
+        if item.get("status") not in {"succeeded", "cancelled"}
+    ]
+    cancelled_requests = [
+        {"request_index": index, "duration_ms": item.get("duration_ms"),
+         "error_code": item.get("error_code"), "usage_known": False}
+        for index, item in enumerate(model_measurements, 1) if item.get("status") == "cancelled"
     ]
     timed_out = bool(runner_error and runner_error.startswith("TimeoutError:"))
     layers: list[str] = []
@@ -93,6 +99,8 @@ def diagnose_execution(
         layers.append("controlled_tool_fault")
     if provider_failures:
         layers.append("model_provider_error")
+    if cancelled_requests:
+        layers.append("model_request_cancelled")
     if timed_out:
         layers.append("agent_execution_timeout")
     if business_failures:
@@ -127,6 +135,7 @@ def diagnose_execution(
         "provider": {
             "observed_request_count": len(model_measurements),
             "failed_measurements": provider_failures,
+            "cancelled_measurements": cancelled_requests,
             "cancelled_inflight_usage": "NOT_MEASURABLE",
         },
         "causal_attribution": "NOT_ESTABLISHED",

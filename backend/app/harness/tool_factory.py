@@ -1171,13 +1171,23 @@ def build_tool_registry(
                     },
                 }
 
+        embedding_unavailable = False
+        embedding_search_used = False
+
         async def _search(term: str) -> list[Any]:
-            # embedding 为空时只走 keyword 分支；保持与重写 query 一致。
-            vectors = (
-                await embeddings.embed([term])
-                if embeddings is not None
-                else None
-            )
+            nonlocal embedding_search_used, embedding_unavailable
+            # Embedding 服务不可用时保留已有关键词检索能力。同一工具调用
+            # 中记住故障状态，原始 query 回退不会再次请求已失效的服务。
+            vectors = None
+            if embeddings is not None and not embedding_unavailable:
+                try:
+                    vectors = await embeddings.embed([term])
+                except ApplicationError as exc:
+                    if exc.code != "embedding_worker_unavailable":
+                        raise
+                    embedding_unavailable = True
+            if vectors:
+                embedding_search_used = True
             return await knowledge.search(
                 case_id=request.case_id,
                 query=term,
@@ -1198,6 +1208,15 @@ def build_tool_registry(
             hits = await _search(query_text)
         return {
             "available": True,
+            "retrieval_degraded": embedding_unavailable,
+            "degradation_reason": (
+                "embedding_worker_unavailable" if embedding_unavailable else None
+            ),
+            "retrieval_mode": (
+                "keyword_only"
+                if not embedding_search_used
+                else "hybrid"
+            ),
             "hits": [
                 {
                     "evidence_id": hit.evidence_id,

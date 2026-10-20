@@ -1,0 +1,7 @@
+attempt,task,status,deterministic_pass,codex_acceptance,answer_origin,delivery_status,goal,evidence,citations,uncertainty,tools,failure,latency_ms,requests,parent_tools,child_tools,input_tokens,output_tokens,input_tokens_measured_lower_bound,output_tokens_measured_lower_bound,cost,cost_status,run_id
+candidate-01,IR01,completed,True,1,MODEL_FINAL,MODEL_ANSWER_REQUIRES_REVIEW,2,2,1,2,2,2,11609,2,1,0,14394,328,14394,328,,NOT_MEASURABLE,a396d471-b92e-4dc5-b31f-88afd6fc0bcf
+candidate-01,IR02,completed,True,0,MODEL_FINAL,MODEL_ANSWER_REQUIRES_REVIEW,1,1,2,1,2,1,19140,3,4,0,23938,2497,23938,2497,,NOT_MEASURABLE,217e3041-7fc6-4f3f-8d13-41dacd0e7d6b
+candidate-01,IR06,completed,True,1,MODEL_SYNTHESIS,MODEL_ANSWER_REQUIRES_REVIEW,2,1,2,1,1,2,40282,4,5,0,19035,6588,19035,6588,,NOT_MEASURABLE,ff56a2be-dd9c-4f66-aac0-9e3bf1a26a30
+candidate-01,IR08,completed,True,0,MODEL_FINAL,MODEL_ANSWER_REQUIRES_REVIEW,1,1,2,1,1,1,29655,5,5,0,33247,3826,33247,3826,,NOT_MEASURABLE,8c2703b3-1af1-4fd7-9a79-10315e33fdf2
+candidate-01,IR09,completed,False,1,MODEL_FINAL,MODEL_ANSWER_REQUIRES_REVIEW,2,1,1,1,2,2,20375,3,4,0,22711,2270,22711,2270,,NOT_MEASURABLE,9b8874ed-3f0d-4f79-90b9-cfcf6582f509
+candidate-01,IR10,completed,False,1,MODEL_FINAL,MODEL_ANSWER_REQUIRES_REVIEW,2,2,2,2,2,1,13578,2,2,0,14296,1062,14296,1062,,NOT_MEASURABLE,3487ed02-1c18-4d20-9f5f-684307383520
